@@ -1,0 +1,1353 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model admin_extension_histories {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String    @db.VarChar(100)
+  type       Int       @default(1) @db.TinyInt
+  version    String    @default("0") @db.VarChar(20)
+  detail     String?   @db.Text
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@index([name], map: "admin_extension_histories_name_index")
+}
+
+model admin_extensions {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  name       String    @unique(map: "admin_extensions_name_unique") @db.VarChar(100)
+  version    String    @default("") @db.VarChar(20)
+  is_enabled Int       @default(0) @db.TinyInt
+  options    String?   @db.Text
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+model admin_menu {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  parent_id  BigInt    @default(0)
+  order      Int       @default(0)
+  title      String    @db.VarChar(50)
+  icon       String?   @db.VarChar(50)
+  uri        String?   @db.VarChar(50)
+  extension  String    @default("") @db.VarChar(50)
+  show       Int       @default(1) @db.TinyInt
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+model admin_permission_menu {
+  permission_id BigInt
+  menu_id       BigInt
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+
+  @@unique([permission_id, menu_id], map: "admin_permission_menu_permission_id_menu_id_unique")
+}
+
+model admin_permissions {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name        String    @db.VarChar(50)
+  slug        String    @unique(map: "admin_permissions_slug_unique") @db.VarChar(50)
+  http_method String?   @db.VarChar(255)
+  http_path   String?   @db.Text
+  order       Int       @default(0)
+  parent_id   BigInt    @default(0)
+  created_at  DateTime? @db.Timestamp(0)
+  updated_at  DateTime? @db.Timestamp(0)
+}
+
+model admin_role_menu {
+  role_id    BigInt
+  menu_id    BigInt
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@unique([role_id, menu_id], map: "admin_role_menu_role_id_menu_id_unique")
+}
+
+model admin_role_permissions {
+  role_id       BigInt
+  permission_id BigInt
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+
+  @@unique([role_id, permission_id], map: "admin_role_permissions_role_id_permission_id_unique")
+}
+
+model admin_role_users {
+  role_id    BigInt
+  user_id    BigInt
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@unique([role_id, user_id], map: "admin_role_users_role_id_user_id_unique")
+}
+
+model admin_roles {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name       String    @db.VarChar(50)
+  slug       String    @unique(map: "admin_roles_slug_unique") @db.VarChar(50)
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+model admin_settings {
+  slug       String    @id @db.VarChar(100)
+  value      String    @db.LongText
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+model admin_users {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  username       String    @unique(map: "admin_users_username_unique") @db.VarChar(120)
+  password       String    @db.VarChar(80)
+  name           String    @db.VarChar(255)
+  avatar         String?   @db.VarChar(255)
+  remember_token String?   @db.VarChar(100)
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+}
+
+model auth_group {
+  id                     Int                      @id @default(autoincrement())
+  name                   String                   @unique(map: "name") @db.VarChar(80)
+  auth_group_permissions auth_group_permissions[]
+  auth_user_groups       auth_user_groups[]
+}
+
+model auth_group_permissions {
+  id              Int             @id @default(autoincrement())
+  group_id        Int
+  permission_id   Int
+  auth_permission auth_permission @relation(fields: [permission_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "auth_group_permissio_permission_id_84c5c92e_fk_auth_perm")
+  auth_group      auth_group      @relation(fields: [group_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "auth_group_permissions_group_id_b120cbf9_fk_auth_group_id")
+
+  @@unique([group_id, permission_id], map: "auth_group_permissions_group_id_permission_id_0cd325b0_uniq")
+  @@index([permission_id], map: "auth_group_permissio_permission_id_84c5c92e_fk_auth_perm")
+}
+
+model auth_permission {
+  id                         Int                          @id @default(autoincrement())
+  name                       String                       @db.VarChar(255)
+  content_type_id            Int
+  codename                   String                       @db.VarChar(100)
+  auth_group_permissions     auth_group_permissions[]
+  django_content_type        django_content_type          @relation(fields: [content_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "auth_permission_content_type_id_2f476e4b_fk_django_co")
+  auth_user_user_permissions auth_user_user_permissions[]
+
+  @@unique([content_type_id, codename], map: "auth_permission_content_type_id_codename_01ab375a_uniq")
+}
+
+model auth_user {
+  id                         Int                          @id @default(autoincrement())
+  password                   String                       @db.VarChar(128)
+  last_login                 DateTime?                    @db.DateTime(6)
+  is_superuser               Boolean
+  username                   String                       @unique(map: "username") @db.VarChar(150)
+  first_name                 String                       @db.VarChar(30)
+  last_name                  String                       @db.VarChar(150)
+  email                      String                       @db.VarChar(254)
+  is_staff                   Boolean
+  is_active                  Boolean
+  date_joined                DateTime                     @db.DateTime(6)
+  auth_user_groups           auth_user_groups[]
+  auth_user_user_permissions auth_user_user_permissions[]
+  django_admin_log           django_admin_log[]
+}
+
+model auth_user_groups {
+  id         Int        @id @default(autoincrement())
+  user_id    Int
+  group_id   Int
+  auth_group auth_group @relation(fields: [group_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "auth_user_groups_group_id_97559544_fk_auth_group_id")
+  auth_user  auth_user  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "auth_user_groups_user_id_6a12ed8b_fk_auth_user_id")
+
+  @@unique([user_id, group_id], map: "auth_user_groups_user_id_group_id_94350c0c_uniq")
+  @@index([group_id], map: "auth_user_groups_group_id_97559544_fk_auth_group_id")
+}
+
+model auth_user_user_permissions {
+  id              Int             @id @default(autoincrement())
+  user_id         Int
+  permission_id   Int
+  auth_permission auth_permission @relation(fields: [permission_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "auth_user_user_permi_permission_id_1fbb5f2c_fk_auth_perm")
+  auth_user       auth_user       @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "auth_user_user_permissions_user_id_a95ead1b_fk_auth_user_id")
+
+  @@unique([user_id, permission_id], map: "auth_user_user_permissions_user_id_permission_id_14a6b632_uniq")
+  @@index([permission_id], map: "auth_user_user_permi_permission_id_1fbb5f2c_fk_auth_perm")
+}
+
+model b_city {
+  ID             String   @id @default("") @db.VarChar(40)
+  CITYNAME       String?  @db.VarChar(50)
+  ZIPCODE        String?  @db.VarChar(50)
+  PROVINCEID     String?  @db.VarChar(40)
+  ENABLED        Int      @default(1)
+  DELETEMARK     Int      @default(0)
+  SORTCODE       Int?
+  DESCRIPTION    String?  @db.VarChar(255)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model b_district {
+  ID             String   @id @default("") @db.VarChar(40)
+  DISTRICTNAME   String?  @db.VarChar(50)
+  CITYID         String?  @db.VarChar(40)
+  ENABLED        Int      @default(1)
+  DELETEMARK     Int      @default(0)
+  SORTCODE       Int?
+  DESCRIPTION    String?  @db.VarChar(255)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model b_province {
+  ID             String   @id @default("") @db.VarChar(40)
+  PROVINCENAME   String?  @db.VarChar(50)
+  ENABLED        Int      @default(1)
+  DELETEMARK     Int      @default(0)
+  SORTCODE       Int?
+  DESCRIPTION    String?  @db.VarChar(255)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model cache_memcache {
+  cache_key String   @id @db.VarChar(255)
+  value     String   @db.LongText
+  expires   DateTime @db.DateTime(6)
+
+  @@index([expires], map: "cache_memcache_expires")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model ciautotextsql {
+  TAG        Int?
+  NAME       String?  @db.VarChar(50)
+  GRIDCOLUMN String?  @db.LongText
+  SQL        String?  @db.VarChar(255)
+  COMMENT    String?  @db.VarChar(50)
+  CREATEDATE DateTime @default(now()) @db.Timestamp(0)
+
+  @@ignore
+}
+
+model ciexception {
+  ID               String    @id @default("UUID()") @db.VarChar(40)
+  EVENTID          String?   @db.VarChar(50)
+  CATEGORY         String?   @db.VarChar(50)
+  PRIORITY         String?   @db.VarChar(50)
+  SEVERITY         String?   @db.VarChar(50)
+  TITLE            String?   @db.VarChar(200)
+  TIMESTAMP        DateTime? @db.DateTime(0)
+  MACHINENAME      String?   @db.VarChar(200)
+  APPDOMAINNAME    String?   @db.VarChar(100)
+  PROCESSID        String?   @db.VarChar(100)
+  PROCESSNAME      String?   @db.VarChar(200)
+  THREADNAME       String?   @db.VarChar(200)
+  WIN32THREADID    String?   @db.VarChar(200)
+  MESSAGE          String?   @db.LongText
+  FORMATTEDMESSAGE String?   @db.LongText
+  CREATEON         DateTime? @db.DateTime(0)
+  CREATEUSERID     String?   @db.VarChar(50)
+  CREATEBY         String?   @db.VarChar(50)
+}
+
+model cifile {
+  ID             String    @id @default("") @db.VarChar(40)
+  FOLDERID       String?   @db.VarChar(40)
+  FILENAME       String?   @db.VarChar(200)
+  FILEPATH       String?   @db.VarChar(255)
+  FILECONTENT    Bytes?
+  FILESIZE       Float?
+  IMAGEURL       String?   @db.VarChar(200)
+  READCOUNT      Int?      @default(0)
+  CATEGORY       String?   @db.VarChar(50)
+  DESCRIPTION    String?   @db.VarChar(255)
+  ENABLED        Int       @default(1)
+  SORTCODE       Int?
+  DELETEMARK     Int       @default(0)
+  CREATEON       DateTime? @db.DateTime(0)
+  CREATEUSERID   String?   @db.VarChar(50)
+  CREATEBY       String?   @db.VarChar(50)
+  MODIFIEDON     DateTime? @db.DateTime(0)
+  MODIFIEDUSERID String?   @db.VarChar(50)
+  MODIFIEDBY     String?   @db.VarChar(50)
+}
+
+model cifolder {
+  ID             String   @id @default("") @db.VarChar(40)
+  PARENTID       String?  @db.VarChar(40)
+  FOLDERNAME     String?  @db.VarChar(200)
+  STATECODE      String?  @db.VarChar(50)
+  DESCRIPTION    String?  @db.VarChar(255)
+  SORTCODE       Int?
+  ENABLED        Int      @default(1)
+  DELETEMARK     Int      @default(0)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model ciitemdetails {
+  ID             String   @id @default("") @db.VarChar(40)
+  ITEMID         String?  @db.VarChar(40)
+  PARENTID       String?  @db.VarChar(40)
+  ITEMCODE       String?  @db.VarChar(200)
+  ITEMNAME       String?  @db.VarChar(200)
+  ITEMVALUE      String?  @db.VarChar(200)
+  ALLOWEDIT      Int?     @default(1)
+  ALLOWDELETE    Int?     @default(1)
+  ISPUBLIC       Int?     @default(1)
+  ENABLED        Int      @default(1)
+  DELETEMARK     Int      @default(0)
+  SORTCODE       Int?
+  DESCRIPTION    String?  @db.VarChar(255)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model ciitems {
+  ID             String   @id @default("") @db.VarChar(40)
+  PARENTID       String?  @db.VarChar(40)
+  CODE           String?  @db.VarChar(50)
+  FULLNAME       String?  @db.VarChar(200)
+  CATEGORY       String?  @db.VarChar(50)
+  TARGETTABLE    String?  @db.VarChar(50)
+  ISTREE         Int?     @default(0)
+  USEITEMCODE    String?  @db.VarChar(50)
+  USEITEMNAME    String?  @db.VarChar(50)
+  USEITEMVALUE   String?  @db.VarChar(50)
+  ALLOWEDIT      Int      @default(1)
+  ALLOWDELETE    Int      @default(1)
+  DELETEMARK     Int      @default(0)
+  DESCRIPTION    String?  @db.VarChar(255)
+  ENABLED        Int      @default(1)
+  SORTCODE       Int?
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model cilog {
+  ID            String   @id @default("") @db.VarChar(40)
+  PROCESSID     String?  @db.VarChar(100)
+  PROCESSNAME   String?  @db.VarChar(200)
+  METHODENGNAME String?  @db.VarChar(50)
+  METHODNAME    String?  @db.VarChar(200)
+  PARAMETERS    String?  @db.VarChar(255)
+  USERREALNAME  String?  @db.VarChar(50)
+  IPADDRESS     String?  @db.VarChar(50)
+  WEBURL        String?  @db.VarChar(255)
+  DESCRIPTION   String?  @db.VarChar(255)
+  CREATEON      DateTime @db.DateTime(0)
+  CREATEUSERID  String?  @db.VarChar(50)
+  CREATEBY      String?  @db.VarChar(50)
+}
+
+model cimessage {
+  ID               String    @id @default("") @db.VarChar(40)
+  PARENTID         String?   @db.VarChar(40)
+  FUNCTIONCODE     String?   @db.VarChar(50)
+  CATEGORYCODE     String?   @db.VarChar(50)
+  OBJECTID         String?   @db.VarChar(50)
+  TITLE            String?   @db.VarChar(100)
+  MSGCONTENT       String?   @db.VarChar(500)
+  RECEIVERID       String?   @db.VarChar(50)
+  RECEIVERREALNAME String?   @db.VarChar(50)
+  ISNEW            Int?
+  READCOUNT        Int?      @default(0)
+  READDATE         DateTime? @db.DateTime(0)
+  TARGETURL        String?   @db.VarChar(255)
+  IPADDRESS        String?   @db.VarChar(50)
+  DELETEMARK       Int       @default(0)
+  ENABLED          Int       @default(1)
+  DESCRIPTION      String?   @db.VarChar(200)
+  SORTCODE         Int?
+  CREATEON         DateTime  @db.DateTime(0)
+  CREATEUSERID     String?   @db.VarChar(50)
+  CREATEBY         String?   @db.VarChar(50)
+  MODIFIEDON       DateTime  @db.DateTime(0)
+  MODIFIEDUSERID   String?   @db.VarChar(50)
+  MODIFIEDBY       String?   @db.VarChar(50)
+}
+
+model ciparameter {
+  ID               String   @id @default("") @db.VarChar(40)
+  CATEGORYKEY      String?  @db.VarChar(100)
+  PARAMETERID      String?  @db.VarChar(50)
+  PARAMETERCODE    String?  @db.VarChar(200)
+  PARAMETERCONTENT String?  @db.VarChar(255)
+  WORKED           Int?     @default(0)
+  ENABLED          Int      @default(1)
+  ALLOWEDIT        Int      @default(1)
+  ALLOWDELETE      Int      @default(1)
+  DESCRIPTION      String?  @db.VarChar(255)
+  SORTCODE         Int?
+  DELETEMARK       Int      @default(0)
+  CREATEON         DateTime @db.DateTime(0)
+  CREATEUSERID     String?  @db.VarChar(50)
+  CREATEBY         String?  @db.VarChar(50)
+  MODIFIEDON       DateTime @db.DateTime(0)
+  MODIFIEDUSERID   String?  @db.VarChar(50)
+  MODIFIEDBY       String?  @db.VarChar(50)
+}
+
+model cisequence {
+  ID          String   @id @default("") @db.VarChar(40)
+  FULLNAME    String?  @db.VarChar(200)
+  PREFIX      String?  @db.VarChar(50)
+  SEPARATE    String?  @db.VarChar(50)
+  SEQUENCE    Int?     @default(10000000)
+  REDUCTION   Int?     @default(9999999)
+  STEP        Int?     @default(1)
+  DELETEMARK  Int      @default(0)
+  CREATEON    DateTime @db.DateTime(0)
+  DESCRIPTION String?  @db.VarChar(255)
+
+  @@index([FULLNAME], map: "idx_fullName")
+}
+
+model citablecolumns {
+  ID              String    @id @default("uuid()") @db.VarChar(40)
+  TABLECODE       String?   @db.VarChar(200)
+  TABLENAME       String?   @db.VarChar(50)
+  COLUMNCODE      String?   @db.VarChar(200)
+  COLUMNNAME      String?   @db.VarChar(50)
+  ISPUBLIC        Int       @default(0)
+  COLUMNACCESS    Int       @default(0)
+  COLUMNEDIT      Int       @default(0)
+  COLUMNDENEY     Int       @default(0)
+  USECONSTRAINT   Int       @default(0)
+  DATATYPE        String?   @db.VarChar(50)
+  TARGETTABLE     String?   @db.VarChar(50)
+  ISSEARCHCOLUMN  Int       @default(0)
+  ISEXHIBITCOLUMN Int       @default(0)
+  ENABLED         Int       @default(1)
+  ALLOWEDIT       Int       @default(1)
+  ALLOWDELETE     Int       @default(1)
+  DELETEMARK      Int       @default(0)
+  SORTCODE        Int?
+  DESCRIPTION     String?   @db.VarChar(255)
+  CREATEON        DateTime? @db.DateTime(0)
+  CREATEUSERID    String?   @db.VarChar(50)
+  CREATEBY        String?   @db.VarChar(50)
+  MODIFIEDON      DateTime? @db.DateTime(0)
+  MODIFIEDUSERID  String?   @db.VarChar(50)
+  MODIFIEDBY      String?   @db.VarChar(50)
+}
+
+model dboperationdetaillog {
+  ID               String   @id @db.VarChar(40)
+  DBOPERATIONLOGID String?  @db.VarChar(40)
+  TABLENAME        String?  @db.VarChar(128)
+  TABLEPRIMARYKEY  String?  @db.VarChar(30)
+  DESCRIPTION      String?  @db.LongText
+  OPERATIONTYPE    String?  @db.VarChar(50)
+  FLAG             Int?     @db.TinyInt
+  OPERADATE        DateTime @default(now()) @db.Timestamp(0)
+}
+
+model dboperationlog {
+  ID       String   @id @default("") @db.VarChar(40)
+  LOGDATE  DateTime @default(now()) @db.Timestamp(0)
+  OPERATOR String?  @db.VarChar(50)
+  NOTE     String?  @db.VarChar(200)
+}
+
+model django_admin_log {
+  id                  Int                  @id @default(autoincrement())
+  action_time         DateTime             @db.DateTime(6)
+  object_id           String?              @db.LongText
+  object_repr         String               @db.VarChar(200)
+  action_flag         Int                  @db.UnsignedSmallInt
+  change_message      String               @db.LongText
+  content_type_id     Int?
+  user_id             Int
+  django_content_type django_content_type? @relation(fields: [content_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "django_admin_log_content_type_id_c4bce8eb_fk_django_co")
+  auth_user           auth_user            @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "django_admin_log_user_id_c564eba6_fk_auth_user_id")
+
+  @@index([content_type_id], map: "django_admin_log_content_type_id_c4bce8eb_fk_django_co")
+  @@index([user_id], map: "django_admin_log_user_id_c564eba6_fk_auth_user_id")
+}
+
+model django_content_type {
+  id               Int                @id @default(autoincrement())
+  app_label        String             @db.VarChar(100)
+  model            String             @db.VarChar(100)
+  auth_permission  auth_permission[]
+  django_admin_log django_admin_log[]
+
+  @@unique([app_label, model], map: "django_content_type_app_label_model_76bd3d3b_uniq")
+}
+
+model django_migrations {
+  id      Int      @id @default(autoincrement())
+  app     String   @db.VarChar(255)
+  name    String   @db.VarChar(255)
+  applied DateTime @db.DateTime(6)
+}
+
+model django_session {
+  session_key  String   @id @db.VarChar(40)
+  session_data String   @db.LongText
+  expire_date  DateTime @db.DateTime(6)
+
+  @@index([expire_date], map: "django_session_expire_date_a5c62663")
+}
+
+model failed_jobs {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  uuid       String   @unique(map: "failed_jobs_uuid_unique") @db.VarChar(255)
+  connection String   @db.Text
+  queue      String   @db.Text
+  payload    String   @db.LongText
+  exception  String   @db.LongText
+  failed_at  DateTime @default(now()) @db.Timestamp(0)
+}
+
+model jobfile {
+  Id             String    @id @db.VarChar(255)
+  FileName       String?   @db.VarChar(255)
+  Enable         Int?
+  Deletemark     Int?
+  Sortcode       Int?
+  CreateOn       DateTime? @db.DateTime(0)
+  CreateUserId   String?   @db.VarChar(50)
+  CreateBy       String?   @db.VarChar(50)
+  ModifiedOn     DateTime? @db.DateTime(0)
+  ModifiedUserId String?   @db.VarChar(50)
+  ModifiedBy     String?   @db.VarChar(50)
+  FileUrl        String?   @db.VarChar(1000)
+  Description    String?   @db.VarChar(500)
+  FileType       String?   @db.VarChar(255)
+}
+
+model jobfileorganize {
+  ID             String   @id @default("") @db.VarChar(40)
+  JOBFILEID      String?  @db.VarChar(40)
+  ORGANIZEID     String?  @db.VarChar(40)
+  ENABLED        Int?     @default(1)
+  DESCRIPTION    String?  @db.VarChar(255)
+  DELETEMARK     Int?     @default(0)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model migrations {
+  id        Int    @id @default(autoincrement()) @db.UnsignedInt
+  migration String @db.VarChar(255)
+  batch     Int
+}
+
+model militia {
+  Id                                 String    @id @db.VarChar(255)
+  Name                               String?   @db.VarChar(255)
+  Gender                             String?   @db.VarChar(255)
+  Post                               String?   @db.VarChar(255)
+  IDNum                              String?   @db.VarChar(255)
+  Birthday                           DateTime? @db.Date
+  Nation                             String?   @db.VarChar(255)
+  OrganizationType                   String?   @db.VarChar(255)
+  TakeOfficeTime                     DateTime? @db.Date
+  PhoneNum                           String?   @db.VarChar(255)
+  Education                          String?   @db.VarChar(255)
+  Address                            String?   @db.VarChar(255)
+  Picture                            String?   @db.VarChar(255)
+  IsEnlistment                       String?   @db.VarChar(255)
+  EnlistmentStatusCategory           String?   @db.VarChar(255)
+  EnlistmentTime                     DateTime? @db.Date
+  EnlistmentCompany                  String?   @db.VarChar(255)
+  RewardAndPunishmentWhenEnlistment  String?   @db.VarChar(1000)
+  CurrentWorkingConditions           String?   @db.VarChar(1000)
+  PreviousWorkingConditions          String?   @db.VarChar(1000)
+  WorkExperience                     String?   @db.VarChar(1000)
+  RewardAndPunishmentExperience      String?   @db.VarChar(1000)
+  IsCadreCertification               String?   @db.VarChar(255)
+  CadreCertificationTime             DateTime? @db.Date
+  CadreCertificationStatus           String?   @db.VarChar(255)
+  CadreCertificationUnqualifiedCause String?   @db.VarChar(1000)
+  MilitaryAssessmentStatus           String?   @db.VarChar(255)
+  LocalAssessment                    String?   @db.VarChar(255)
+  Enable                             Int?
+  Deletemark                         Int?
+  Sortcode                           Int?
+  CreateOn                           DateTime? @db.DateTime(0)
+  CreateUserId                       String?   @db.VarChar(50)
+  CreateBy                           String?   @db.VarChar(50)
+  ModifiedOn                         DateTime? @db.DateTime(0)
+  ModifiedUserId                     String?   @db.VarChar(50)
+  ModifiedBy                         String?   @db.VarChar(50)
+  OnDuty                             String?   @db.VarChar(255)
+  LeaveTime                          DateTime? @db.DateTime(0)
+  MilitiaryRank                      String?   @db.VarChar(255)
+  MarriageStatus                     String?   @db.VarChar(255)
+  PoliticalOutlook                   String?   @db.VarChar(255)
+  NativePlace                        String?   @db.VarChar(255)
+  IsPartTimeJob                      String?   @db.VarChar(255)
+  PartTimeJob                        String?   @db.VarChar(500)
+}
+
+model militiafile {
+  Id             String    @id @db.VarChar(255)
+  FileName       String?   @db.VarChar(255)
+  Enable         Int?
+  Deletemark     Int?
+  Sortcode       Int?
+  CreateOn       DateTime? @db.DateTime(0)
+  CreateUserId   String?   @db.VarChar(50)
+  CreateBy       String?   @db.VarChar(50)
+  ModifiedOn     DateTime? @db.DateTime(0)
+  ModifiedUserId String?   @db.VarChar(50)
+  ModifiedBy     String?   @db.VarChar(50)
+  FileUrl        String?   @db.VarChar(1000)
+  Description    String?   @db.VarChar(500)
+  FileType       String?   @db.VarChar(255)
+  militiaid      String?   @db.VarChar(255)
+}
+
+model militiaorganize {
+  ID             String   @id @default("") @db.VarChar(40)
+  MILITIAID      String?  @db.VarChar(40)
+  ORGANIZEID     String?  @db.VarChar(40)
+  ENABLED        Int?     @default(1)
+  DESCRIPTION    String?  @db.VarChar(255)
+  DELETEMARK     Int?     @default(0)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model militiawork {
+  id                   String    @id @db.VarChar(255)
+  Enable               Int?
+  Deletemark           Int?
+  Sortcode             Int?
+  CreateOn             DateTime? @db.DateTime(0)
+  CreateUserId         String?   @db.VarChar(50)
+  CreateBy             String?   @db.VarChar(50)
+  ModifiedOn           DateTime? @db.DateTime(0)
+  ModifiedUserId       String?   @db.VarChar(50)
+  ModifiedBy           String?   @db.VarChar(50)
+  Month                String?   @db.VarChar(255)
+  DoWord               String?   @db.VarChar(1000)
+  WordEffect           String?   @db.VarChar(1000)
+  Assessment           String?   @db.VarChar(255)
+  CauseOfNonconformity String?   @db.VarChar(255)
+  Rectification        String    @db.VarChar(255)
+  MilitiaId            String?   @db.VarChar(255)
+}
+
+model ministry {
+  Id             String    @id @db.VarChar(255)
+  FileName       String?   @db.VarChar(255)
+  Enable         Int?
+  Deletemark     Int?
+  Sortcode       Int?
+  CreateOn       DateTime? @db.DateTime(0)
+  CreateUserId   String?   @db.VarChar(50)
+  CreateBy       String?   @db.VarChar(50)
+  ModifiedOn     DateTime? @db.DateTime(0)
+  ModifiedUserId String?   @db.VarChar(50)
+  ModifiedBy     String?   @db.VarChar(50)
+  FileUrl        String?   @db.VarChar(1000)
+  Description    String?   @db.VarChar(500)
+  FileType       String?   @db.VarChar(255)
+}
+
+model ministryorganize {
+  ID             String   @id @default("") @db.VarChar(40)
+  MINISTRYID     String?  @db.VarChar(40)
+  ORGANIZEID     String?  @db.VarChar(40)
+  ENABLED        Int?     @default(1)
+  DESCRIPTION    String?  @db.VarChar(255)
+  DELETEMARK     Int?     @default(0)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model password_resets {
+  email      String    @id @db.VarChar(255)
+  token      String    @db.VarChar(255)
+  created_at DateTime? @db.Timestamp(0)
+}
+
+model personal_access_tokens {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  tokenable_type String    @db.VarChar(255)
+  tokenable_id   BigInt    @db.UnsignedBigInt
+  name           String    @db.VarChar(255)
+  token          String    @unique(map: "personal_access_tokens_token_unique") @db.VarChar(64)
+  abilities      String?   @db.Text
+  last_used_at   DateTime? @db.Timestamp(0)
+  expires_at     DateTime? @db.Timestamp(0)
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+
+  @@index([tokenable_type, tokenable_id], map: "personal_access_tokens_tokenable_type_tokenable_id_index")
+}
+
+model pimodule {
+  ID                    String   @id @default("") @db.VarChar(40)
+  PARENTID              String?  @db.VarChar(40)
+  CODE                  String?  @db.VarChar(50)
+  FULLNAME              String   @db.VarChar(200)
+  CATEGORY              String?  @db.VarChar(50)
+  MODULETYPE            Int      @default(3)
+  IMAGEINDEX            String?  @db.VarChar(50)
+  SELECTEDIMAGEINDEX    String?  @db.VarChar(50)
+  ICONCSS               String?  @db.VarChar(255)
+  ICONURL               String?  @db.VarChar(255)
+  NAVIGATEURL           String?  @default("#") @db.VarChar(255)
+  MVCNAVIGATEURL        String?  @default("#") @db.VarChar(255)
+  TARGET                String?  @db.VarChar(100)
+  FORMNAME              String?  @db.VarChar(100)
+  ASSEMBLYNAME          String?  @db.VarChar(100)
+  PERMISSIONITEMCODE    String   @default("Resource.AccessPermission") @db.VarChar(50)
+  PERMISSIONSCOPETABLES String?  @db.VarChar(255)
+  ISPUBLIC              Int      @default(1)
+  ISMENU                Int      @default(1)
+  EXPAND                Int      @default(0)
+  ALLOWEDIT             Int      @default(1)
+  ALLOWDELETE           Int      @default(1)
+  SORTCODE              Int?
+  DELETEMARK            Int      @default(0)
+  ENABLED               Int      @default(1)
+  DESCRIPTION           String?  @db.VarChar(255)
+  CREATEON              DateTime @db.DateTime(0)
+  CREATEUSERID          String?  @db.VarChar(50)
+  CREATEBY              String?  @db.VarChar(50)
+  MODIFIEDON            DateTime @db.DateTime(0)
+  MODIFIEDUSERID        String?  @db.VarChar(50)
+  MODIFIEDBY            String?  @db.VarChar(50)
+
+  @@index([CODE], map: "idx_code")
+  @@index([SORTCODE], map: "idx_sortCode")
+}
+
+model piorganize {
+  ID                 String   @id @default("") @db.VarChar(40)
+  PARENTID           String?  @db.VarChar(40)
+  CODE               String?  @db.VarChar(50)
+  SHORTNAME          String?  @db.VarChar(50)
+  FULLNAME           String?  @db.VarChar(200)
+  CATEGORY           String?  @db.VarChar(50)
+  OUTERPHONE         String?  @db.VarChar(50)
+  INNERPHONE         String?  @db.VarChar(50)
+  FAX                String?  @db.VarChar(50)
+  POSTALCODE         String?  @db.VarChar(50)
+  ADDRESS            String?  @db.VarChar(200)
+  WEB                String?  @db.VarChar(200)
+  MANAGERID          String?  @db.VarChar(50)
+  MANAGER            String?  @db.VarChar(50)
+  ASSISTANTMANAGERID String?  @db.VarChar(50)
+  ASSISTANTMANAGER   String?  @db.VarChar(50)
+  LAYER              Int?     @default(0)
+  ISINNERORGANIZE    Int      @default(1)
+  BANK               String?  @db.VarChar(50)
+  BANKACCOUNT        String?  @db.VarChar(50)
+  DELETEMARK         Int      @default(0)
+  ENABLED            Int      @default(1)
+  SORTCODE           Int?
+  DESCRIPTION        String?  @db.VarChar(255)
+  CREATEON           DateTime @db.DateTime(0)
+  CREATEUSERID       String?  @db.VarChar(50)
+  CREATEBY           String?  @db.VarChar(50)
+  MODIFIEDON         DateTime @db.DateTime(0)
+  MODIFIEDUSERID     String?  @db.VarChar(50)
+  MODIFIEDBY         String?  @db.VarChar(50)
+
+  @@index([CODE], map: "idx_code")
+  @@index([SORTCODE], map: "idx_sortCod")
+}
+
+model pipermission {
+  ID                   String   @id @default("") @db.VarChar(40)
+  RESOURCECATEGORY     String?  @db.VarChar(50)
+  RESOURCEID           String?  @db.VarChar(40)
+  PERMISSIONID         String?  @db.VarChar(40)
+  PERMISSIONCONSTRAINT String?  @db.VarChar(255)
+  ENABLED              Int?     @default(1)
+  DELETEMARK           Int?     @default(0)
+  DESCRIPTION          String?  @db.VarChar(255)
+  CREATEON             DateTime @db.DateTime(0)
+  CREATEBY             String?  @db.VarChar(50)
+  CREATEUSERID         String?  @db.VarChar(50)
+  MODIFIEDON           DateTime @db.DateTime(0)
+  MODIFIEDBY           String?  @db.VarChar(50)
+  MODIFIEDUSERID       String?  @db.VarChar(50)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model pipermissionitem {
+  ID             String    @id @default("") @db.VarChar(40)
+  PARENTID       String?   @db.VarChar(40)
+  MODULEID       String?   @db.VarChar(40)
+  CODE           String    @db.VarChar(50)
+  FULLNAME       String    @db.VarChar(50)
+  CATEGORYCODE   String    @default("Application") @db.VarChar(50)
+  ISSCOPE        Int       @default(0)
+  ISPUBLIC       Int       @default(0)
+  ALLOWEDIT      Int       @default(1)
+  ALLOWDELETE    Int       @default(1)
+  JSEVENT        String?   @db.VarChar(100)
+  LASTCALL       DateTime? @db.DateTime(0)
+  ISSPLIT        Int       @default(0)
+  ENABLED        Int       @default(1)
+  DELETEMARK     Int       @default(0)
+  SORTCODE       Int?
+  DESCRIPTION    String?   @db.VarChar(255)
+  CREATEON       DateTime  @db.DateTime(0)
+  CREATEUSERID   String?   @db.VarChar(50)
+  CREATEBY       String?   @db.VarChar(50)
+  MODIFIEDON     DateTime  @db.DateTime(0)
+  MODIFIEDUSERID String?   @db.VarChar(50)
+  MODIFIEDBY     String?   @db.VarChar(50)
+}
+
+model pipermissionscope {
+  ID                   String    @id @default("") @db.VarChar(40)
+  RESOURCECATEGORY     String    @db.VarChar(50)
+  RESOURCEID           String    @db.VarChar(50)
+  TARGETCATEGORY       String    @db.VarChar(50)
+  TARGETID             String    @db.VarChar(50)
+  PERMISSIONID         String    @db.VarChar(40)
+  PERMISSIONCONSTRAINT String?   @db.VarChar(200)
+  STARTDATE            DateTime? @db.DateTime(0)
+  ENDDATE              DateTime? @db.DateTime(0)
+  ENABLED              Int?      @default(1)
+  DELETEMARK           Int?      @default(0)
+  DESCRIPTION          String?   @db.VarChar(255)
+  CREATEON             DateTime? @db.DateTime(0)
+  CREATEBY             String?   @db.VarChar(50)
+  CREATEUSERID         String?   @db.VarChar(50)
+  MODIFIEDON           DateTime? @db.DateTime(0)
+  MODIFIEDBY           String?   @db.VarChar(50)
+  MODIFIEDUSERID       String?   @db.VarChar(50)
+}
+
+model piplatformaddin {
+  ID             String   @id @default("") @db.VarChar(40)
+  GUID           String?  @db.VarChar(40)
+  NAME           String?  @db.VarChar(100)
+  ASSEMBLYNAME   String?  @db.VarChar(100)
+  CLASSNAME      String?  @db.VarChar(100)
+  ADDIN          Bytes?
+  ADDINSIZE      Float?
+  VERSION        String?  @db.VarChar(30)
+  DEVELOPER      String?  @db.VarChar(255)
+  DOWNLOADCOUNT  Int?     @default(0)
+  DESCRIPTION    String?  @db.VarChar(255)
+  ENABLED        Int?     @default(1)
+  DELETEMARK     Int?     @default(0)
+  CREATEON       DateTime @default(now()) @db.Timestamp(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model pirole {
+  ID             String   @id @default("") @db.VarChar(40)
+  ORGANIZEID     String?  @db.VarChar(40)
+  SYSTEMID       String?  @db.VarChar(50)
+  CATEGORY       String?  @db.VarChar(50)
+  CODE           String?  @db.VarChar(50)
+  REALNAME       String?  @db.VarChar(200)
+  ALLOWEDIT      Int      @default(1)
+  ALLOWDELETE    Int      @default(1)
+  SORTCODE       Int?
+  DELETEMARK     Int      @default(0)
+  ENABLED        Int      @default(1)
+  DESCRIPTION    String?  @db.VarChar(200)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+
+  @@index([CATEGORY], map: "idx_category")
+  @@index([CODE], map: "idx_code")
+  @@index([SORTCODE], map: "idx_sortCode")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model pistaff {
+  ID                 String    @id @default("uuid()") @db.VarChar(40)
+  CODE               String?   @db.VarChar(50)
+  USERID             String?   @db.VarChar(40)
+  USERNAME           String?   @db.VarChar(50)
+  REALNAME           String?   @db.VarChar(50)
+  DUTYID             String?   @db.VarChar(40)
+  GENDER             String?   @db.VarChar(6)
+  BIRTHDAY           DateTime? @db.DateTime(0)
+  AGE                String?   @db.VarChar(50)
+  IDENTIFICATIONCODE String?   @db.VarChar(50)
+  IDCARD             String?   @db.VarChar(50)
+  BANKCODE           String?   @db.VarChar(50)
+  EMAIL              String?   @db.VarChar(200)
+  MOBILE             String?   @db.VarChar(50)
+  SHORTNUMBER        String?   @db.VarChar(50)
+  TELEPHONE          String?   @db.VarChar(50)
+  QICQ               String?   @db.VarChar(50)
+  OFFICEPHONE        String?   @db.VarChar(50)
+  OFFICEZIPCODE      String?   @db.VarChar(50)
+  OFFICEADDRESS      String?   @db.VarChar(200)
+  OFFICEFAX          String?   @db.VarChar(50)
+  HOMEPHONE          String?   @db.VarChar(50)
+  EDUCATION          String?   @db.VarChar(50)
+  SCHOOL             String?   @db.VarChar(50)
+  DEGREE             String?   @db.VarChar(50)
+  TITLE              String?   @db.VarChar(50)
+  TITLEDATE          DateTime? @db.DateTime(0)
+  TITLELEVEL         String?   @db.VarChar(50)
+  WORKINGDATE        DateTime? @db.DateTime(0)
+  JOININDATE         DateTime? @db.DateTime(0)
+  HOMEZIPCODE        String?   @db.VarChar(50)
+  HOMEADDRESS        String?   @db.VarChar(200)
+  HOMEFAX            String?   @db.VarChar(50)
+  NATIVEPLACE        String?   @db.VarChar(50)
+  PARTY              String?   @db.VarChar(50)
+  NATION             String?   @db.VarChar(50)
+  NATIONALITY        String?   @db.VarChar(50)
+  MAJOR              String?   @db.VarChar(100)
+  WORKINGPROPERTY    String?   @db.VarChar(100)
+  COMPETENCY         String?   @db.VarChar(100)
+  ISDIMISSION        Int       @default(0)
+  DIMISSIONDATE      DateTime? @db.DateTime(0)
+  DIMISSIONCAUSE     String?   @db.VarChar(255)
+  DIMISSIONWHITHER   String?   @db.VarChar(100)
+  ENABLED            Int       @default(1)
+  DELETEMARK         Int       @default(0)
+  SORTCODE           Int?
+  DESCRIPTION        String?   @db.VarChar(255)
+  CREATEON           DateTime  @db.DateTime(0)
+  CREATEUSERID       String?   @db.VarChar(50)
+  CREATEBY           String?   @db.VarChar(50)
+  MODIFIEDON         DateTime  @db.DateTime(0)
+  MODIFIEDUSERID     String?   @db.VarChar(50)
+  MODIFIEDBY         String?   @db.VarChar(50)
+}
+
+model pistafforganize {
+  ID             String   @id @default("") @db.VarChar(40)
+  STAFFID        String?  @db.VarChar(40)
+  ORGANIZEID     String?  @db.VarChar(40)
+  ENABLED        Int?     @default(1)
+  DESCRIPTION    String?  @db.VarChar(255)
+  DELETEMARK     Int?     @default(0)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model pitablepermissionscope {
+  ID             String    @id @default("uuid()") @db.VarChar(40)
+  PARENTID       String?   @db.VarChar(40)
+  ITEMCODE       String?   @db.VarChar(40)
+  ITEMNAME       String?   @db.VarChar(100)
+  ITEMVALUE      String?   @db.VarChar(100)
+  ENABLED        Int       @default(1)
+  ISPUBLIC       Int       @default(0)
+  ALLOWEDIT      Int       @default(1)
+  ALLOWDELETE    Int       @default(1)
+  DELETEMARK     Int       @default(0)
+  SORTCODE       Int?
+  DESCRIPTION    String?   @db.VarChar(255)
+  CREATEON       DateTime? @db.DateTime(0)
+  CREATEUSERID   String?   @db.VarChar(50)
+  CREATEBY       String?   @db.VarChar(50)
+  MODIFIEDON     DateTime? @db.DateTime(0)
+  MODIFIEDUSERID String?   @db.VarChar(50)
+  MODIFIEDBY     String?   @db.VarChar(50)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model piuser {
+  ID                String    @id @default("") @db.VarChar(40)
+  CODE              String?   @db.VarChar(50)
+  USERNAME          String    @db.VarChar(50)
+  REALNAME          String?   @db.VarChar(50)
+  NICKNAME          String?   @db.VarChar(50)
+  QUICKQUERY        String?   @db.VarChar(50)
+  ROLEID            String?   @db.VarChar(40)
+  COMPANYID         String?   @db.VarChar(40)
+  COMPANYNAME       String?   @db.VarChar(200)
+  SUBCOMPANYID      String?   @db.VarChar(40)
+  SUBCOMPANYNAME    String?   @db.VarChar(200)
+  DEPARTMENTID      String?   @db.VarChar(40)
+  DEPARTMENTNAME    String?   @db.VarChar(200)
+  SUBDEPARTMENTID   String?   @db.VarChar(40)
+  SUBDEPARTMENTNAME String?   @db.VarChar(200)
+  WORKGROUPID       String?   @db.VarChar(40)
+  WORKGROUPNAME     String?   @db.VarChar(200)
+  WORKCATEGORY      String?   @db.VarChar(50)
+  SECURITYLEVEL     Int?
+  TITLE             String?   @db.VarChar(50)
+  DUTY              String?   @db.VarChar(50)
+  EMAIL             String?   @db.VarChar(200)
+  LANG              String?   @db.VarChar(50)
+  GENDER            String?   @db.VarChar(6)
+  BIRTHDAY          DateTime? @db.DateTime(0)
+  MOBILE            String?   @db.VarChar(50)
+  TELEPHONE         String?   @db.VarChar(30)
+  QICQ              String?   @db.VarChar(50)
+  SIGNATURE         String?   @db.VarChar(200)
+  THEME             String?   @db.VarChar(50)
+  ISSTAFF           Int       @default(1)
+  ISVISIBLE         Int       @default(1)
+  AUDITSTATUS       String?   @db.VarChar(50)
+  HOMEADDRESS       String?   @db.VarChar(200)
+  USERADDRESS       String?   @db.VarChar(200)
+  ISDIMISSION       Int       @default(0)
+  DIMISSIONDATE     DateTime? @db.DateTime(0)
+  DIMISSIONCAUSE    String?   @db.VarChar(800)
+  DIMISSIONWHITHER  String?   @db.VarChar(200)
+  DELETEMARK        Int       @default(0)
+  ENABLED           Int       @default(1)
+  SORTCODE          Int?
+  DESCRIPTION       String?   @db.VarChar(255)
+  CREATEON          DateTime  @db.DateTime(0)
+  CREATEUSERID      String?   @db.VarChar(50)
+  CREATEBY          String?   @db.VarChar(50)
+  MODIFIEDON        DateTime? @db.DateTime(0)
+  MODIFIEDUSERID    String?   @db.VarChar(50)
+  MODIFIEDBY        String?   @db.VarChar(50)
+
+  @@index([SORTCODE], map: "idx_sortCode")
+  @@index([USERNAME], map: "idx_userName")
+}
+
+model piuser_v27 {
+  ID                 String   @id @default("") @db.VarChar(40)
+  CODE               String?  @db.VarChar(50)
+  USERNAME           String?  @db.VarChar(50)
+  REALNAME           String?  @db.VarChar(50)
+  ROLEID             String?  @db.VarChar(40)
+  USERFROM           String?  @db.VarChar(50)
+  WORKCATEGORY       String?  @db.VarChar(50)
+  COMPANYID          String?  @db.VarChar(40)
+  COMPANYNAME        String?  @db.VarChar(50)
+  DEPARTMENTID       String?  @db.VarChar(40)
+  DEPARTMENTNAME     String?  @db.VarChar(50)
+  WORKGROUPID        String?  @db.VarChar(40)
+  WORKGROUPNAME      String?  @db.VarChar(50)
+  GENDER             String?  @db.VarChar(6)
+  MOBILE             String?  @db.VarChar(50)
+  TELEPHONE          String?  @db.VarChar(30)
+  BIRTHDAY           DateTime @db.DateTime(0)
+  DUTY               String?  @db.VarChar(50)
+  TITLE              String?  @db.VarChar(50)
+  USERPASSWORD       String?  @db.VarChar(200)
+  CHANGEPASSWORDDATE DateTime @db.DateTime(0)
+  QICQ               String?  @db.VarChar(50)
+  EMAIL              String?  @db.VarChar(200)
+  LANG               String?  @db.VarChar(50)
+  THEME              String?  @db.VarChar(50)
+  ALLOWSTARTTIME     DateTime @db.DateTime(0)
+  ALLOWENDTIME       DateTime @db.DateTime(0)
+  LOCKSTARTDATE      DateTime @db.DateTime(0)
+  LOCKENDDATE        DateTime @db.DateTime(0)
+  FIRSTVISIT         DateTime @db.DateTime(0)
+  PREVIOUSVISIT      DateTime @db.DateTime(0)
+  LASTVISIT          DateTime @db.DateTime(0)
+  LOGONCOUNT         Int?
+  ISSTAFF            Int?
+  AUDITSTATUS        String?  @db.VarChar(50)
+  ISVISIBLE          Int?
+  USERONLINE         Int?
+  IPADDRESS          String?  @db.VarChar(50)
+  MACADDRESS         String?  @db.VarChar(50)
+  HOMEADDRESS        String?  @db.VarChar(200)
+  OPENID             String?  @db.VarChar(50)
+  QUESTION           String?  @db.VarChar(50)
+  ANSWERQUESTION     String?  @db.VarChar(50)
+  USERADDRESS        String?  @db.VarChar(200)
+  DELETEMARK         Int?
+  ENABLED            Int?
+  SORTCODE           Int?
+  DESCRIPTION        String?  @db.VarChar(255)
+  CREATEON           DateTime @db.DateTime(0)
+  CREATEUSERID       String?  @db.VarChar(50)
+  CREATEBY           String?  @db.VarChar(50)
+  MODIFIEDON         DateTime @db.DateTime(0)
+  MODIFIEDUSERID     String?  @db.VarChar(50)
+  MODIFIEDBY         String?  @db.VarChar(50)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model piuserlogon {
+  ID                 String    @id @default("") @db.VarChar(40)
+  USERFROM           String?   @db.VarChar(50)
+  USERPASSWORD       String?   @db.VarChar(200)
+  OPENID             String?   @default("uuid()") @db.VarChar(50)
+  ALLOWSTARTTIME     DateTime? @db.DateTime(0)
+  ALLOWENDTIME       DateTime? @db.DateTime(0)
+  LOCKSTARTDATE      DateTime? @db.DateTime(0)
+  LOCKENDDATE        DateTime? @db.DateTime(0)
+  FIRSTVISIT         DateTime? @db.DateTime(0)
+  PREVIOUSVISIT      DateTime? @db.DateTime(0)
+  LASTVISIT          DateTime? @db.DateTime(0)
+  CHANGEPASSWORDDATE DateTime? @db.DateTime(0)
+  MULTIUSERLOGIN     Int?      @default(0)
+  LOGONCOUNT         Int?      @default(0)
+  PASSWORDERRORCOUNT Int?
+  USERONLINE         Int       @default(0)
+  CHECKIPADDRESS     Int?      @default(0)
+  IPADDRESS          String?   @db.VarChar(50)
+  MACADDRESS         String?   @db.VarChar(50)
+  QUESTION           String?   @db.VarChar(50)
+  ANSWERQUESTION     String?   @db.VarChar(50)
+  CREATEON           DateTime  @db.DateTime(0)
+  CREATEUSERID       String?   @db.VarChar(50)
+  CREATEBY           String?   @db.VarChar(50)
+  MODIFIEDON         DateTime  @db.DateTime(0)
+  MODIFIEDUSERID     String?   @db.VarChar(50)
+  MODIFIEDBY         String?   @db.VarChar(50)
+}
+
+model piuserorganize {
+  ID              String   @id @default("") @db.VarChar(40)
+  USERID          String?  @db.VarChar(40)
+  COMPANYID       String?  @db.VarChar(40)
+  SUBCOMPANYID    String?  @db.VarChar(40)
+  DEPARTMENTID    String?  @db.VarChar(40)
+  SUBDEPARTMENTID String?  @db.VarChar(40)
+  WORKGROUPID     String?  @db.VarChar(40)
+  ROLEID          String?  @db.VarChar(40)
+  ENABLED         Int      @default(1)
+  DESCRIPTION     String?  @db.VarChar(255)
+  DELETEMARK      Int?     @default(0)
+  CREATEON        DateTime @db.DateTime(0)
+  CREATEUSERID    String?  @db.VarChar(50)
+  CREATEBY        String?  @db.VarChar(50)
+  MODIFIEDON      DateTime @db.DateTime(0)
+  MODIFIEDUSERID  String?  @db.VarChar(50)
+  MODIFIEDBY      String?  @db.VarChar(50)
+}
+
+model piuserrole {
+  ID             String   @id @default("") @db.VarChar(40)
+  USERID         String?  @db.VarChar(40)
+  ROLEID         String?  @db.VarChar(40)
+  ENABLED        Int      @default(1)
+  DESCRIPTION    String?  @db.VarChar(255)
+  DELETEMARK     Int      @default(0)
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model poleis_admin_menu {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  parent_id  Int       @default(0)
+  order      Int       @default(0)
+  title      String    @db.VarChar(50)
+  icon       String?   @db.VarChar(50)
+  uri        String?   @db.VarChar(50)
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+model poleis_admin_permission_menu {
+  permission_id Int
+  menu_id       Int
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+
+  @@unique([permission_id, menu_id], map: "admin_permission_menu_permission_id_menu_id_index")
+}
+
+model poleis_admin_role_permissions {
+  role_id       Int
+  permission_id Int
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+
+  @@unique([role_id, permission_id], map: "admin_role_permissions_role_id_permission_id_index")
+}
+
+model poleis_frontend_menu {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  parent_id  Int       @default(0)
+  order      Int       @default(0)
+  title      String    @db.VarChar(50)
+  icon       String?   @db.VarChar(50)
+  uri        String?   @db.VarChar(50)
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+}
+
+model poleis_frontend_permission_menu {
+  permission_id Int
+  menu_id       Int
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+
+  @@unique([permission_id, menu_id], map: "admin_permission_menu_permission_id_menu_id_index")
+}
+
+model poleis_frontend_role_permissions {
+  role_id       Int
+  permission_id Int
+  created_at    DateTime? @db.Timestamp(0)
+  updated_at    DateTime? @db.Timestamp(0)
+
+  @@unique([role_id, permission_id], map: "admin_role_permissions_role_id_permission_id_index")
+}
+
+model queryengine {
+  ID             String   @id @default("") @db.VarChar(40)
+  PARENTID       String?  @db.VarChar(40)
+  CODE           String?  @db.VarChar(50)
+  FULLNAME       String?  @db.VarChar(200)
+  ALLOWEDIT      Int      @default(1)
+  ALLOWDELETE    Int      @default(1)
+  DELETEMARK     Int      @default(0)
+  DESCRIPTION    String?  @db.VarChar(255)
+  ENABLED        Int      @default(1)
+  SORTCODE       Int?
+  CREATEON       DateTime @db.DateTime(0)
+  CREATEUSERID   String?  @db.VarChar(50)
+  CREATEBY       String?  @db.VarChar(50)
+  MODIFIEDON     DateTime @db.DateTime(0)
+  MODIFIEDUSERID String?  @db.VarChar(50)
+  MODIFIEDBY     String?  @db.VarChar(50)
+}
+
+model queryenginedefine {
+  ID               String   @id @default("") @db.VarChar(40)
+  QUERYENGINEID    String?  @db.VarChar(40)
+  CODE             String?  @db.VarChar(50)
+  FULLNAME         String?  @db.VarChar(200)
+  DATABASELINKNAME String?  @db.VarChar(200)
+  DATASOURCETYPE   Int      @default(1)
+  DATASOURCENAME   String?  @db.VarChar(200)
+  QUERYSTRINGKEY   String?  @db.VarChar(200)
+  SELECTEDFIELD    String?  @default("*") @db.VarChar(255)
+  ORDERBYFIELD     String?  @db.VarChar(200)
+  QUERYSTRING      String?  @db.VarChar(2000)
+  ALLOWEDIT        Int      @default(1)
+  ALLOWDELETE      Int      @default(1)
+  DELETEMARK       Int      @default(0)
+  DESCRIPTION      String?  @db.VarChar(255)
+  ENABLED          Int      @default(1)
+  SORTCODE         Int?
+  CREATEON         DateTime @db.DateTime(0)
+  CREATEUSERID     String?  @db.VarChar(50)
+  CREATEBY         String?  @db.VarChar(50)
+  MODIFIEDON       DateTime @db.DateTime(0)
+  MODIFIEDUSERID   String?  @db.VarChar(50)
+  MODIFIEDBY       String?  @db.VarChar(50)
+}
+
+model tb_leave {
+  ID                String   @id @default("") @db.VarChar(40)
+  NAME              String?  @db.VarChar(50)
+  DEPARTMENTNAME    String?  @db.VarChar(50)
+  LEAVETYPE         String?  @db.VarChar(20)
+  CAUSE             String?  @db.VarChar(255)
+  LEAVEPERIOD       String?  @db.VarChar(50)
+  DEPARTMENTOPINION String?  @db.VarChar(200)
+  LEADEROPINION     String?  @db.VarChar(200)
+  DELETEMARK        Int      @default(0) @db.SmallInt
+  DESCRIPTION       String?  @db.VarChar(200)
+  CREATEON          DateTime @db.DateTime(0)
+  CREATEUSERID      String?  @db.VarChar(50)
+  CREATEBY          String?  @db.VarChar(50)
+  MODIFIEDON        DateTime @db.DateTime(0)
+  MODIFIEDUSERID    String?  @db.VarChar(50)
+  MODIFIEDBY        String?  @db.VarChar(50)
+}
+
+model uprpeerinfo {
+  ID                String    @id @db.VarChar(40)
+  USERID            String?   @db.VarChar(40)
+  ENABLED           Int?
+  DELETEMARK        Int?
+  SORTCODE          Int?
+  CREATEON          DateTime? @db.DateTime(0)
+  CREATEUSERID      String?   @db.VarChar(50)
+  CREATEBY          String?   @db.VarChar(50)
+  MODIFIEDON        DateTime? @db.DateTime(0)
+  MODIFIEDUSERID    String?   @db.VarChar(50)
+  MODIFIEDBY        String?   @db.VarChar(50)
+  PEERID            String?   @db.VarChar(50)
+  CANDIDATEINFO     String?   @db.VarChar(5000)
+  PEERNAME          String?   @db.VarChar(1000)
+  PEERIP            String?   @db.VarChar(1000)
+  MODIFIEDTIMESTAMP DateTime? @db.Timestamp(0)
+}
+
+model users {
+  id                BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name              String    @db.VarChar(255)
+  email             String    @unique(map: "users_email_unique") @db.VarChar(255)
+  email_verified_at DateTime? @db.Timestamp(0)
+  password          String    @db.VarChar(255)
+  remember_token    String?   @db.VarChar(100)
+  created_at        DateTime? @db.Timestamp(0)
+  updated_at        DateTime? @db.Timestamp(0)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model zd_nationcode {
+  CODE    String? @db.Char(2)
+  NAME    String? @db.VarChar(24)
+  PY_CODE String? @db.VarChar(8)
+  WB_CODE String? @db.VarChar(8)
+
+  @@ignore
+}
