@@ -1,0 +1,199 @@
+doctype html
+html(lang="zh-CN")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1")
+    title= title || '管理后台'
+    link(rel="preconnect" href="https://fonts.googleapis.com")
+    link(rel="preconnect" href="https://fonts.gstatic.com" crossorigin="")
+    link(href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet")
+    style.
+      html, body { height: 100%; margin: 0; font-family: 'Roboto', sans-serif; background-color: #f4f6f8; }
+  body
+    script.
+      window.__APP_DATA__ = {
+        user: !{JSON.stringify(user || {})},
+        nav: !{navData || '[]'}
+      };
+    div#root
+    script(src="https://unpkg.com/react@18/umd/react.development.js" crossorigin)
+    script(src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@mui/material@5.15.14/umd/material-ui.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/react@11.11.4/dist/emotion-react.umd.min.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js" crossorigin)
+    script.
+      const { useState } = React;
+      const { createRoot } = ReactDOM;
+      const {
+        Box,
+        CssBaseline,
+        AppBar,
+        Toolbar,
+        Typography,
+        Drawer,
+        List,
+        ListItemButton,
+        ListItemText,
+        Collapse,
+        IconButton,
+        Divider,
+        Button,
+        Avatar,
+        Paper,
+        Icon
+      } = MaterialUI;
+      const ExpandLess = (props) => React.createElement(Icon, props, 'expand_less');
+      const ExpandMore = (props) => React.createElement(Icon, props, 'expand_more');
+      const MenuIcon = (props) => React.createElement(Icon, props, 'menu');
+      const LogoutIcon = (props) => React.createElement(Icon, props, 'logout');
+
+      const drawerWidth = 260;
+      const collapsedWidth = 72;
+
+      const NavigationTree = ({ nodes = [] }) => {
+        return React.createElement(List, null, nodes.map((node) => React.createElement(NavItem, { node, key: node.id })));
+      };
+
+      const NavItem = ({ node }) => {
+        const hasChildren = node.children && node.children.length > 0;
+        const [open, setOpen] = useState(false);
+
+        return React.createElement(React.Fragment, null,
+          React.createElement(ListItemButton, {
+            onClick: () => (hasChildren ? setOpen((prev) => !prev) : null),
+            sx: {
+              borderRadius: 2,
+              my: 0.5,
+              color: '#1f2933',
+              '&.MuiListItemButton-root:hover': { backgroundColor: 'rgba(99, 102, 241, 0.08)' }
+            }
+          },
+          React.createElement(ListItemText, { primary: node.title || node.code })
+          ),
+          hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
+            React.createElement(Box, { sx: { pl: 2 } },
+              React.createElement(NavigationTree, { nodes: node.children })
+            )
+          ) : null
+        );
+      };
+
+      const AdminApp = () => {
+        const data = window.__APP_DATA__ || {};
+        const [mobileOpen, setMobileOpen] = useState(false);
+        const [collapsed, setCollapsed] = useState(false);
+        const user = data.user || {};
+        const navTree = data.nav || [];
+
+        const toggleDrawer = () => setMobileOpen((prev) => !prev);
+        const toggleCollapse = () => setCollapsed((prev) => !prev);
+        const navWidth = collapsed ? collapsedWidth : drawerWidth;
+
+        const handleLogout = async () => {
+          try {
+            const response = await fetch('/login/logout', { method: 'POST' });
+            const result = await response.json();
+            if (result?.redirect) {
+              window.location.href = result.redirect;
+            }
+          } catch (error) {
+            console.error(error);
+          }
+        };
+
+      const drawer = React.createElement(Box, { sx: { p: 2, height: '100%', display: 'flex', flexDirection: 'column', gap: 1 } },
+          React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between' } },
+            !collapsed ? React.createElement(Typography, { variant: 'h6', fontWeight: 600 }, '导航菜单') : null,
+            React.createElement(MaterialUI.IconButton, { size: 'small', onClick: toggleCollapse, color: 'inherit' },
+              React.createElement(Icon, null, 'menu')
+            )
+          ),
+          !collapsed ? React.createElement(Box, { sx: { flexGrow: 1, overflowY: 'auto', mt: 1 } },
+            React.createElement(NavigationTree, { nodes: navTree })
+          ) : React.createElement(Box, { sx: { flexGrow: 1 } })
+        );
+
+        return React.createElement(Box, { sx: { display: 'flex', minHeight: '100vh', backgroundColor: '#f4f6f8' } },
+          React.createElement(CssBaseline, null),
+          React.createElement(AppBar, {
+            position: 'fixed',
+            color: 'default',
+            sx: {
+              width: { sm: `calc(100% - ${navWidth}px)` },
+              ml: { sm: `${navWidth}px` },
+              backgroundColor: '#ffffff',
+              boxShadow: '0 1px 3px rgba(15, 23, 42, 0.1)'
+            }
+          },
+          React.createElement(Toolbar, null,
+            React.createElement(IconButton, {
+              color: 'inherit',
+              edge: 'start',
+              onClick: toggleDrawer,
+              sx: { mr: 2, display: { sm: 'none' } }
+            }, React.createElement(MenuIcon, null)),
+            React.createElement(Typography, { variant: 'h6', noWrap: true, sx: { flexGrow: 1, color: '#1f2933' } }, '管理驾驶舱'),
+            React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', gap: 2 } },
+              React.createElement(Box, null,
+                React.createElement(Typography, { variant: 'subtitle1', textAlign: 'right', color: '#1f2933' }, user.RealName || '管理员'),
+                React.createElement(Typography, { variant: 'caption', color: 'rgba(31,41,51,0.6)' }, user.UserName || '')
+              ),
+              React.createElement(Avatar, { sx: { bgcolor: '#6366f1', color: '#fff' } }, (user.RealName || 'Admin').slice(0, 1)),
+              React.createElement(Button, { color: 'primary', variant: 'outlined', startIcon: React.createElement(LogoutIcon, null), onClick: handleLogout }, '退出')
+            )
+          )
+          ),
+          React.createElement(Box, {
+            component: 'nav',
+            sx: { width: { sm: navWidth }, flexShrink: { sm: 0 } }
+          },
+          React.createElement(Drawer, {
+            variant: 'temporary',
+            open: mobileOpen,
+            onClose: toggleDrawer,
+            ModalProps: { keepMounted: true },
+            sx: {
+              display: { xs: 'block', sm: 'none' },
+              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth }
+            }
+          }, drawer),
+          React.createElement(Drawer, {
+            variant: 'permanent',
+            sx: {
+              display: { xs: 'none', sm: 'block' },
+              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: navWidth, borderRight: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#fff', color: '#1f2933' }
+            },
+            open: true
+          }, drawer)
+          ),
+          React.createElement(Box, {
+            component: 'main',
+            sx: {
+              flexGrow: 1,
+              p: 3,
+              width: { sm: `calc(100% - ${navWidth}px)` },
+              mt: 8
+            }
+          },
+          React.createElement(Box, { sx: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 3 } },
+            ['今日访客', '活跃用户', '待处理事项'].map((title, index) =>
+              React.createElement(Paper, {
+                key: title,
+                sx: { p: 3, borderRadius: 3, background: 'linear-gradient(135deg,#eef2ff,#dbeafe)', color: '#1f2933', minHeight: 140 }
+              },
+              React.createElement(Typography, { variant: 'subtitle2', textTransform: 'uppercase', letterSpacing: 1 }, title),
+              React.createElement(Typography, { variant: 'h3', mt: 2 }, Math.floor(Math.random() * 300 + 50)),
+              React.createElement(Typography, { variant: 'body2', color: 'rgba(31,41,51,0.6)', mt: 1 }, '数据刷新于 ' + new Date().toLocaleTimeString())
+              )
+            )
+          ),
+          React.createElement(Box, { sx: { mt: 4 } },
+            React.createElement(Typography, { variant: 'h5', mb: 2, color: '#1f2933' }, '欢迎回来，' + (user.RealName || '管理员') + '！'),
+            React.createElement(Typography, { variant: 'body1', color: 'rgba(31,41,51,0.8)' }, '这里是系统主控面板，左侧导航支持多级模块展示，您可以在此快速进入需要管理的功能。')
+          )
+          )
+        );
+      };
+
+      const root = createRoot(document.getElementById('root'));
+      root.render(React.createElement(AdminApp));

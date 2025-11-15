@@ -1,0 +1,43 @@
+'use strict';
+
+const StatusCode = {
+  DbError: 0,
+  Error: 9,
+  OK: 10,
+  OKAdd: 11,
+  CanNotLock: 12,
+  LockOK: 13,
+  OKUpdate: 14,
+  OKDelete: 15,
+  Exist: 16,
+  ErrorCodeExist: 17,
+  ErrorNameExist: 18,
+  ErrorValueExist: 19,
+  ErrorUserExist: 20,
+  ErrorDataRelated: 22,
+  ErrorDeleted: 23,
+  ErrorChanged: 24,
+  NotFound: 25,
+  UserNotFound: 26,
+  PasswordError: 27,
+  LogOnDeny: 28,
+  ErrorOnLine: 29,
+  ErrorMacAddress: 30,
+  ErrorIPAddress: 31,
+  ErrorOnLineLimit: 32,
+  PasswordCanNotBeNull: 33,
+  SetPasswordOK: 34,
+  OldPasswordError: 35,
+  ChangePasswordOK: 36,
+  UserNotEmail: 37,
+  UserLocked: 38,
+  UserNotActive: 39,
+  UserIsActivate: 40,
+  ErrorLogOn: 41,
+  WaitForAudit: 42,
+  UserDuplicate: 43,
+  StartAudit: 44,
+  PasswordNotStrength: 45
+};
+
+module.exports = StatusCode;
