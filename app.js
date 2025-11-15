@@ -13,6 +13,8 @@ var moduleAdminRouter = require('./routes/moduleAdmin');
 var staffAdminRouter = require('./routes/staffAdmin');
 var userAdminRouter = require('./routes/userAdmin');
 var organizeAdminRouter = require('./routes/organizeAdmin');
+var roleAdminRouter = require('./routes/roleAdmin');
+var postAdminRouter = require('./routes/postAdmin');
 
 var app = express();
 
@@ -45,6 +47,8 @@ app.use('/module-admin', moduleAdminRouter);
 app.use('/staff-admin', staffAdminRouter);
 app.use('/user-admin', userAdminRouter);
 app.use('/organize-admin', organizeAdminRouter);
+app.use('/role-admin', roleAdminRouter);
+app.use('/post-admin', postAdminRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
