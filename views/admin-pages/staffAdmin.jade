@@ -1,0 +1,448 @@
+﻿script.
+  const StaffAdminPage = () => {
+    const [organizes, setOrganizes] = useState([]);
+    const [organizeTree, setOrganizeTree] = useState([]);
+    const [selectedOrganize, setSelectedOrganize] = useState(null);
+    const [staffRows, setStaffRows] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [searchInput, setSearchInput] = useState('');
+    const [keyword, setKeyword] = useState('');
+    const [dialogState, setDialogState] = useState({ open: false, mode: 'create' });
+    const [formValues, setFormValues] = useState(defaultStaffForm());
+    const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+    const [saving, setSaving] = useState(false);
+    const [selectedRow, setSelectedRow] = useState(null);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
+    const loadOrganizes = useCallback(async () => {
+      try {
+        const resp = await fetch('/staff-admin/organizes');
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '加载组织失败');
+        }
+        const list = result.data || [];
+        setOrganizes(list);
+        setOrganizeTree(buildOrganizeTree(list));
+      } catch (err) {
+        console.error(err);
+      }
+    }, []);
+
+    useEffect(() => {
+      loadOrganizes();
+    }, [loadOrganizes]);
+
+    const loadStaff = useCallback(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams();
+        if (selectedOrganize) {
+          params.append('organizeId', selectedOrganize);
+        }
+        if (keyword) {
+          params.append('keyword', keyword);
+        }
+        const query = params.toString();
+        const resp = await fetch(query ? `/staff-admin/staff?${query}` : '/staff-admin/staff');
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '加载员工失败');
+        }
+        setStaffRows(result.data || []);
+      } catch (err) {
+        setError(err.message || '加载员工失败');
+      } finally {
+        setLoading(false);
+      }
+    }, [selectedOrganize, keyword]);
+
+    useEffect(() => {
+      loadStaff();
+    }, [loadStaff]);
+
+    useEffect(() => {
+      if (selectedRow && !staffRows.some((row) => row.id === selectedRow.id)) {
+        setSelectedRow(null);
+      }
+    }, [staffRows, selectedRow]);
+
+    const handleSearch = () => {
+      setKeyword(searchInput.trim());
+    };
+
+    const handleOpenCreate = () => {
+      setFormValues(defaultStaffForm(selectedOrganize || ''));
+      setDialogState({ open: true, mode: 'create' });
+    };
+
+    const handleOpenEdit = () => {
+      if (!selectedRow) return;
+      setFormValues(mapStaffToFormValues(selectedRow));
+      setDialogState({ open: true, mode: 'edit' });
+    };
+
+    const handleCloseDialog = () => {
+      setDialogState({ open: false, mode: 'create' });
+      setFormValues(defaultStaffForm(selectedOrganize || ''));
+    };
+
+    const handleSave = async () => {
+      setSaving(true);
+      try {
+        const payload = serializeStaffForm(formValues);
+        if (!payload.realName) {
+          throw new Error('请填写员工姓名');
+        }
+        const isEdit = dialogState.mode === 'edit';
+        const url = isEdit ? `/staff-admin/staff/${formValues.id}` : '/staff-admin/staff';
+        const resp = await fetch(url, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '保存失败');
+        }
+        setNotify({ open: true, severity: 'success', message: result.message || '保存成功' });
+        handleCloseDialog();
+        await loadStaff();
+      } catch (err) {
+        setNotify({ open: true, severity: 'error', message: err.message || '保存失败' });
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleDelete = async () => {
+      if (!selectedRow) return;
+      setSaving(true);
+      try {
+        const resp = await fetch(`/staff-admin/staff/${selectedRow.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '删除失败');
+        }
+        setNotify({ open: true, severity: 'success', message: result.message || '员工已删除' });
+        setSelectedRow(null);
+        await loadStaff();
+      } catch (err) {
+        setNotify({ open: true, severity: 'error', message: err.message || '删除失败' });
+      } finally {
+        setSaving(false);
+        setConfirmDelete(false);
+      }
+    };
+
+    const organizeOptions = useMemo(
+      () => organizes.map((item) => ({ value: item.id, label: item.fullName })),
+      [organizes]
+    );
+
+    return React.createElement(Box, {
+      sx: {
+        display: 'grid',
+        gap: 3,
+        gridTemplateColumns: { xs: '1fr', lg: '320px 1fr' }
+      }
+    },
+    React.createElement(Paper, { sx: { p: 2.5, borderRadius: 3, height: 'fit-content' } },
+      React.createElement(Typography, { variant: 'h6', mb: 1 }, '组织结构'),
+      React.createElement(Typography, { variant: 'body2', color: 'text.secondary', mb: 2 }, '点击组织查看所属员工'),
+      React.createElement(Divider, { sx: { mb: 2 } }),
+      React.createElement(OrganizeTree, {
+        data: organizeTree,
+        selectedId: selectedOrganize,
+        onSelect: setSelectedOrganize
+      })
+    ),
+    React.createElement(Box, null,
+      error ? React.createElement(Alert, { severity: 'error', sx: { mb: 2 } }, error) : null,
+      React.createElement(Paper, { sx: { p: 2, borderRadius: 3, mb: 2 } },
+        React.createElement(Stack, {
+          direction: { xs: 'column', md: 'row' },
+          spacing: 1.5,
+          justifyContent: 'space-between'
+        },
+        React.createElement(Stack, { direction: 'row', spacing: 1, flexWrap: 'wrap', alignItems: 'center' },
+          React.createElement(TextField, {
+            label: '搜索姓名/账号/电话',
+            value: searchInput,
+            size: 'small',
+            onChange: (event) => setSearchInput(event.target.value)
+          }),
+          React.createElement(Button, { variant: 'text', size: 'small', onClick: handleSearch }, '搜索')
+        ),
+        React.createElement(Stack, { direction: 'row', spacing: 1, flexWrap: 'wrap' },
+          React.createElement(Button, { variant: 'contained', size: 'small', onClick: handleOpenCreate }, '新增员工'),
+          React.createElement(Button, {
+            variant: 'outlined',
+            size: 'small',
+            disabled: !selectedRow,
+            onClick: handleOpenEdit
+          }, '编辑'),
+          React.createElement(Button, {
+            variant: 'outlined',
+            size: 'small',
+            color: 'error',
+            disabled: !selectedRow,
+            onClick: () => setConfirmDelete(true)
+          }, '删除'),
+          React.createElement(Button, { variant: 'text', size: 'small', onClick: loadStaff, disabled: loading }, '刷新')
+        )
+        )
+      ),
+      React.createElement(Paper, { sx: { borderRadius: 3, position: 'relative' } },
+        loading
+          ? React.createElement(Box, {
+              sx: {
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'rgba(255,255,255,0.6)',
+                zIndex: 1,
+                borderRadius: 3
+              }
+            }, React.createElement(CircularProgress, { size: 32 }))
+          : null,
+        React.createElement(TableContainer, null,
+          React.createElement(Table, { size: 'small' },
+            React.createElement(TableHead, null,
+              React.createElement(TableRow, null,
+                React.createElement(TableCell, null, '姓名'),
+                React.createElement(TableCell, null, '工号'),
+                React.createElement(TableCell, null, '账号'),
+                React.createElement(TableCell, null, '手机'),
+                React.createElement(TableCell, null, '邮箱'),
+                React.createElement(TableCell, null, '所属组织'),
+                React.createElement(TableCell, null, '状态')
+              )
+            ),
+            React.createElement(TableBody, null,
+              staffRows.map((row) =>
+                React.createElement(TableRow, {
+                  key: row.id,
+                  hover: true,
+                  selected: selectedRow?.id === row.id,
+                  onClick: () => setSelectedRow(row),
+                  sx: { cursor: 'pointer' }
+                },
+                React.createElement(TableCell, null, row.realName || row.userName || '-'),
+                React.createElement(TableCell, null, row.code || '-'),
+                React.createElement(TableCell, null, row.userName || '-'),
+                React.createElement(TableCell, null, row.mobile || '-'),
+                React.createElement(TableCell, null, row.email || '-'),
+                React.createElement(TableCell, null, row.organizeName || '-'),
+                React.createElement(TableCell, null,
+                  React.createElement(Stack, { direction: 'row', spacing: 0.5 },
+                    React.createElement(Chip, {
+                      label: row.enabled ? '在岗' : '停用',
+                      size: 'small',
+                      color: row.enabled ? 'success' : 'default',
+                      variant: row.enabled ? 'filled' : 'outlined'
+                    }),
+                    row.isDimission
+                      ? React.createElement(Chip, { label: '离职', size: 'small', color: 'warning', variant: 'outlined' })
+                      : null
+                  )
+                )
+                )
+              )
+            )
+          )
+        ),
+        !staffRows.length
+          ? React.createElement(Box, { sx: { p: 4, textAlign: 'center', color: 'text.secondary' } }, '暂无符合条件的员工')
+          : null
+      )
+    ),
+    React.createElement(Dialog, {
+      open: dialogState.open,
+      onClose: handleCloseDialog,
+      maxWidth: 'sm',
+      fullWidth: true
+    },
+      React.createElement(DialogTitle, null, dialogState.mode === 'edit' ? '编辑员工' : '新增员工'),
+      React.createElement(DialogContent, null,
+        React.createElement(Stack, { spacing: 2, sx: { mt: 1 } },
+          React.createElement(TextField, {
+            label: '姓名',
+            required: true,
+            value: formValues.realName,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, realName: event.target.value }))
+          }),
+          React.createElement(TextField, {
+            label: '工号',
+            value: formValues.code,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, code: event.target.value }))
+          }),
+          React.createElement(TextField, {
+            label: '账号',
+            value: formValues.userName,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, userName: event.target.value }))
+          }),
+          React.createElement(TextField, {
+            label: '性别',
+            select: true,
+            value: formValues.gender,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, gender: event.target.value })),
+            children: genderOptions.map((opt) =>
+              React.createElement(MenuItem, { key: opt.value, value: opt.value }, opt.label)
+            )
+          }),
+          React.createElement(TextField, {
+            label: '手机号',
+            value: formValues.mobile,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, mobile: event.target.value }))
+          }),
+          React.createElement(TextField, {
+            label: '邮箱',
+            value: formValues.email,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, email: event.target.value }))
+          }),
+          React.createElement(TextField, {
+            label: '所属组织',
+            select: true,
+            value: formValues.organizeId,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, organizeId: event.target.value })),
+            children: [
+              React.createElement(MenuItem, { key: 'empty', value: '' }, '未设置'),
+              ...organizeOptions.map((opt) =>
+                React.createElement(MenuItem, { key: opt.value, value: opt.value }, opt.label)
+              )
+            ]
+          }),
+          React.createElement(TextField, {
+            label: '排序码',
+            type: 'number',
+            value: formValues.sortCode,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, sortCode: event.target.value }))
+          }),
+          React.createElement(TextField, {
+            label: '备注',
+            multiline: true,
+            minRows: 2,
+            value: formValues.description,
+            onChange: (event) => setFormValues((prev) => ({ ...prev, description: event.target.value }))
+          }),
+          React.createElement(Stack, { direction: 'row', spacing: 1 },
+            React.createElement(FormControlLabel, {
+              control: React.createElement(Switch, {
+                checked: formValues.enabled,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, enabled: event.target.checked }))
+              }),
+              label: '启用'
+            }),
+            React.createElement(FormControlLabel, {
+              control: React.createElement(Switch, {
+                checked: formValues.isDimission,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, isDimission: event.target.checked }))
+              }),
+              label: '已离职'
+            })
+          )
+        )
+      ),
+      React.createElement(DialogActions, null,
+        React.createElement(Button, { onClick: handleCloseDialog }, '取消'),
+        React.createElement(Button, { variant: 'contained', onClick: handleSave, disabled: saving }, '保存')
+      )
+    ),
+    React.createElement(Dialog, { open: confirmDelete, onClose: () => setConfirmDelete(false) },
+      React.createElement(DialogTitle, null, '删除员工'),
+      React.createElement(DialogContent, null,
+        React.createElement(Typography, null, '确定删除所选员工吗？')
+      ),
+      React.createElement(DialogActions, null,
+        React.createElement(Button, { onClick: () => setConfirmDelete(false) }, '取消'),
+        React.createElement(Button, { color: 'error', onClick: handleDelete, disabled: saving }, '删除')
+      )
+    ),
+    React.createElement(Snackbar, {
+      open: notify.open,
+      autoHideDuration: 3200,
+      onClose: () => setNotify((prev) => ({ ...prev, open: false }))
+    },
+      React.createElement(Alert, {
+        onClose: () => setNotify((prev) => ({ ...prev, open: false })),
+        severity: notify.severity,
+        sx: { width: '100%' }
+      }, notify.message)
+    )
+    );
+  };
+
+    const defaultStaffForm = (organizeId = '') => ({
+    id: '',
+    realName: '',
+    code: '',
+    userName: '',
+    gender: '',
+    dutyId: '',
+    mobile: '',
+    email: '',
+    description: '',
+    sortCode: '',
+    organizeId: organizeId || '',
+    enabled: true,
+    isDimission: false
+  });
+
+  const mapStaffToFormValues = (record) =>
+    record
+      ? {
+          id: record.id,
+          realName: record.realName || '',
+          code: record.code || '',
+          userName: record.userName || '',
+          gender: record.gender || '',
+          dutyId: record.dutyId || '',
+          mobile: record.mobile || '',
+          email: record.email || '',
+          description: record.description || '',
+          sortCode: record.sortCode ?? '',
+          organizeId: record.organizeId || '',
+          enabled: !!record.enabled,
+          isDimission: !!record.isDimission
+        }
+      : defaultStaffForm();
+
+  const serializeStaffForm = (values) => ({
+    realName: values.realName?.trim(),
+    code: values.code?.trim(),
+    userName: values.userName?.trim(),
+    gender: values.gender || '',
+    dutyId: values.dutyId?.trim() || null,
+    mobile: values.mobile?.trim() || null,
+    email: values.email?.trim() || null,
+    description: values.description?.trim() || null,
+    sortCode: values.sortCode === '' ? null : Number(values.sortCode),
+    organizeId: values.organizeId || null,
+    enabled: !!values.enabled,
+    isDimission: !!values.isDimission
+  });
+
+  const genderOptions = [
+    { value: '', label: '保密' },
+    { value: '男', label: '男' },
+    { value: '女', label: '女' }
+  ];
+
+  
+    
+  
+  
+  
