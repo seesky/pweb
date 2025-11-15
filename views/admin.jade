@@ -34,6 +34,8 @@ html(lang="zh-CN")
 
     include admin-pages/postAdmin.jade
 
+    include admin-pages/userPermissionAdmin.jade
+
     script.
       const { useState, useEffect, useMemo, useCallback } = React;
       const { createRoot } = ReactDOM;
@@ -89,6 +91,7 @@ html(lang="zh-CN")
       const ORGANIZE_ADMIN_CODES = ['organizeadmin', 'organizemanagement', 'organize'];
       const ROLE_ADMIN_CODES = ['roleadmin', 'rolemanagement', 'role'];
       const POST_ADMIN_CODES = ['postadmin', 'postmanagement', 'post'];
+      const USER_PERMISSION_ADMIN_CODES = ['userpermissionadmin', 'userpermission', 'permissionuser'];
 
       const isModuleAdminNode = (node = {}) => {
         const code = (node.code || '').toLowerCase();
@@ -124,6 +127,12 @@ html(lang="zh-CN")
         const code = (node.code || '').toLowerCase();
         const path = (node.path || '').toLowerCase();
         return POST_ADMIN_CODES.includes(code) || path.indexOf('post') >= 0;
+      };
+
+      const isUserPermissionAdminNode = (node = {}) => {
+        const code = (node.code || '').toLowerCase();
+        const path = (node.path || '').toLowerCase();
+        return USER_PERMISSION_ADMIN_CODES.includes(code) || path.indexOf('userpermission') >= 0;
       };
 
       const NavItem = ({ node, onSelect, activeNodeId, depth = 0 }) => {
@@ -401,6 +410,8 @@ html(lang="zh-CN")
             setActiveView({ type: 'role-admin', node });
           } else if (isPostAdminNode(node)) {
             setActiveView({ type: 'post-admin', node });
+          } else if (isUserPermissionAdminNode(node)) {
+            setActiveView({ type: 'user-permission-admin', node });
           } else {
             setActiveView({ type: 'dashboard', node });
           }
@@ -439,6 +450,9 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'post-admin') {
             return React.createElement(PostAdminPage, null);
+          }
+          if (activeView.type === 'user-permission-admin') {
+            return React.createElement(UserPermissionAdminPage, null);
           }
           return React.createElement(DashboardOverview, { user, activeNode: activeView.node });
         };
@@ -512,6 +526,8 @@ html(lang="zh-CN")
               ? '角色管理'
               : activeView.type === 'post-admin'
               ? '岗位管理'
+              : activeView.type === 'user-permission-admin'
+              ? '用户权限管理'
               : '管理驾驶舱'),
             React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', gap: 2 } },
               React.createElement(Box, null,

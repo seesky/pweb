@@ -1,0 +1,219 @@
+script.
+  const UserPermissionAdminPage = () => {
+    const [users, setUsers] = useState([]);
+    const [page, setPage] = useState(1);
+    const [pageSize] = useState(10);
+    const [total, setTotal] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [searchInput, setSearchInput] = useState('');
+    const [keyword, setKeyword] = useState('');
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [detail, setDetail] = useState({ user: null, roles: [], modules: [], permissionItems: [] });
+    const [detailLoading, setDetailLoading] = useState(false);
+
+    const loadUsers = useCallback(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(pageSize)
+        });
+        if (keyword) {
+          params.append('keyword', keyword);
+        }
+        const resp = await fetch(`/user-permission/users?${params.toString()}`);
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '获取用户失败');
+        }
+        const list = result.data || [];
+        setUsers(list);
+        setTotal(result.total || 0);
+        if (list.length && (!selectedUser || !list.find((item) => item.id === selectedUser.id))) {
+          setSelectedUser(list[0]);
+        }
+        if (!list.length) {
+          setSelectedUser(null);
+        }
+      } catch (err) {
+        setError(err.message || '获取用户失败');
+      } finally {
+        setLoading(false);
+      }
+    }, [page, pageSize, keyword, selectedUser]);
+
+    useEffect(() => {
+      loadUsers();
+    }, [loadUsers]);
+
+    useEffect(() => {
+      if (selectedUser && !users.find((item) => item.id === selectedUser.id)) {
+        setSelectedUser(null);
+      }
+    }, [users, selectedUser]);
+
+    const loadDetail = useCallback(async (userInfo) => {
+      if (!userInfo) {
+        setDetail({ user: null, roles: [], modules: [], permissionItems: [] });
+        return;
+      }
+      setDetailLoading(true);
+      try {
+        const resp = await fetch(`/user-permission/users/${userInfo.id}/detail`);
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '获取权限详情失败');
+        }
+        setDetail({
+          user: result.data?.user || userInfo,
+          roles: result.data?.roles || [],
+          modules: result.data?.modules || [],
+          permissionItems: result.data?.permissionItems || []
+        });
+      } catch (err) {
+        setDetail({ user: userInfo, roles: [], modules: [], permissionItems: [] });
+      } finally {
+        setDetailLoading(false);
+      }
+    }, []);
+
+    useEffect(() => {
+      if (selectedUser) {
+        loadDetail(selectedUser);
+      } else {
+        setDetail({ user: null, roles: [], modules: [], permissionItems: [] });
+      }
+    }, [selectedUser, loadDetail]);
+
+    const handleSearch = () => {
+      setPage(1);
+      setKeyword(searchInput.trim());
+    };
+
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    const renderTagList = (items = [], emptyText) => {
+      if (!items.length) {
+        return React.createElement(Typography, { variant: 'body2', color: 'text.secondary', mt: 2 }, emptyText);
+      }
+      return React.createElement(Stack, { direction: 'row', spacing: 1, flexWrap: 'wrap', mt: 2 },
+        items.map((item) =>
+          React.createElement(Chip, {
+            key: item.id || item.ID,
+            label: item.name || item.fullName || item.FULLNAME || item.code || item.CODE || '未命名',
+            variant: 'outlined'
+          })
+        )
+      );
+    };
+
+    return React.createElement(Box, {
+      sx: {
+        display: 'grid',
+        gap: 3,
+        gridTemplateColumns: { xs: '1fr', lg: '360px 1fr' }
+      }
+    },
+      React.createElement(Paper, { sx: { p: 2, borderRadius: 3, height: 'fit-content' } },
+        React.createElement(Stack, { spacing: 1.5 },
+          React.createElement(TextField, {
+            label: '搜索用户名 / 姓名 / 编号',
+            size: 'small',
+            value: searchInput,
+            onChange: (event) => setSearchInput(event.target.value)
+          }),
+          React.createElement(Button, { variant: 'text', size: 'small', onClick: handleSearch }, '搜索'),
+          error ? React.createElement(Alert, { severity: 'error' }, error) : null,
+          React.createElement(Divider, null),
+          loading
+            ? React.createElement(Box, { sx: { display: 'flex', justifyContent: 'center', py: 4 } },
+                React.createElement(CircularProgress, { size: 28 })
+              )
+            : React.createElement(List, { sx: { maxHeight: 480, overflowY: 'auto' } },
+                users.length
+                  ? users.map((userItem) =>
+                      React.createElement(ListItemButton, {
+                        key: userItem.id,
+                        selected: selectedUser?.id === userItem.id,
+                        onClick: () => setSelectedUser(userItem)
+                      },
+                        React.createElement(ListItemText, {
+                          primary: userItem.realName || userItem.userName || '未命名',
+                          secondary: userItem.userName || userItem.code || ''
+                        })
+                      )
+                    )
+                  : React.createElement(Typography, {
+                      variant: 'body2',
+                      color: 'text.secondary',
+                      sx: { py: 4, textAlign: 'center' }
+                    }, '暂无满足条件的用户')
+              ),
+          React.createElement(Box, { sx: { display: 'flex', justifyContent: 'center', mt: 2 } },
+            React.createElement(Pagination, {
+              count: totalPages,
+              page,
+              onChange: (event, value) => setPage(value),
+              color: 'primary'
+            })
+          )
+        )
+      ),
+      React.createElement(Box, null,
+        selectedUser
+          ? React.createElement(Paper, { sx: { p: 2, borderRadius: 3, mb: 2 } },
+              React.createElement(Stack, { spacing: 0.5 },
+                React.createElement(Typography, { variant: 'h6' }, selectedUser.realName || selectedUser.userName),
+                React.createElement(Typography, { variant: 'body2', color: 'text.secondary' },
+                  '账号：' + (selectedUser.userName || '-')),
+                React.createElement(Typography, { variant: 'body2', color: 'text.secondary' },
+                  '编号：' + (selectedUser.code || '-'))
+              )
+            )
+          : React.createElement(Paper, { sx: { p: 2, borderRadius: 3, mb: 2 } },
+              React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, '请选择左侧用户')
+            ),
+        selectedUser
+          ? React.createElement(Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' } } },
+              React.createElement(Paper, { sx: { p: 2, borderRadius: 3 } },
+                React.createElement(Stack, { direction: 'row', alignItems: 'center', justifyContent: 'space-between' },
+                  React.createElement(Typography, { variant: 'subtitle1' }, '角色'),
+                  detailLoading ? React.createElement(CircularProgress, { size: 18 }) : null
+                ),
+                renderTagList(detail.roles?.map((role) => ({
+                  id: role.ID,
+                  name: role.REALNAME || role.CODE
+                })), '暂无角色')
+              ),
+              React.createElement(Paper, { sx: { p: 2, borderRadius: 3 } },
+                React.createElement(Stack, { direction: 'row', alignItems: 'center', justifyContent: 'space-between' },
+                  React.createElement(Typography, { variant: 'subtitle1' }, '模块权限'),
+                  detailLoading ? React.createElement(CircularProgress, { size: 18 }) : null
+                ),
+                renderTagList(detail.modules, '暂无模块权限')
+              ),
+              React.createElement(Paper, { sx: { p: 2, borderRadius: 3, gridColumn: { xs: 'span 1', md: 'span 2' } } },
+                React.createElement(Stack, { direction: 'row', alignItems: 'center', justifyContent: 'space-between' },
+                  React.createElement(Typography, { variant: 'subtitle1' }, '直接操作权限'),
+                  detailLoading ? React.createElement(CircularProgress, { size: 18 }) : null
+                ),
+                renderTagList(detail.permissionItems?.map((item) => ({
+                  id: item.ID,
+                  name: item.FULLNAME || item.CODE
+                })), '暂无直接授权的操作权限')
+              )
+            )
+          : null
+      )
+    );
+  };
