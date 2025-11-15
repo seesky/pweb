@@ -191,17 +191,23 @@ class UserOrganizeService {
     }
     if (containChildren) {
       const department = await this.prisma.piorganize.findUnique({ where: { ID: departmentId } });
-      if (!department?.CODE) {
-        return [];
+      let organizeIds = [];
+      if (department?.CODE) {
+        organizeIds = await organizeService.getChildrensIdByCode(department.CODE);
       }
-      const ids = await organizeService.getChildrensIdByCode(department.CODE);
-      return this.getDTByOrganizes(ids);
+      if (!organizeIds?.length) {
+        organizeIds = [departmentId];
+      } else if (!organizeIds.includes(departmentId)) {
+        organizeIds.push(departmentId);
+      }
+      return this.getDTByOrganizes(organizeIds);
     }
     return this.getDataTableByDepartment(departmentId);
   }
 
   async getDTByOrganizes(organizeIds = []) {
-    if (!organizeIds.length) {
+    const validOrganizeIds = (organizeIds || []).filter((id) => Boolean(id));
+    if (!validOrganizeIds.length) {
       return [];
     }
 
@@ -209,11 +215,11 @@ class UserOrganizeService {
       where: {
         DELETEMARK: 0,
         OR: [
-          { WORKGROUPID: { in: organizeIds } },
-          { DEPARTMENTID: { in: organizeIds } },
-          { SUBDEPARTMENTID: { in: organizeIds } },
-          { SUBCOMPANYID: { in: organizeIds } },
-          { COMPANYID: { in: organizeIds } }
+          { WORKGROUPID: { in: validOrganizeIds } },
+          { DEPARTMENTID: { in: validOrganizeIds } },
+          { SUBDEPARTMENTID: { in: validOrganizeIds } },
+          { SUBCOMPANYID: { in: validOrganizeIds } },
+          { COMPANYID: { in: validOrganizeIds } }
         ]
       },
       orderBy: { SORTCODE: 'asc' }
@@ -223,11 +229,11 @@ class UserOrganizeService {
       where: {
         DELETEMARK: 0,
         OR: [
-          { WORKGROUPID: { in: organizeIds } },
-          { DEPARTMENTID: { in: organizeIds } },
-          { SUBDEPARTMENTID: { in: organizeIds } },
-          { SUBCOMPANYID: { in: organizeIds } },
-          { COMPANYID: { in: organizeIds } }
+          { WORKGROUPID: { in: validOrganizeIds } },
+          { DEPARTMENTID: { in: validOrganizeIds } },
+          { SUBDEPARTMENTID: { in: validOrganizeIds } },
+          { SUBCOMPANYID: { in: validOrganizeIds } },
+          { COMPANYID: { in: validOrganizeIds } }
         ]
       },
       select: { USERID: true }
