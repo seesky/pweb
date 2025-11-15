@@ -1,3 +1,4 @@
+﻿
 doctype html
 html(lang="zh-CN")
   head
@@ -22,7 +23,7 @@ html(lang="zh-CN")
     script(src="https://cdn.jsdelivr.net/npm/@emotion/react@11.11.4/dist/emotion-react.umd.min.js" crossorigin)
     script(src="https://cdn.jsdelivr.net/npm/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js" crossorigin)
     script.
-      const { useState } = React;
+      const { useState, useEffect, useMemo, useCallback } = React;
       const { createRoot } = ReactDOM;
       const {
         Box,
@@ -40,7 +41,27 @@ html(lang="zh-CN")
         Button,
         Avatar,
         Paper,
-        Icon
+        Icon,
+        Stack,
+        Chip,
+        Table,
+        TableBody,
+        TableCell,
+        TableContainer,
+        TableHead,
+        TableRow,
+        TextField,
+        Dialog,
+        DialogTitle,
+        DialogContent,
+        DialogActions,
+        FormControlLabel,
+        Switch,
+        Snackbar,
+        Alert,
+        CircularProgress,
+        Tooltip,
+        MenuItem
       } = MaterialUI;
       const ExpandLess = (props) => React.createElement(Icon, props, 'expand_less');
       const ExpandMore = (props) => React.createElement(Icon, props, 'expand_more');
@@ -49,45 +70,1217 @@ html(lang="zh-CN")
 
       const drawerWidth = 260;
       const collapsedWidth = 72;
+      const MODULE_ADMIN_CODES = ['moduleadmin', 'modulemanagement'];
+      const STAFF_ADMIN_CODES = ['staffadmin', 'staffmanagement', 'staff', 'employee'];
 
-      const NavigationTree = ({ nodes = [] }) => {
-        return React.createElement(List, null, nodes.map((node) => React.createElement(NavItem, { node, key: node.id })));
+      const isModuleAdminNode = (node = {}) => {
+        const code = (node.code || '').toLowerCase();
+        const path = (node.path || '').toLowerCase();
+        return MODULE_ADMIN_CODES.includes(code) || path.indexOf('moduleadmin') >= 0;
       };
 
-      const NavItem = ({ node }) => {
+      const isStaffAdminNode = (node = {}) => {
+        const code = (node.code || '').toLowerCase();
+        const path = (node.path || '').toLowerCase();
+        return STAFF_ADMIN_CODES.includes(code) || path.indexOf('staff') >= 0;
+      };
+
+      const NavItem = ({ node, onSelect, activeNodeId, depth = 0 }) => {
         const hasChildren = node.children && node.children.length > 0;
         const [open, setOpen] = useState(false);
-
+        const handleClick = () => {
+          if (hasChildren) {
+            setOpen((prev) => !prev);
+          }
+          onSelect?.(node);
+        };
         return React.createElement(React.Fragment, null,
           React.createElement(ListItemButton, {
-            onClick: () => (hasChildren ? setOpen((prev) => !prev) : null),
+            onClick: handleClick,
+            selected: activeNodeId === node.id,
             sx: {
               borderRadius: 2,
-              my: 0.5,
-              color: '#1f2933',
-              '&.MuiListItemButton-root:hover': { backgroundColor: 'rgba(99, 102, 241, 0.08)' }
+              my: 0.25,
+              pl: 2 + depth * 1.5,
+              color: '#1f2937',
+              '&.Mui-selected': { backgroundColor: 'rgba(99,102,241,0.15)', color: '#312e81' }
             }
           },
-          React.createElement(ListItemText, { primary: node.title || node.code })
+          React.createElement(ListItemText, { primary: node.title || node.code }),
           ),
           hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
-            React.createElement(Box, { sx: { pl: 2 } },
-              React.createElement(NavigationTree, { nodes: node.children })
+            React.createElement(NavigationTree, {
+              nodes: node.children,
+              onSelect,
+              activeNodeId,
+              depth: depth + 1
+            })
+          ) : null
+        );
+      };
+
+      const NavigationTree = ({ nodes = [], onSelect, activeNodeId, depth = 0 }) => {
+        if (!nodes || !nodes.length) {
+          return React.createElement(Typography, {
+            variant: 'body2',
+            color: 'text.secondary',
+            sx: { px: 1 }
+          }, '暂无导航');
+        }
+        return React.createElement(List, { component: 'nav', disablePadding: depth > 0 },
+          nodes.map((node) =>
+            React.createElement(NavItem, {
+              key: node.id,
+              node,
+              onSelect,
+              activeNodeId,
+              depth
+            })
+          )
+        );
+      };
+
+      const DashboardOverview = ({ user, activeNode }) => {
+        const cards = [
+          { title: '今日登录', value: '128', trend: '+12.5%' },
+          { title: '活跃模块', value: '42', trend: '+3' },
+          { title: '待办事项', value: '7', trend: '-2' }
+        ];
+        return React.createElement(Stack, { spacing: 3 },
+          React.createElement(Box, {
+            sx: {
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
+            }
+          },
+          cards.map((card) =>
+            React.createElement(Paper, {
+              key: card.title,
+              sx: {
+                p: 3,
+                borderRadius: 3,
+                background: 'linear-gradient(135deg,#eef2ff,#dbeafe)'
+              }
+            },
+            React.createElement(Typography, { variant: 'overline', color: 'primary.main' }, card.title),
+            React.createElement(Typography, { variant: 'h4', mt: 1, color: '#1f2937' }, card.value),
+            React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, '环比 ' + card.trend)
+            )
+          )
+          ),
+          React.createElement(Paper, { sx: { p: 3, borderRadius: 3 } },
+            React.createElement(Typography, { variant: 'h5', mb: 1 }, '欢迎回来，' + (user.RealName || '管理员')),
+            React.createElement(Typography, { variant: 'body1', color: 'text.secondary' },
+              activeNode
+                ? '当前聚焦于【' + (activeNode.title || activeNode.code) + '】，可在左侧导航切换其他模块。'
+                : '使用左侧导航探索各功能模块，可随时切换到模块管理进行维护。'
+            )
+          )
+        );
+      };
+
+      const buildModuleHierarchy = (items = []) => {
+        const lookup = new Map();
+        items.forEach((item) => {
+          lookup.set(item.id, { ...item, children: [] });
+        });
+        const roots = [];
+        lookup.forEach((node) => {
+          if (node.parentId && lookup.has(node.parentId)) {
+            lookup.get(node.parentId).children.push(node);
+          } else {
+            roots.push(node);
+          }
+        });
+        const sortFn = (a, b) => (a.sortCode || 0) - (b.sortCode || 0);
+        lookup.forEach((node) => node.children.sort(sortFn));
+        return roots.sort(sortFn);
+      };
+      const ModuleTreeNode = ({ node, selectedId, onSelect, depth = 0 }) => {
+        const hasChildren = node.children && node.children.length > 0;
+        const [open, setOpen] = useState(depth < 1);
+        const handleClick = () => {
+          onSelect(node.id);
+          if (hasChildren) {
+            setOpen((prev) => !prev);
+          }
+        };
+        return React.createElement(React.Fragment, null,
+          React.createElement(ListItemButton, {
+            onClick: handleClick,
+            selected: selectedId === node.id,
+            sx: {
+              pl: 2 + depth * 1.5,
+              borderRadius: 1.5,
+              mb: 0.25,
+              '&.Mui-selected': { backgroundColor: 'rgba(99,102,241,0.15)' }
+            }
+          },
+        React.createElement(ListItemText, {
+            primary: node.fullName || node.fullname || node.code,
+            secondary: node.code
+          }),
+          ),
+          hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
+            React.createElement(List, { disablePadding: true },
+              node.children.map((child) =>
+                React.createElement(ModuleTreeNode, {
+                  key: child.id,
+                  node: child,
+                  selectedId,
+                  onSelect,
+                  depth: depth + 1
+                })
+              )
             )
           ) : null
         );
       };
 
+      const ModuleTree = ({ data = [], selectedId, onSelect }) => {
+        return React.createElement(List, { component: 'nav' },
+          React.createElement(ListItemButton, {
+            selected: selectedId === null,
+            onClick: () => onSelect(null),
+            sx: { borderRadius: 1.5, mb: 0.5 }
+          },
+          React.createElement(ListItemText, { primary: '全部模块' })
+          ),
+          data.map((node) =>
+            React.createElement(ModuleTreeNode, {
+              key: node.id,
+              node,
+              selectedId,
+              onSelect,
+              depth: 0
+            })
+          )
+        );
+      };
+
+      const moduleTypeMap = {
+        1: '系统',
+        2: '平台',
+        3: '应用',
+        4: '窗体',
+        5: '报表',
+        6: '菜单'
+      };
+
+      const createDefaultForm = (parentId = '') => ({
+        id: '',
+        parentId: parentId || '',
+        code: '',
+        fullName: '',
+        category: '',
+        moduleType: 6,
+        navigateUrl: '',
+        mvcNavigateUrl: '',
+        iconCss: '',
+        iconUrl: '',
+        description: '',
+        sortCode: '',
+        enabled: true,
+        isPublic: false,
+        isMenu: true,
+        allowEdit: true,
+        allowDelete: true,
+        expand: false
+      });
+
+      const mapRecordToFormValues = (record) =>
+        record
+          ? {
+              id: record.id,
+              parentId: record.parentId || '',
+              code: record.code || '',
+              fullName: record.fullName || '',
+              category: record.category || '',
+              moduleType: record.moduleType || 6,
+              navigateUrl: record.navigateUrl || '',
+              mvcNavigateUrl: record.mvcNavigateUrl || '',
+              iconCss: record.iconCss || '',
+              iconUrl: record.iconUrl || '',
+              description: record.description || '',
+              sortCode: record.sortCode ?? '',
+              enabled: !!record.enabled,
+              isPublic: !!record.isPublic,
+              isMenu: !!record.isMenu,
+              allowEdit: !!record.allowEdit,
+              allowDelete: !!record.allowDelete,
+              expand: !!record.expand
+            }
+          : createDefaultForm();
+
+      const serializeFormValues = (values) => ({
+        parentId: values.parentId || null,
+        code: values.code?.trim(),
+        fullName: values.fullName?.trim(),
+        category: values.category?.trim() || null,
+        moduleType: Number(values.moduleType) || 6,
+        navigateUrl: values.navigateUrl || '#',
+        mvcNavigateUrl: values.mvcNavigateUrl || '#',
+        iconCss: values.iconCss || null,
+        iconUrl: values.iconUrl || null,
+        description: values.description || null,
+        sortCode: values.sortCode === '' ? null : Number(values.sortCode),
+        enabled: !!values.enabled,
+        isPublic: !!values.isPublic,
+        isMenu: !!values.isMenu,
+        allowEdit: !!values.allowEdit,
+        allowDelete: !!values.allowDelete,
+        expand: !!values.expand
+      });
+      const ModuleAdminPage = () => {
+        const [modules, setModules] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState('');
+        const [selectedNodeId, setSelectedNodeId] = useState(null);
+        const [activeRow, setActiveRow] = useState(null);
+        const [dialogState, setDialogState] = useState({ open: false, mode: 'create' });
+        const [formValues, setFormValues] = useState(createDefaultForm());
+        const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+        const [confirmDelete, setConfirmDelete] = useState(false);
+        const [saving, setSaving] = useState(false);
+
+        const loadModules = useCallback(async () => {
+          setLoading(true);
+          setError('');
+          try {
+            const resp = await fetch('/module-admin/modules');
+            if (resp.status === 401) {
+              window.location.href = '/login';
+              return;
+            }
+            const result = await resp.json();
+            if (!resp.ok) {
+              throw new Error(result.message || '加载模块失败');
+            }
+            setModules(result.data || []);
+          } catch (err) {
+            setError(err.message || '加载模块失败');
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          loadModules();
+        }, [loadModules]);
+
+        useEffect(() => {
+          if (activeRow && !modules.some((item) => item.id === activeRow.id)) {
+            setActiveRow(null);
+          }
+          if (selectedNodeId && !modules.some((item) => item.id === selectedNodeId)) {
+            setSelectedNodeId(null);
+          }
+        }, [modules, activeRow, selectedNodeId]);
+
+        const orderedModules = useMemo(() => {
+          return [...modules].sort((a, b) => (a.sortCode || 0) - (b.sortCode || 0));
+        }, [modules]);
+
+        const treeData = useMemo(() => buildModuleHierarchy(orderedModules), [orderedModules]);
+
+        const tableRows = useMemo(() => {
+          if (selectedNodeId === null) {
+            return orderedModules.filter((item) => !item.parentId);
+          }
+          return orderedModules.filter((item) => item.parentId === selectedNodeId);
+        }, [orderedModules, selectedNodeId]);
+
+        const handleOpenCreate = () => {
+          setFormValues(createDefaultForm(selectedNodeId));
+          setDialogState({ open: true, mode: 'create' });
+        };
+
+        const handleOpenEdit = () => {
+          if (!activeRow) return;
+          setFormValues(mapRecordToFormValues(activeRow));
+          setDialogState({ open: true, mode: 'edit' });
+        };
+
+        const handleCloseDialog = () => {
+          setDialogState({ open: false, mode: 'create' });
+          setFormValues(createDefaultForm(selectedNodeId));
+        };
+
+        const handleSave = async () => {
+          setSaving(true);
+          try {
+            const payload = serializeFormValues(formValues);
+            if (!payload.code || !payload.fullName) {
+              throw new Error('请填写模块编码和名称');
+            }
+            const isEdit = dialogState.mode === 'edit';
+            const url = isEdit ? `/module-admin/modules/${formValues.id}` : '/module-admin/modules';
+            const resp = await fetch(url, {
+              method: isEdit ? 'PUT' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const result = await resp.json();
+            if (!resp.ok) {
+              throw new Error(result.message || '保存失败');
+            }
+            setNotify({ open: true, severity: 'success', message: result.message || '保存成功' });
+            handleCloseDialog();
+            await loadModules();
+          } catch (err) {
+            setNotify({ open: true, severity: 'error', message: err.message || '保存失败' });
+          } finally {
+            setSaving(false);
+          }
+        };
+
+        const handleDelete = async () => {
+          if (!activeRow) return;
+          setSaving(true);
+          try {
+            const resp = await fetch(`/module-admin/modules/${activeRow.id}`, { method: 'DELETE' });
+            const result = await resp.json();
+            if (!resp.ok) {
+              throw new Error(result.message || '删除失败');
+            }
+            setNotify({ open: true, severity: 'success', message: result.message || '模块已删除' });
+            setActiveRow(null);
+            await loadModules();
+          } catch (err) {
+            setNotify({ open: true, severity: 'error', message: err.message || '删除失败' });
+          } finally {
+            setSaving(false);
+            setConfirmDelete(false);
+          }
+        };
+
+        if (loading && !modules.length) {
+          return React.createElement(Box, {
+            sx: {
+              minHeight: 360,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }
+          }, React.createElement(CircularProgress, { size: 32 }));
+        }
+
+        return React.createElement(Box, {
+          sx: {
+            display: 'grid',
+            gap: 3,
+            gridTemplateColumns: { xs: '1fr', lg: '320px 1fr' }
+          }
+        },
+        React.createElement(Paper, { sx: { p: 2.5, borderRadius: 3, height: 'fit-content' } },
+          React.createElement(Typography, { variant: 'h6', mb: 1 }, '模块目录'),
+          React.createElement(Typography, { variant: 'body2', color: 'text.secondary', mb: 2 },
+            '通过树形结构快速定位并筛选模块。'
+          ),
+          React.createElement(Divider, { sx: { mb: 2 } }),
+          React.createElement(ModuleTree, {
+            data: treeData,
+            selectedId: selectedNodeId,
+            onSelect: setSelectedNodeId
+          })
+        ),
+        React.createElement(Box, null,
+          error ? React.createElement(Alert, { severity: 'error', sx: { mb: 2 } }, error) : null,
+          React.createElement(Paper, { sx: { p: 2, borderRadius: 3, mb: 2 } },
+            React.createElement(Stack, {
+              direction: { xs: 'column', sm: 'row' },
+              spacing: 1.5,
+              alignItems: { xs: 'stretch', sm: 'center' },
+              justifyContent: 'space-between'
+            },
+            React.createElement(Box, null,
+              React.createElement(Typography, { variant: 'subtitle1' }, '模块管理'),
+              React.createElement(Typography, { variant: 'caption', color: 'text.secondary' },
+                '共 ' + modules.length + ' 个模块' + (selectedNodeId ? '，当前定位：' + selectedNodeId : '')
+              )
+            ),
+            React.createElement(Stack, { direction: 'row', spacing: 1, flexWrap: 'wrap' },
+              React.createElement(Button, { variant: 'contained', size: 'small', onClick: handleOpenCreate }, '新建模块'),
+              React.createElement(Button, {
+                variant: 'outlined',
+                size: 'small',
+                disabled: !activeRow,
+                onClick: handleOpenEdit
+              }, '编辑'),
+              React.createElement(Button, {
+                variant: 'outlined',
+                size: 'small',
+                color: 'error',
+                disabled: !activeRow,
+                onClick: () => setConfirmDelete(true)
+              }, '删除'),
+              React.createElement(Button, {
+                variant: 'text',
+                size: 'small',
+                onClick: loadModules,
+                disabled: loading
+              }, '刷新')
+            )
+            )
+          ),
+          React.createElement(Paper, { sx: { borderRadius: 3 } },
+            React.createElement(TableContainer, null,
+              React.createElement(Table, { size: 'small' },
+                React.createElement(TableHead, null,
+                  React.createElement(TableRow, null,
+                    React.createElement(TableCell, null, '模块名称'),
+                    React.createElement(TableCell, null, '编码'),
+                    React.createElement(TableCell, null, '分类'),
+                    React.createElement(TableCell, null, '类型'),
+                    React.createElement(TableCell, null, '状态'),
+                    React.createElement(TableCell, null, '路径')
+                  )
+                ),
+                React.createElement(TableBody, null,
+                  tableRows.map((row) =>
+                    React.createElement(TableRow, {
+                      key: row.id,
+                      hover: true,
+                      selected: activeRow?.id === row.id,
+                      onClick: () => setActiveRow(row),
+                      sx: { cursor: 'pointer' }
+                    },
+                    React.createElement(TableCell, null,
+                      React.createElement(Typography, { variant: 'body2', fontWeight: 600 }, row.fullName || row.code),
+                      row.description ? React.createElement(Typography, { variant: 'caption', color: 'text.secondary' }, row.description) : null
+                    ),
+                    React.createElement(TableCell, null, row.code || '-'),
+                    React.createElement(TableCell, null, row.category || '-'),
+                    React.createElement(TableCell, null, moduleTypeMap[row.moduleType] || '模块'),
+                    React.createElement(TableCell, null,
+                      React.createElement(Stack, { direction: 'row', spacing: 0.5, flexWrap: 'wrap' },
+                        React.createElement(Chip, {
+                          label: row.enabled ? '启用' : '停用',
+                          size: 'small',
+                          color: row.enabled ? 'success' : 'default',
+                          variant: row.enabled ? 'filled' : 'outlined'
+                        }),
+                        row.isPublic
+                          ? React.createElement(Chip, { label: '公开', size: 'small', color: 'info', variant: 'outlined' })
+                          : null,
+                        row.isMenu
+                          ? React.createElement(Chip, { label: '菜单', size: 'small', variant: 'outlined' })
+                          : null
+                      )
+                    ),
+                    React.createElement(TableCell, null,
+                      React.createElement(Typography, { variant: 'body2' }, row.navigateUrl || '#')
+                    )
+                    )
+                  )
+                )
+              )
+            ),
+            !tableRows.length
+              ? React.createElement(Box, { sx: { p: 4, textAlign: 'center', color: 'text.secondary' } },
+                  selectedNodeId ? '此节点暂无子模块' : '暂无根级模块，请先创建。'
+                )
+              : null
+          )
+        ),
+        React.createElement(Dialog, {
+          open: dialogState.open,
+          onClose: handleCloseDialog,
+          maxWidth: 'sm',
+          fullWidth: true
+        },
+          React.createElement(DialogTitle, null, dialogState.mode === 'edit' ? '编辑模块' : '新建模块'),
+          React.createElement(DialogContent, null,
+            React.createElement(Stack, { spacing: 2, sx: { mt: 1 } },
+              React.createElement(TextField, {
+                label: '模块名称',
+                required: true,
+                value: formValues.fullName,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, fullName: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '模块编码',
+                required: true,
+                value: formValues.code,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, code: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '上级模块ID',
+                value: formValues.parentId,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, parentId: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '模块分类',
+                value: formValues.category,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, category: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '模块类型',
+                select: true,
+                value: formValues.moduleType,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, moduleType: event.target.value })),
+                children: Object.keys(moduleTypeMap).map((key) =>
+                  React.createElement(MenuItem, { key: key, value: Number(key) }, moduleTypeMap[key])
+                )
+              }),
+              React.createElement(Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 2 },
+                React.createElement(TextField, {
+                  label: 'Web 路径',
+                  value: formValues.navigateUrl,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, navigateUrl: event.target.value }))
+                }),
+                React.createElement(TextField, {
+                  label: 'MVC 路径',
+                  value: formValues.mvcNavigateUrl,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, mvcNavigateUrl: event.target.value }))
+                })
+              ),
+              React.createElement(Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 2 },
+                React.createElement(TextField, {
+                  label: '图标类名',
+                  value: formValues.iconCss,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, iconCss: event.target.value }))
+                }),
+                React.createElement(TextField, {
+                  label: '排序码',
+                  type: 'number',
+                  value: formValues.sortCode,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, sortCode: event.target.value }))
+                })
+              ),
+              React.createElement(TextField, {
+                label: '描述',
+                multiline: true,
+                minRows: 2,
+                value: formValues.description,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, description: event.target.value }))
+              }),
+              React.createElement(Stack, { direction: 'row', spacing: 1, flexWrap: 'wrap' },
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.enabled,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, enabled: event.target.checked }))
+                  }),
+                  label: '启用'
+                }),
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.isPublic,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, isPublic: event.target.checked }))
+                  }),
+                  label: '公开'
+                }),
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.isMenu,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, isMenu: event.target.checked }))
+                  }),
+                  label: '菜单'
+                }),
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.allowEdit,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, allowEdit: event.target.checked }))
+                  }),
+                  label: '允许编辑'
+                }),
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.allowDelete,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, allowDelete: event.target.checked }))
+                  }),
+                  label: '允许删除'
+                }),
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.expand,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, expand: event.target.checked }))
+                  }),
+                  label: '展开'
+                })
+              )
+            )
+          ),
+          React.createElement(DialogActions, null,
+            React.createElement(Button, { onClick: handleCloseDialog }, '取消'),
+            React.createElement(Button, { variant: 'contained', onClick: handleSave, disabled: saving }, '保存')
+          )
+        ),
+        React.createElement(Dialog, { open: confirmDelete, onClose: () => setConfirmDelete(false) },
+          React.createElement(DialogTitle, null, '删除模块'),
+          React.createElement(DialogContent, null,
+            React.createElement(Typography, null, '确定删除所选模块吗？该操作会将其标记为删除。')
+          ),
+          React.createElement(DialogActions, null,
+            React.createElement(Button, { onClick: () => setConfirmDelete(false) }, '取消'),
+            React.createElement(Button, {
+              color: 'error',
+              onClick: handleDelete,
+              disabled: saving
+            }, '删除')
+          )
+        ),
+        React.createElement(Snackbar, {
+          open: notify.open,
+          autoHideDuration: 3200,
+          onClose: () => setNotify((prev) => ({ ...prev, open: false }))
+        },
+          React.createElement(Alert, {
+            onClose: () => setNotify((prev) => ({ ...prev, open: false })),
+            severity: notify.severity,
+            sx: { width: '100%' }
+          }, notify.message)
+        )
+        );
+      };
+      const buildOrganizeTree = (records = []) => {
+        const nodes = new Map();
+        records.forEach((item) => {
+          nodes.set(item.id, { ...item, children: [] });
+        });
+        const sortFn = (a, b) => (a.sortCode || 0) - (b.sortCode || 0);
+        const roots = [];
+        nodes.forEach((node) => {
+          if (node.parentId && nodes.has(node.parentId)) {
+            nodes.get(node.parentId).children.push(node);
+          } else {
+            roots.push(node);
+          }
+        });
+        nodes.forEach((node) => node.children.sort(sortFn));
+        return roots.sort(sortFn);
+      };
+
+      const OrganizeTreeNode = ({ node, selectedId, onSelect, depth = 0 }) => {
+        const hasChildren = node.children && node.children.length > 0;
+        const [open, setOpen] = useState(depth < 1);
+        const handleClick = () => {
+          onSelect(node.id);
+          if (hasChildren) {
+            setOpen((prev) => !prev);
+          }
+        };
+        return React.createElement(React.Fragment, null,
+          React.createElement(ListItemButton, {
+            onClick: handleClick,
+            selected: selectedId === node.id,
+            sx: {
+              pl: 2 + depth * 1.5,
+              borderRadius: 1.5,
+              mb: 0.25,
+              '&.Mui-selected': { backgroundColor: 'rgba(99,102,241,0.15)' }
+            }
+          },
+          React.createElement(ListItemText, {
+            primary: node.fullName || node.code,
+            secondary: node.code
+          })
+          ),
+          hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
+            React.createElement(List, { disablePadding: true },
+              node.children.map((child) =>
+                React.createElement(OrganizeTreeNode, {
+                  key: child.id,
+                  node: child,
+                  selectedId,
+                  onSelect,
+                  depth: depth + 1
+                })
+              )
+            )
+          ) : null
+        );
+      };
+
+      const OrganizeTree = ({ data = [], selectedId, onSelect }) => {
+        return React.createElement(List, { component: 'nav' },
+          React.createElement(ListItemButton, {
+            selected: selectedId === null,
+            onClick: () => onSelect(null),
+            sx: { borderRadius: 1.5, mb: 0.5 }
+          },
+          React.createElement(ListItemText, { primary: '全部组织' })
+          ),
+          data.map((node) =>
+            React.createElement(OrganizeTreeNode, {
+              key: node.id,
+              node,
+              selectedId,
+              onSelect,
+              depth: 0
+            })
+          )
+        );
+      };
+
+      const defaultStaffForm = (organizeId = '') => ({
+        id: '',
+        realName: '',
+        code: '',
+        userName: '',
+        gender: '',
+        dutyId: '',
+        mobile: '',
+        email: '',
+        description: '',
+        sortCode: '',
+        organizeId: organizeId || '',
+        enabled: true,
+        isDimission: false
+      });
+
+      const mapStaffToFormValues = (record) =>
+        record
+          ? {
+              id: record.id,
+              realName: record.realName || '',
+              code: record.code || '',
+              userName: record.userName || '',
+              gender: record.gender || '',
+              dutyId: record.dutyId || '',
+              mobile: record.mobile || '',
+              email: record.email || '',
+              description: record.description || '',
+              sortCode: record.sortCode ?? '',
+              organizeId: record.organizeId || '',
+              enabled: !!record.enabled,
+              isDimission: !!record.isDimission
+            }
+          : defaultStaffForm();
+
+      const serializeStaffForm = (values) => ({
+        realName: values.realName?.trim(),
+        code: values.code?.trim(),
+        userName: values.userName?.trim(),
+        gender: values.gender || '',
+        dutyId: values.dutyId?.trim() || null,
+        mobile: values.mobile?.trim() || null,
+        email: values.email?.trim() || null,
+        description: values.description?.trim() || null,
+        sortCode: values.sortCode === '' ? null : Number(values.sortCode),
+        organizeId: values.organizeId || null,
+        enabled: !!values.enabled,
+        isDimission: !!values.isDimission
+      });
+
+      const genderOptions = [
+        { value: '', label: '保密' },
+        { value: '男', label: '男' },
+        { value: '女', label: '女' }
+      ];
+      const StaffAdminPage = () => {
+        const [organizes, setOrganizes] = useState([]);
+        const [organizeTree, setOrganizeTree] = useState([]);
+        const [selectedOrganize, setSelectedOrganize] = useState(null);
+        const [staffRows, setStaffRows] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState('');
+        const [searchInput, setSearchInput] = useState('');
+        const [keyword, setKeyword] = useState('');
+        const [dialogState, setDialogState] = useState({ open: false, mode: 'create' });
+        const [formValues, setFormValues] = useState(defaultStaffForm());
+        const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+        const [saving, setSaving] = useState(false);
+        const [selectedRow, setSelectedRow] = useState(null);
+        const [confirmDelete, setConfirmDelete] = useState(false);
+
+        const loadOrganizes = useCallback(async () => {
+          try {
+            const resp = await fetch('/staff-admin/organizes');
+            if (resp.status === 401) {
+              window.location.href = '/login';
+              return;
+            }
+            const result = await resp.json();
+            if (!resp.ok) {
+              throw new Error(result.message || '加载组织失败');
+            }
+            const list = result.data || [];
+            setOrganizes(list);
+            setOrganizeTree(buildOrganizeTree(list));
+          } catch (err) {
+            console.error(err);
+          }
+        }, []);
+
+        useEffect(() => {
+          loadOrganizes();
+        }, [loadOrganizes]);
+
+        const loadStaff = useCallback(async () => {
+          setLoading(true);
+          setError('');
+          try {
+            const params = new URLSearchParams();
+            if (selectedOrganize) {
+              params.append('organizeId', selectedOrganize);
+            }
+            if (keyword) {
+              params.append('keyword', keyword);
+            }
+            const query = params.toString();
+            const resp = await fetch(query ? `/staff-admin/staff?${query}` : '/staff-admin/staff');
+            if (resp.status === 401) {
+              window.location.href = '/login';
+              return;
+            }
+            const result = await resp.json();
+            if (!resp.ok) {
+              throw new Error(result.message || '加载员工失败');
+            }
+            setStaffRows(result.data || []);
+          } catch (err) {
+            setError(err.message || '加载员工失败');
+          } finally {
+            setLoading(false);
+          }
+        }, [selectedOrganize, keyword]);
+
+        useEffect(() => {
+          loadStaff();
+        }, [loadStaff]);
+
+        useEffect(() => {
+          if (selectedRow && !staffRows.some((row) => row.id === selectedRow.id)) {
+            setSelectedRow(null);
+          }
+        }, [staffRows, selectedRow]);
+
+        const handleSearch = () => {
+          setKeyword(searchInput.trim());
+        };
+
+        const handleOpenCreate = () => {
+          setFormValues(defaultStaffForm(selectedOrganize || ''));
+          setDialogState({ open: true, mode: 'create' });
+        };
+
+        const handleOpenEdit = () => {
+          if (!selectedRow) return;
+          setFormValues(mapStaffToFormValues(selectedRow));
+          setDialogState({ open: true, mode: 'edit' });
+        };
+
+        const handleCloseDialog = () => {
+          setDialogState({ open: false, mode: 'create' });
+          setFormValues(defaultStaffForm(selectedOrganize || ''));
+        };
+
+        const handleSave = async () => {
+          setSaving(true);
+          try {
+            const payload = serializeStaffForm(formValues);
+            if (!payload.realName) {
+              throw new Error('请填写员工姓名');
+            }
+            const isEdit = dialogState.mode === 'edit';
+            const url = isEdit ? `/staff-admin/staff/${formValues.id}` : '/staff-admin/staff';
+            const resp = await fetch(url, {
+              method: isEdit ? 'PUT' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const result = await resp.json();
+            if (!resp.ok) {
+              throw new Error(result.message || '保存失败');
+            }
+            setNotify({ open: true, severity: 'success', message: result.message || '保存成功' });
+            handleCloseDialog();
+            await loadStaff();
+          } catch (err) {
+            setNotify({ open: true, severity: 'error', message: err.message || '保存失败' });
+          } finally {
+            setSaving(false);
+          }
+        };
+
+        const handleDelete = async () => {
+          if (!selectedRow) return;
+          setSaving(true);
+          try {
+            const resp = await fetch(`/staff-admin/staff/${selectedRow.id}`, { method: 'DELETE' });
+            const result = await resp.json();
+            if (!resp.ok) {
+              throw new Error(result.message || '删除失败');
+            }
+            setNotify({ open: true, severity: 'success', message: result.message || '员工已删除' });
+            setSelectedRow(null);
+            await loadStaff();
+          } catch (err) {
+            setNotify({ open: true, severity: 'error', message: err.message || '删除失败' });
+          } finally {
+            setSaving(false);
+            setConfirmDelete(false);
+          }
+        };
+
+        const organizeOptions = useMemo(
+          () => organizes.map((item) => ({ value: item.id, label: item.fullName })),
+          [organizes]
+        );
+
+        return React.createElement(Box, {
+          sx: {
+            display: 'grid',
+            gap: 3,
+            gridTemplateColumns: { xs: '1fr', lg: '320px 1fr' }
+          }
+        },
+        React.createElement(Paper, { sx: { p: 2.5, borderRadius: 3, height: 'fit-content' } },
+          React.createElement(Typography, { variant: 'h6', mb: 1 }, '组织结构'),
+          React.createElement(Typography, { variant: 'body2', color: 'text.secondary', mb: 2 }, '点击组织查看所属员工'),
+          React.createElement(Divider, { sx: { mb: 2 } }),
+          React.createElement(OrganizeTree, {
+            data: organizeTree,
+            selectedId: selectedOrganize,
+            onSelect: setSelectedOrganize
+          })
+        ),
+        React.createElement(Box, null,
+          error ? React.createElement(Alert, { severity: 'error', sx: { mb: 2 } }, error) : null,
+          React.createElement(Paper, { sx: { p: 2, borderRadius: 3, mb: 2 } },
+            React.createElement(Stack, {
+              direction: { xs: 'column', md: 'row' },
+              spacing: 1.5,
+              justifyContent: 'space-between'
+            },
+            React.createElement(Stack, { direction: 'row', spacing: 1, flexWrap: 'wrap', alignItems: 'center' },
+              React.createElement(TextField, {
+                label: '搜索姓名/账号/电话',
+                value: searchInput,
+                size: 'small',
+                onChange: (event) => setSearchInput(event.target.value)
+              }),
+              React.createElement(Button, { variant: 'text', size: 'small', onClick: handleSearch }, '搜索')
+            ),
+            React.createElement(Stack, { direction: 'row', spacing: 1, flexWrap: 'wrap' },
+              React.createElement(Button, { variant: 'contained', size: 'small', onClick: handleOpenCreate }, '新增员工'),
+              React.createElement(Button, {
+                variant: 'outlined',
+                size: 'small',
+                disabled: !selectedRow,
+                onClick: handleOpenEdit
+              }, '编辑'),
+              React.createElement(Button, {
+                variant: 'outlined',
+                size: 'small',
+                color: 'error',
+                disabled: !selectedRow,
+                onClick: () => setConfirmDelete(true)
+              }, '删除'),
+              React.createElement(Button, { variant: 'text', size: 'small', onClick: loadStaff, disabled: loading }, '刷新')
+            )
+            )
+          ),
+          React.createElement(Paper, { sx: { borderRadius: 3, position: 'relative' } },
+            loading
+              ? React.createElement(Box, {
+                  sx: {
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    bgcolor: 'rgba(255,255,255,0.6)',
+                    zIndex: 1,
+                    borderRadius: 3
+                  }
+                }, React.createElement(CircularProgress, { size: 32 }))
+              : null,
+            React.createElement(TableContainer, null,
+              React.createElement(Table, { size: 'small' },
+                React.createElement(TableHead, null,
+                  React.createElement(TableRow, null,
+                    React.createElement(TableCell, null, '姓名'),
+                    React.createElement(TableCell, null, '工号'),
+                    React.createElement(TableCell, null, '账号'),
+                    React.createElement(TableCell, null, '手机'),
+                    React.createElement(TableCell, null, '邮箱'),
+                    React.createElement(TableCell, null, '所属组织'),
+                    React.createElement(TableCell, null, '状态')
+                  )
+                ),
+                React.createElement(TableBody, null,
+                  staffRows.map((row) =>
+                    React.createElement(TableRow, {
+                      key: row.id,
+                      hover: true,
+                      selected: selectedRow?.id === row.id,
+                      onClick: () => setSelectedRow(row),
+                      sx: { cursor: 'pointer' }
+                    },
+                    React.createElement(TableCell, null, row.realName || row.userName || '-'),
+                    React.createElement(TableCell, null, row.code || '-'),
+                    React.createElement(TableCell, null, row.userName || '-'),
+                    React.createElement(TableCell, null, row.mobile || '-'),
+                    React.createElement(TableCell, null, row.email || '-'),
+                    React.createElement(TableCell, null, row.organizeName || '-'),
+                    React.createElement(TableCell, null,
+                      React.createElement(Stack, { direction: 'row', spacing: 0.5 },
+                        React.createElement(Chip, {
+                          label: row.enabled ? '在岗' : '停用',
+                          size: 'small',
+                          color: row.enabled ? 'success' : 'default',
+                          variant: row.enabled ? 'filled' : 'outlined'
+                        }),
+                        row.isDimission
+                          ? React.createElement(Chip, { label: '离职', size: 'small', color: 'warning', variant: 'outlined' })
+                          : null
+                      )
+                    )
+                    )
+                  )
+                )
+              )
+            ),
+            !staffRows.length
+              ? React.createElement(Box, { sx: { p: 4, textAlign: 'center', color: 'text.secondary' } }, '暂无符合条件的员工')
+              : null
+          )
+        ),
+        React.createElement(Dialog, {
+          open: dialogState.open,
+          onClose: handleCloseDialog,
+          maxWidth: 'sm',
+          fullWidth: true
+        },
+          React.createElement(DialogTitle, null, dialogState.mode === 'edit' ? '编辑员工' : '新增员工'),
+          React.createElement(DialogContent, null,
+            React.createElement(Stack, { spacing: 2, sx: { mt: 1 } },
+              React.createElement(TextField, {
+                label: '姓名',
+                required: true,
+                value: formValues.realName,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, realName: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '工号',
+                value: formValues.code,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, code: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '账号',
+                value: formValues.userName,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, userName: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '性别',
+                select: true,
+                value: formValues.gender,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, gender: event.target.value })),
+                children: genderOptions.map((opt) =>
+                  React.createElement(MenuItem, { key: opt.value, value: opt.value }, opt.label)
+                )
+              }),
+              React.createElement(TextField, {
+                label: '手机号',
+                value: formValues.mobile,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, mobile: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '邮箱',
+                value: formValues.email,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, email: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '所属组织',
+                select: true,
+                value: formValues.organizeId,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, organizeId: event.target.value })),
+                children: [
+                  React.createElement(MenuItem, { key: 'empty', value: '' }, '未设置'),
+                  ...organizeOptions.map((opt) =>
+                    React.createElement(MenuItem, { key: opt.value, value: opt.value }, opt.label)
+                  )
+                ]
+              }),
+              React.createElement(TextField, {
+                label: '排序码',
+                type: 'number',
+                value: formValues.sortCode,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, sortCode: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '备注',
+                multiline: true,
+                minRows: 2,
+                value: formValues.description,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, description: event.target.value }))
+              }),
+              React.createElement(Stack, { direction: 'row', spacing: 1 },
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.enabled,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, enabled: event.target.checked }))
+                  }),
+                  label: '启用'
+                }),
+                React.createElement(FormControlLabel, {
+                  control: React.createElement(Switch, {
+                    checked: formValues.isDimission,
+                    onChange: (event) => setFormValues((prev) => ({ ...prev, isDimission: event.target.checked }))
+                  }),
+                  label: '已离职'
+                })
+              )
+            )
+          ),
+          React.createElement(DialogActions, null,
+            React.createElement(Button, { onClick: handleCloseDialog }, '取消'),
+            React.createElement(Button, { variant: 'contained', onClick: handleSave, disabled: saving }, '保存')
+          )
+        ),
+        React.createElement(Dialog, { open: confirmDelete, onClose: () => setConfirmDelete(false) },
+          React.createElement(DialogTitle, null, '删除员工'),
+          React.createElement(DialogContent, null,
+            React.createElement(Typography, null, '确定删除所选员工吗？')
+          ),
+          React.createElement(DialogActions, null,
+            React.createElement(Button, { onClick: () => setConfirmDelete(false) }, '取消'),
+            React.createElement(Button, { color: 'error', onClick: handleDelete, disabled: saving }, '删除')
+          )
+        ),
+        React.createElement(Snackbar, {
+          open: notify.open,
+          autoHideDuration: 3200,
+          onClose: () => setNotify((prev) => ({ ...prev, open: false }))
+        },
+          React.createElement(Alert, {
+            onClose: () => setNotify((prev) => ({ ...prev, open: false })),
+            severity: notify.severity,
+            sx: { width: '100%' }
+          }, notify.message)
+        )
+        );
+      };
       const AdminApp = () => {
         const data = window.__APP_DATA__ || {};
-        const [mobileOpen, setMobileOpen] = useState(false);
-        const [collapsed, setCollapsed] = useState(false);
         const user = data.user || {};
         const navTree = data.nav || [];
+        const [mobileOpen, setMobileOpen] = useState(false);
+        const [collapsed, setCollapsed] = useState(false);
+        const [activeView, setActiveView] = useState({ type: 'dashboard', node: null });
+        const [activeNavId, setActiveNavId] = useState(null);
 
         const toggleDrawer = () => setMobileOpen((prev) => !prev);
         const toggleCollapse = () => setCollapsed((prev) => !prev);
         const navWidth = collapsed ? collapsedWidth : drawerWidth;
+
+        const handleNavSelect = (node) => {
+          if (!node) return;
+          setActiveNavId(node.id);
+          if (isModuleAdminNode(node)) {
+            setActiveView({ type: 'module-admin', node });
+          } else if (isStaffAdminNode(node)) {
+            setActiveView({ type: 'staff-admin', node });
+          } else {
+            setActiveView({ type: 'dashboard', node });
+          }
+          if (mobileOpen) {
+            setMobileOpen(false);
+          }
+        };
 
         const handleLogout = async () => {
           try {
@@ -101,16 +1294,48 @@ html(lang="zh-CN")
           }
         };
 
-      const drawer = React.createElement(Box, { sx: { p: 2, height: '100%', display: 'flex', flexDirection: 'column', gap: 1 } },
-          React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between' } },
-            !collapsed ? React.createElement(Typography, { variant: 'h6', fontWeight: 600 }, '导航菜单') : null,
-            React.createElement(MaterialUI.IconButton, { size: 'small', onClick: toggleCollapse, color: 'inherit' },
-              React.createElement(Icon, null, 'menu')
+        const renderContent = () => {
+          if (activeView.type === 'module-admin') {
+            return React.createElement(ModuleAdminPage, null);
+          }
+          if (activeView.type === 'staff-admin') {
+            return React.createElement(StaffAdminPage, null);
+          }
+          return React.createElement(DashboardOverview, { user, activeNode: activeView.node });
+        };
+
+        const drawer = React.createElement(Box, {
+          sx: {
+            p: 2,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1
+          }
+        },
+          React.createElement(Box, {
+            sx: {
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: collapsed ? 'center' : 'space-between'
+            }
+          },
+            !collapsed ? React.createElement(Typography, { variant: 'h6', fontWeight: 600 }, '功能导航') : null,
+            React.createElement(Tooltip, { title: collapsed ? '展开导航' : '折叠导航' },
+              React.createElement(IconButton, { size: 'small', onClick: toggleCollapse },
+                React.createElement(MenuIcon, null)
+              )
             )
           ),
-          !collapsed ? React.createElement(Box, { sx: { flexGrow: 1, overflowY: 'auto', mt: 1 } },
-            React.createElement(NavigationTree, { nodes: navTree })
-          ) : React.createElement(Box, { sx: { flexGrow: 1 } })
+          !collapsed
+            ? React.createElement(Box, { sx: { flexGrow: 1, overflowY: 'auto', mt: 1 } },
+                React.createElement(NavigationTree, {
+                  nodes: navTree,
+                  onSelect: handleNavSelect,
+                  activeNodeId: activeNavId
+                })
+              )
+            : React.createElement(Box, { sx: { flexGrow: 1 } })
         );
 
         return React.createElement(Box, { sx: { display: 'flex', minHeight: '100vh', backgroundColor: '#f4f6f8' } },
@@ -132,14 +1357,23 @@ html(lang="zh-CN")
               onClick: toggleDrawer,
               sx: { mr: 2, display: { sm: 'none' } }
             }, React.createElement(MenuIcon, null)),
-            React.createElement(Typography, { variant: 'h6', noWrap: true, sx: { flexGrow: 1, color: '#1f2933' } }, '管理驾驶舱'),
+            React.createElement(Typography, {
+              variant: 'h6',
+              noWrap: true,
+              sx: { flexGrow: 1, color: '#1f2933' }
+            }, activeView.type === 'module-admin' ? '模块管理' : '管理驾驶舱'),
             React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', gap: 2 } },
               React.createElement(Box, null,
                 React.createElement(Typography, { variant: 'subtitle1', textAlign: 'right', color: '#1f2933' }, user.RealName || '管理员'),
                 React.createElement(Typography, { variant: 'caption', color: 'rgba(31,41,51,0.6)' }, user.UserName || '')
               ),
               React.createElement(Avatar, { sx: { bgcolor: '#6366f1', color: '#fff' } }, (user.RealName || 'Admin').slice(0, 1)),
-              React.createElement(Button, { color: 'primary', variant: 'outlined', startIcon: React.createElement(LogoutIcon, null), onClick: handleLogout }, '退出')
+              React.createElement(Button, {
+                color: 'primary',
+                variant: 'outlined',
+                startIcon: React.createElement(LogoutIcon, null),
+                onClick: handleLogout
+              }, '退出')
             )
           )
           ),
@@ -161,7 +1395,13 @@ html(lang="zh-CN")
             variant: 'permanent',
             sx: {
               display: { xs: 'none', sm: 'block' },
-              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: navWidth, borderRight: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#fff', color: '#1f2933' }
+              '& .MuiDrawer-paper': {
+                boxSizing: 'border-box',
+                width: navWidth,
+                borderRight: '1px solid rgba(0,0,0,0.08)',
+                backgroundColor: '#fff',
+                color: '#1f2933'
+              }
             },
             open: true
           }, drawer)
@@ -170,30 +1410,15 @@ html(lang="zh-CN")
             component: 'main',
             sx: {
               flexGrow: 1,
-              p: 3,
+              p: { xs: 2, md: 3 },
               width: { sm: `calc(100% - ${navWidth}px)` },
               mt: 8
             }
-          },
-          React.createElement(Box, { sx: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 3 } },
-            ['今日访客', '活跃用户', '待处理事项'].map((title, index) =>
-              React.createElement(Paper, {
-                key: title,
-                sx: { p: 3, borderRadius: 3, background: 'linear-gradient(135deg,#eef2ff,#dbeafe)', color: '#1f2933', minHeight: 140 }
-              },
-              React.createElement(Typography, { variant: 'subtitle2', textTransform: 'uppercase', letterSpacing: 1 }, title),
-              React.createElement(Typography, { variant: 'h3', mt: 2 }, Math.floor(Math.random() * 300 + 50)),
-              React.createElement(Typography, { variant: 'body2', color: 'rgba(31,41,51,0.6)', mt: 1 }, '数据刷新于 ' + new Date().toLocaleTimeString())
-              )
-            )
-          ),
-          React.createElement(Box, { sx: { mt: 4 } },
-            React.createElement(Typography, { variant: 'h5', mb: 2, color: '#1f2933' }, '欢迎回来，' + (user.RealName || '管理员') + '！'),
-            React.createElement(Typography, { variant: 'body1', color: 'rgba(31,41,51,0.8)' }, '这里是系统主控面板，左侧导航支持多级模块展示，您可以在此快速进入需要管理的功能。')
-          )
-          )
+          }, renderContent())
         );
       };
 
       const root = createRoot(document.getElementById('root'));
       root.render(React.createElement(AdminApp));
+
+
