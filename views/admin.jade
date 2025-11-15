@@ -34,6 +34,8 @@ html(lang="zh-CN")
 
     include admin-pages/postAdmin.jade
 
+    include admin-pages/sequenceAdmin.jade
+
     include admin-pages/permissionItemAdmin.jade
 
     include admin-pages/rolePermissionAdmin.jade
@@ -100,6 +102,7 @@ html(lang="zh-CN")
       const USER_PERMISSION_ADMIN_CODES = ['userpermissionadmin', 'userpermission', 'permissionuser'];
       const PERMISSION_ITEM_ADMIN_CODES = ['permissionitemadmin', 'permissionitem', 'permissionitemmanagement'];
       const ROLE_PERMISSION_ADMIN_CODES = ['rolepermissionadmin', 'rolepermission', 'permissionrole'];
+      const SEQUENCE_ADMIN_CODES = ['sequenceadmin', 'sequencemanagement', 'sequence'];
 
       const isModuleAdminNode = (node = {}) => {
         const code = (node.code || '').toLowerCase();
@@ -153,6 +156,12 @@ html(lang="zh-CN")
         const code = (node.code || '').toLowerCase();
         const path = (node.path || '').toLowerCase();
         return ROLE_PERMISSION_ADMIN_CODES.includes(code) || path.indexOf('rolepermission') >= 0;
+      };
+
+      const isSequenceAdminNode = (node = {}) => {
+        const code = (node.code || '').toLowerCase();
+        const path = (node.path || '').toLowerCase();
+        return SEQUENCE_ADMIN_CODES.includes(code) || path.indexOf('sequence') >= 0;
       };
 
       const NavItem = ({ node, onSelect, activeNodeId, depth = 0 }) => {
@@ -426,6 +435,8 @@ html(lang="zh-CN")
             setActiveView({ type: 'organize-admin', node });
           } else if (isUserAdminNode(node)) {
             setActiveView({ type: 'user-admin', node });
+          } else if (isSequenceAdminNode(node)) {
+            setActiveView({ type: 'sequence-admin', node });
           } else if (isRolePermissionAdminNode(node)) {
             setActiveView({ type: 'role-permission-admin', node });
           } else if (isRoleAdminNode(node)) {
@@ -480,6 +491,9 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'permission-item-admin') {
             return React.createElement(PermissionItemAdminPage, null);
+          }
+          if (activeView.type === 'sequence-admin') {
+            return React.createElement(SequenceAdminPage, null);
           }
           if (activeView.type === 'role-permission-admin') {
             return React.createElement(RolePermissionAdminPage, null);
@@ -560,6 +574,8 @@ html(lang="zh-CN")
               ? '用户权限管理'
               : activeView.type === 'permission-item-admin'
               ? '权限项管理'
+              : activeView.type === 'sequence-admin'
+              ? '序列管理'
               : activeView.type === 'role-permission-admin'
               ? '角色权限管理'
               : '管理驾驶舱'),

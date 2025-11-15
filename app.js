@@ -18,6 +18,7 @@ var rolePermissionAdminRouter = require('./routes/rolePermissionAdmin');
 var postAdminRouter = require('./routes/postAdmin');
 var userPermissionAdminRouter = require('./routes/userPermissionAdmin');
 var permissionItemAdminRouter = require('./routes/permissionItemAdmin');
+var sequenceAdminRouter = require('./routes/sequenceAdmin');
 
 var app = express();
 
@@ -55,6 +56,7 @@ app.use('/role-permission-admin', rolePermissionAdminRouter);
 app.use('/post-admin', postAdminRouter);
 app.use('/user-permission', userPermissionAdminRouter);
 app.use('/permission-item-admin', permissionItemAdminRouter);
+app.use('/sequence-admin', sequenceAdminRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

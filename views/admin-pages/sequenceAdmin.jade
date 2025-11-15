@@ -1,0 +1,357 @@
+script.
+  const createDefaultSequenceForm = () => ({
+    id: '',
+    fullName: '',
+    prefix: '',
+    separate: '',
+    sequence: '10000000',
+    reduction: '9999999',
+    step: '1',
+    description: ''
+  });
+
+  const mapSequenceToForm = (record = {}) => ({
+    id: record.id || '',
+    fullName: record.fullName || '',
+    prefix: record.prefix || '',
+    separate: record.separate || '',
+    sequence: record.sequence ?? '',
+    reduction: record.reduction ?? '',
+    step: record.step ?? '',
+    description: record.description || ''
+  });
+
+  const SequenceAdminPage = () => {
+    const [sequences, setSequences] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [total, setTotal] = useState(0);
+    const [searchInput, setSearchInput] = useState('');
+    const [keyword, setKeyword] = useState('');
+    const [selectedRow, setSelectedRow] = useState(null);
+    const [dialogState, setDialogState] = useState({ open: false, mode: 'create' });
+    const [formValues, setFormValues] = useState(createDefaultSequenceForm());
+    const [saving, setSaving] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+
+    const closeNotify = () => setNotify((prev) => ({ ...prev, open: false }));
+
+    const loadSequences = useCallback(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+        if (keyword) {
+          params.append('keyword', keyword);
+        }
+        const resp = await fetch(`/sequence-admin/sequences?${params.toString()}`);
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '获取序列数据失败');
+        }
+        setSequences(result.data || []);
+        setTotal(result.total || 0);
+        if (selectedRow && !(result.data || []).find((item) => item.id === selectedRow.id)) {
+          setSelectedRow(null);
+        }
+      } catch (err) {
+        setError(err.message || '获取序列数据失败');
+      } finally {
+        setLoading(false);
+      }
+    }, [page, pageSize, keyword, selectedRow]);
+
+    useEffect(() => {
+      loadSequences();
+    }, [loadSequences]);
+
+    const handleSearch = () => {
+      setKeyword(searchInput.trim());
+      setPage(1);
+    };
+
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    const handleOpenCreate = () => {
+      setFormValues(createDefaultSequenceForm());
+      setDialogState({ open: true, mode: 'create' });
+    };
+
+    const handleOpenEdit = async () => {
+      if (!selectedRow) {
+        return;
+      }
+      try {
+        const resp = await fetch(`/sequence-admin/sequences/${selectedRow.id}`);
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '获取序列详情失败');
+        }
+        setFormValues(mapSequenceToForm(result.data || {}));
+        setDialogState({ open: true, mode: 'edit' });
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '获取序列详情失败' });
+      }
+    };
+
+    const handleCloseDialog = () => {
+      setDialogState({ open: false, mode: 'create' });
+      setFormValues(createDefaultSequenceForm());
+    };
+
+    const normalizePayload = () => ({
+      fullName: (formValues.fullName || '').trim(),
+      prefix: formValues.prefix?.trim() || '',
+      separate: formValues.separate?.trim() || '',
+      sequence: formValues.sequence === '' ? null : Number(formValues.sequence),
+      reduction: formValues.reduction === '' ? null : Number(formValues.reduction),
+      step: formValues.step === '' ? null : Number(formValues.step),
+      description: formValues.description?.trim() || ''
+    });
+
+    const handleSave = async () => {
+      const payload = normalizePayload();
+      if (!payload.fullName) {
+        setNotify({ open: true, severity: 'error', message: '请填写序列名称' });
+        return;
+      }
+      setSaving(true);
+      try {
+        const isEdit = dialogState.mode === 'edit';
+        const url = isEdit ? `/sequence-admin/sequences/${formValues.id}` : '/sequence-admin/sequences';
+        const resp = await fetch(url, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '保存序列失败');
+        }
+        setNotify({ open: true, severity: 'success', message: result.message || '序列已保存' });
+        handleCloseDialog();
+        await loadSequences();
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '保存序列失败' });
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleDelete = async () => {
+      if (!selectedRow) {
+        return;
+      }
+      setSaving(true);
+      try {
+        const resp = await fetch(`/sequence-admin/sequences/${selectedRow.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '删除序列失败');
+        }
+        setNotify({ open: true, severity: 'success', message: result.message || '序列已删除' });
+        setSelectedRow(null);
+        await loadSequences();
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '删除序列失败' });
+      } finally {
+        setSaving(false);
+        setConfirmDelete(false);
+      }
+    };
+
+    return React.createElement(Box, { sx: { display: 'flex', flexDirection: 'column', gap: 2 } },
+      React.createElement(Paper, { sx: { p: 2, borderRadius: 3 } },
+        React.createElement(Stack, {
+          direction: { xs: 'column', md: 'row' },
+          spacing: 1.5,
+          alignItems: { xs: 'stretch', md: 'center' },
+          justifyContent: 'space-between'
+        },
+          React.createElement(Stack, { spacing: 0.5 },
+            React.createElement(Typography, { variant: 'h6' }, '序列列表'),
+            React.createElement(Typography, { variant: 'caption', color: 'text.secondary' }, `共 ${total} 条记录`)
+          ),
+          React.createElement(Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 1 },
+            React.createElement(TextField, {
+              size: 'small',
+              label: '搜索序列',
+              value: searchInput,
+              onChange: (event) => setSearchInput(event.target.value)
+            }),
+            React.createElement(Button, { variant: 'contained', onClick: handleSearch }, '搜索'),
+            React.createElement(Button, { variant: 'outlined', onClick: handleOpenCreate }, '新增'),
+            React.createElement(Button, {
+              variant: 'outlined',
+              disabled: !selectedRow,
+              onClick: handleOpenEdit
+            }, '编辑'),
+            React.createElement(Button, {
+              variant: 'outlined',
+              color: 'error',
+              disabled: !selectedRow,
+              onClick: () => setConfirmDelete(true)
+            }, '删除'),
+            React.createElement(Button, { variant: 'text', onClick: loadSequences }, '刷新')
+          )
+        )
+      ),
+      React.createElement(Paper, { sx: { borderRadius: 3, overflow: 'hidden' } },
+        loading ? React.createElement(LinearProgress, null) : null,
+        error ? React.createElement(Alert, { severity: 'error', sx: { borderRadius: 0 } }, error) : null,
+        React.createElement(TableContainer, null,
+          React.createElement(Table, { size: 'small' },
+            React.createElement(TableHead, null,
+              React.createElement(TableRow, null,
+                React.createElement(TableCell, null, '名称'),
+                React.createElement(TableCell, null, '前缀'),
+                React.createElement(TableCell, null, '分隔符'),
+                React.createElement(TableCell, null, '当前值'),
+                React.createElement(TableCell, null, '递减值'),
+                React.createElement(TableCell, null, '步长'),
+                React.createElement(TableCell, null, '说明')
+              )
+            ),
+            React.createElement(TableBody, null,
+              sequences.length
+                ? sequences.map((item) =>
+                    React.createElement(TableRow, {
+                      key: item.id,
+                      hover: true,
+                      selected: selectedRow?.id === item.id,
+                      onClick: () => setSelectedRow(item),
+                      sx: { cursor: 'pointer' }
+                    },
+                      React.createElement(TableCell, null, item.fullName || '-'),
+                      React.createElement(TableCell, null, item.prefix || '-'),
+                      React.createElement(TableCell, null, item.separate || '-'),
+                      React.createElement(TableCell, null, item.sequence ?? '-'),
+                      React.createElement(TableCell, null, item.reduction ?? '-'),
+                      React.createElement(TableCell, null, item.step ?? '-'),
+                      React.createElement(TableCell, null, item.description || '-')
+                    )
+                  )
+                : React.createElement(TableRow, null,
+                    React.createElement(TableCell, {
+                      colSpan: 7,
+                      align: 'center',
+                      sx: { py: 4, color: 'text.secondary' }
+                    }, loading ? '正在加载...' : '暂无数据')
+                  )
+            )
+          )
+        ),
+        React.createElement(Divider, null),
+        React.createElement(Box, {
+          sx: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            p: 2,
+            gap: 1.5
+          }
+        },
+          React.createElement(TextField, {
+            select: true,
+            size: 'small',
+            label: '每页',
+            value: pageSize,
+            onChange: (event) => {
+              setPageSize(Number(event.target.value));
+              setPage(1);
+            },
+            sx: { minWidth: 90 }
+          },
+            [10, 20, 50, 100].map((size) =>
+              React.createElement(MenuItem, { key: size, value: size }, `${size} 条`)
+            )
+          ),
+          React.createElement(Pagination, {
+            count: totalPages,
+            page,
+            onChange: (event, value) => setPage(value),
+            color: 'primary'
+          })
+        )
+      ),
+      React.createElement(Dialog, { open: dialogState.open, onClose: handleCloseDialog, maxWidth: 'sm', fullWidth: true },
+        React.createElement(DialogTitle, null, dialogState.mode === 'edit' ? '编辑序列' : '新增序列'),
+        React.createElement(DialogContent, null,
+          React.createElement(Stack, { spacing: 2, mt: 1 },
+            React.createElement(TextField, {
+              label: '序列名称',
+              required: true,
+              value: formValues.fullName,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, fullName: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '前缀',
+              value: formValues.prefix,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, prefix: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '分隔符',
+              value: formValues.separate,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, separate: event.target.value }))
+            }),
+            React.createElement(Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 2 },
+              React.createElement(TextField, {
+                label: '当前值',
+                type: 'number',
+                value: formValues.sequence,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, sequence: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '递减值',
+                type: 'number',
+                value: formValues.reduction,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, reduction: event.target.value }))
+              }),
+              React.createElement(TextField, {
+                label: '步长',
+                type: 'number',
+                value: formValues.step,
+                onChange: (event) => setFormValues((prev) => ({ ...prev, step: event.target.value }))
+              })
+            ),
+            React.createElement(TextField, {
+              label: '说明',
+              multiline: true,
+              minRows: 2,
+              value: formValues.description,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, description: event.target.value }))
+            })
+          )
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: handleCloseDialog }, '取消'),
+          React.createElement(Button, { onClick: handleSave, variant: 'contained', disabled: saving }, '保存')
+        )
+      ),
+      React.createElement(Dialog, { open: confirmDelete, onClose: () => setConfirmDelete(false) },
+        React.createElement(DialogTitle, null, '删除序列'),
+        React.createElement(DialogContent, null,
+          React.createElement(Typography, null, '确定删除所选序列吗？')
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: () => setConfirmDelete(false) }, '取消'),
+          React.createElement(Button, { color: 'error', onClick: handleDelete, disabled: saving }, '删除')
+        )
+      ),
+      React.createElement(Snackbar, { open: notify.open, autoHideDuration: 3200, onClose: closeNotify },
+        React.createElement(Alert, { severity: notify.severity, onClose: closeNotify, sx: { width: '100%' } }, notify.message)
+      )
+    );
+  };
