@@ -1,0 +1,238 @@
+doctype html
+html(lang="zh-CN")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1")
+    title= title || '后台登录'
+    link(rel="preconnect" href="https://fonts.googleapis.com")
+    link(rel="preconnect" href="https://fonts.gstatic.com" crossorigin="")
+    link(href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet")
+    style.
+      html, body { height: 100%; margin: 0; font-family: 'Roboto','Noto Sans SC',sans-serif; background: linear-gradient(135deg,#f6f8ff,#eef2ff); }
+      #root { width: 100%; height: 100%; }
+  body
+    div#root
+    script(src="https://unpkg.com/react@18/umd/react.development.js" crossorigin)
+    script(src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@mui/material@5.15.14/umd/material-ui.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/react@11.11.4/dist/emotion-react.umd.min.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js" crossorigin)
+    script.
+      const { useState } = React;
+      const { createRoot } = ReactDOM;
+      const {
+        ThemeProvider,
+        createTheme,
+        CssBaseline,
+        Box,
+        Paper,
+        Typography,
+        TextField,
+        Button,
+        Stack,
+        Alert,
+        CircularProgress,
+        Divider
+      } = MaterialUI;
+
+      const loginTheme = createTheme({
+        palette: {
+          mode: 'light',
+          primary: { main: '#3040d6' },
+          secondary: { main: '#7c3aed' },
+          background: { default: '#eef1f8' }
+        },
+        typography: {
+          fontFamily: "'Roboto','Noto Sans SC',sans-serif"
+        },
+        shape: { borderRadius: 18 }
+      });
+
+      const FeatureItem = ({ title, description }) => (
+        React.createElement(Box, {
+          sx: {
+            borderRadius: 3,
+            border: '1px solid rgba(255,255,255,0.35)',
+            p: 2,
+            bgcolor: 'rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(6px)'
+          }
+        },
+        React.createElement(Typography, { variant: 'subtitle1', fontWeight: 600, sx: { color: '#fff' } }, title),
+        React.createElement(Typography, { variant: 'body2', sx: { color: 'rgba(255,255,255,0.75)', mt: 0.5 } }, description))
+      );
+
+      const LoginApp = () => {
+        const [account, setAccount] = useState('');
+        const [password, setPassword] = useState('');
+        const [error, setError] = useState('');
+        const [loading, setLoading] = useState(false);
+
+        const handleSubmit = async (event) => {
+          event.preventDefault();
+          setError('');
+          if (!account || !password) {
+            setError('请输入用户名和密码');
+            return;
+          }
+          setLoading(true);
+          try {
+            const response = await fetch('/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ account, password })
+            });
+            const result = await response.json();
+            if (result.success) {
+              window.location.href = result.redirect || '/admin';
+            } else {
+              setError(result.message || '登录失败，请重试');
+            }
+          } catch (err) {
+            setError('网络异常，请稍后重试');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        return (
+          React.createElement(ThemeProvider, { theme: loginTheme },
+            React.createElement(CssBaseline, null),
+            React.createElement(Box, {
+              sx: {
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                px: { xs: 2, md: 4 },
+                py: { xs: 4, md: 6 }
+              }
+            },
+            React.createElement(Paper, {
+              elevation: 20,
+              sx: {
+                width: '100%',
+                maxWidth: 1080,
+                minHeight: { md: 520 },
+                borderRadius: 5,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' }
+              }
+            },
+            React.createElement(Box, {
+              sx: {
+                display: { xs: 'none', md: 'flex' },
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                flex: '0 0 44%',
+                bgcolor: 'primary.main',
+                color: '#fff',
+                p: 5,
+                position: 'relative',
+                overflow: 'hidden'
+              }
+            },
+            React.createElement(Box, {
+              sx: {
+                position: 'absolute',
+                inset: 0,
+                background: 'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(255,255,255,0.2), transparent 40%)'
+              }
+            }),
+            React.createElement(Box, { sx: { position: 'relative' } },
+              React.createElement(Typography, {
+                variant: 'overline',
+                sx: { letterSpacing: 3, color: 'rgba(255,255,255,0.85)' }
+              }, 'ADMIN WORKSPACE'),
+              React.createElement(Typography, {
+                variant: 'h4',
+                fontWeight: 700,
+                gutterBottom: true,
+                sx: { mt: 1 }
+              }, '你好，欢迎回来'),
+              React.createElement(Typography, {
+                variant: 'body1',
+                sx: { color: 'rgba(255,255,255,0.85)', maxWidth: 320 }
+              }, '连接组织的人、角色、模块与权限，打造可持续迭代的后台体验。')
+            ),
+            React.createElement(Stack, {
+              spacing: 2,
+              sx: { mt: 6, position: 'relative' }
+            },
+              React.createElement(FeatureItem, { title: '多机构协作', description: '按组织、角色维度管理权限范围。' }),
+              React.createElement(FeatureItem, { title: '实时洞察', description: '跨模块的统一数据视图与策略。' })
+            ),
+            React.createElement(Typography, {
+              variant: 'caption',
+              sx: { position: 'relative', color: 'rgba(255,255,255,0.7)', mt: 4 }
+            }, '根据 AdminJS 设计语言定制')
+            ),
+            React.createElement(Box, {
+              component: 'form',
+              onSubmit: handleSubmit,
+              sx: {
+                flex: 1,
+                p: { xs: 4, md: 6 },
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center'
+              }
+            },
+            React.createElement(Box, { sx: { mb: 4 } },
+              React.createElement(Typography, { variant: 'overline', color: 'primary.main', letterSpacing: 2 }, 'SIGN IN'),
+              React.createElement(Typography, { variant: 'h4', fontWeight: 700, sx: { mt: 1 } }, '登录到管理控制台'),
+              React.createElement(Typography, { variant: 'body2', color: 'text.secondary', sx: { mt: 0.5 } }, '使用企业账户继续，开启今日的管理工作。')
+            ),
+            error ? React.createElement(Alert, { severity: 'error', sx: { mb: 2 } }, error) : null,
+            React.createElement(TextField, {
+              label: '用户名',
+              placeholder: '请输入账号',
+              fullWidth: true,
+              margin: 'normal',
+              value: account,
+              onChange: (e) => setAccount(e.target.value),
+              autoComplete: 'username',
+              variant: 'outlined'
+            }),
+            React.createElement(TextField, {
+              label: '密码',
+              placeholder: '请输入密码',
+              type: 'password',
+              fullWidth: true,
+              margin: 'normal',
+              value: password,
+              onChange: (e) => setPassword(e.target.value),
+              autoComplete: 'current-password',
+              variant: 'outlined'
+            }),
+            React.createElement(Button, {
+              type: 'submit',
+              variant: 'contained',
+              size: 'large',
+              sx: {
+                mt: 3,
+                borderRadius: 999,
+                height: 52,
+                fontSize: 16,
+                fontWeight: 600,
+                background: 'linear-gradient(135deg,#3040d6,#7c3aed)'
+              },
+              fullWidth: true,
+              disabled: loading,
+              startIcon: loading ? React.createElement(CircularProgress, { size: 18, color: 'inherit' }) : null
+            }, loading ? '登录中...' : '立即登录'),
+            React.createElement(Divider, { sx: { my: 4 } }),
+            React.createElement(Typography, {
+              variant: 'caption',
+              color: 'text.secondary',
+              textAlign: 'center'
+            }, '本系统会在验证成功后安全写入用户信息至会话，以便持续访问权限服务。')
+            )
+            ))
+          )
+        );
+      };
+
+      const root = createRoot(document.getElementById('root'));
+      root.render(React.createElement(LoginApp));
