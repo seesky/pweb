@@ -34,6 +34,10 @@ html(lang="zh-CN")
 
     include admin-pages/postAdmin.jade
 
+    include admin-pages/permissionItemAdmin.jade
+
+    include admin-pages/rolePermissionAdmin.jade
+
     include admin-pages/userPermissionAdmin.jade
 
     script.
@@ -74,6 +78,7 @@ html(lang="zh-CN")
         Snackbar,
         Alert,
         CircularProgress,
+        LinearProgress,
         Tooltip,
         MenuItem,
         Pagination,
@@ -93,6 +98,8 @@ html(lang="zh-CN")
       const ROLE_ADMIN_CODES = ['roleadmin', 'rolemanagement', 'role'];
       const POST_ADMIN_CODES = ['postadmin', 'postmanagement', 'post'];
       const USER_PERMISSION_ADMIN_CODES = ['userpermissionadmin', 'userpermission', 'permissionuser'];
+      const PERMISSION_ITEM_ADMIN_CODES = ['permissionitemadmin', 'permissionitem', 'permissionitemmanagement'];
+      const ROLE_PERMISSION_ADMIN_CODES = ['rolepermissionadmin', 'rolepermission', 'permissionrole'];
 
       const isModuleAdminNode = (node = {}) => {
         const code = (node.code || '').toLowerCase();
@@ -134,6 +141,18 @@ html(lang="zh-CN")
         const code = (node.code || '').toLowerCase();
         const path = (node.path || '').toLowerCase();
         return USER_PERMISSION_ADMIN_CODES.includes(code) || path.indexOf('userpermission') >= 0;
+      };
+
+      const isPermissionItemAdminNode = (node = {}) => {
+        const code = (node.code || '').toLowerCase();
+        const path = (node.path || '').toLowerCase();
+        return PERMISSION_ITEM_ADMIN_CODES.includes(code) || path.indexOf('permissionitem') >= 0;
+      };
+
+      const isRolePermissionAdminNode = (node = {}) => {
+        const code = (node.code || '').toLowerCase();
+        const path = (node.path || '').toLowerCase();
+        return ROLE_PERMISSION_ADMIN_CODES.includes(code) || path.indexOf('rolepermission') >= 0;
       };
 
       const NavItem = ({ node, onSelect, activeNodeId, depth = 0 }) => {
@@ -407,12 +426,16 @@ html(lang="zh-CN")
             setActiveView({ type: 'organize-admin', node });
           } else if (isUserAdminNode(node)) {
             setActiveView({ type: 'user-admin', node });
+          } else if (isRolePermissionAdminNode(node)) {
+            setActiveView({ type: 'role-permission-admin', node });
           } else if (isRoleAdminNode(node)) {
             setActiveView({ type: 'role-admin', node });
           } else if (isPostAdminNode(node)) {
             setActiveView({ type: 'post-admin', node });
           } else if (isUserPermissionAdminNode(node)) {
             setActiveView({ type: 'user-permission-admin', node });
+          } else if (isPermissionItemAdminNode(node)) {
+            setActiveView({ type: 'permission-item-admin', node });
           } else {
             setActiveView({ type: 'dashboard', node });
           }
@@ -454,6 +477,12 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'user-permission-admin') {
             return React.createElement(UserPermissionAdminPage, null);
+          }
+          if (activeView.type === 'permission-item-admin') {
+            return React.createElement(PermissionItemAdminPage, null);
+          }
+          if (activeView.type === 'role-permission-admin') {
+            return React.createElement(RolePermissionAdminPage, null);
           }
           return React.createElement(DashboardOverview, { user, activeNode: activeView.node });
         };
@@ -529,6 +558,10 @@ html(lang="zh-CN")
               ? '岗位管理'
               : activeView.type === 'user-permission-admin'
               ? '用户权限管理'
+              : activeView.type === 'permission-item-admin'
+              ? '权限项管理'
+              : activeView.type === 'role-permission-admin'
+              ? '角色权限管理'
               : '管理驾驶舱'),
             React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', gap: 2 } },
               React.createElement(Box, null,
