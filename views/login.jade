@@ -18,7 +18,7 @@ html(lang="zh-CN")
     script(src="https://cdn.jsdelivr.net/npm/@emotion/react@11.11.4/dist/emotion-react.umd.min.js" crossorigin)
     script(src="https://cdn.jsdelivr.net/npm/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js" crossorigin)
     script.
-      const { useState } = React;
+      const { useState, useMemo } = React;
       const { createRoot } = ReactDOM;
       const {
         ThemeProvider,
@@ -32,7 +32,11 @@ html(lang="zh-CN")
         Stack,
         Alert,
         CircularProgress,
-        Divider
+        Divider,
+        Tabs,
+        Tab,
+        InputAdornment,
+        IconButton
       } = MaterialUI;
 
       const loginTheme = createTheme({
@@ -58,42 +62,300 @@ html(lang="zh-CN")
             backdropFilter: 'blur(6px)'
           }
         },
-        React.createElement(Typography, { variant: 'subtitle1', fontWeight: 600, sx: { color: '#fff' } }, title),
-        React.createElement(Typography, { variant: 'body2', sx: { color: 'rgba(255,255,255,0.75)', mt: 0.5 } }, description))
+          React.createElement(Typography, { variant: 'subtitle1', fontWeight: 600, sx: { color: '#fff' } }, title),
+          React.createElement(Typography, { variant: 'body2', sx: { color: 'rgba(255,255,255,0.75)', mt: 0.5 } }, description)
+        )
       );
 
       const LoginApp = () => {
+        const [mode, setMode] = useState('login');
         const [account, setAccount] = useState('');
         const [password, setPassword] = useState('');
-        const [error, setError] = useState('');
-        const [loading, setLoading] = useState(false);
+        const [need2fa, setNeed2fa] = useState(false);
+        const [tempToken, setTempToken] = useState('');
+        const [totpCode, setTotpCode] = useState('');
+        const [recoveryCode, setRecoveryCode] = useState('');
 
-        const handleSubmit = async (event) => {
-          event.preventDefault();
-          setError('');
+        const [regUsername, setRegUsername] = useState('');
+        const [regEmail, setRegEmail] = useState('');
+        const [regPassword, setRegPassword] = useState('');
+        const [regConfirm, setRegConfirm] = useState('');
+
+        const [setupSecret, setSetupSecret] = useState('');
+        const [setupQr, setSetupQr] = useState('');
+        const [setupCode, setSetupCode] = useState('');
+        const [recoveryCodes, setRecoveryCodes] = useState([]);
+
+        const [error, setError] = useState('');
+        const [info, setInfo] = useState('');
+        const [loading, setLoading] = useState(false);
+        const [showPassword, setShowPassword] = useState(false);
+        const [showRegPassword, setShowRegPassword] = useState(false);
+
+        const resetMessages = () => { setError(''); setInfo(''); };
+
+        const doFetch = async (url, payload, opts = {}) => {
+          const resp = await fetch(url, {
+            method: opts.method || 'POST',
+            headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+            body: payload ? JSON.stringify(payload) : undefined
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || data.success === false) {
+            throw new Error(data.message || '操作失败');
+          }
+          return data;
+        };
+
+        const handleLogin = async (event) => {
+          event?.preventDefault();
+          resetMessages();
           if (!account || !password) {
-            setError('请输入用户名和密码');
+            setError('请输入账户和密码');
             return;
           }
           setLoading(true);
           try {
-            const response = await fetch('/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ account, password })
-            });
-            const result = await response.json();
-            if (result.success) {
-              window.location.href = result.redirect || '/admin';
+            const result = await doFetch('/auth/login', { account, password });
+            if (result.need2fa) {
+              setNeed2fa(true);
+              setTempToken(result.tempToken);
+              setInfo('已验证身份，请输入 2FA 验证码');
+            } else if (result.redirect) {
+              window.location.href = result.redirect;
             } else {
-              setError(result.message || '登录失败，请重试');
+              setInfo('登录成功');
             }
           } catch (err) {
-            setError('网络异常，请稍后重试');
+            setError(err.message || '登录失败');
           } finally {
             setLoading(false);
           }
         };
+
+        const handleVerify2fa = async () => {
+          resetMessages();
+          if (!tempToken || (!totpCode && !recoveryCode)) {
+            setError('请输入验证码或恢复码');
+            return;
+          }
+          setLoading(true);
+          try {
+            const result = await doFetch('/auth/2fa/verify', { tempToken, code: totpCode, recoveryCode });
+            if (result.redirect) {
+              window.location.href = result.redirect;
+            } else {
+              setInfo('验证成功');
+            }
+          } catch (err) {
+            setError(err.message || '2FA 验证失败');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleRegister = async (event) => {
+          event?.preventDefault();
+          resetMessages();
+          if (!regUsername || !regEmail || !regPassword) {
+            setError('请输入用户名、邮箱和密码');
+            return;
+          }
+          if (regPassword !== regConfirm) {
+            setError('两次输入的密码不一致');
+            return;
+          }
+          setLoading(true);
+          try {
+            await doFetch('/auth/register', {
+              username: regUsername,
+              password: regPassword,
+              email: regEmail
+            });
+            setInfo('注册成功，已登录，请扫描二维码绑定 2FA');
+            setMode('register');
+            // 自动生成二维码，便于立刻绑定
+            await handleSetup2fa();
+          } catch (err) {
+            setError(err.message || '注册失败');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleSetup2fa = async () => {
+          resetMessages();
+          setLoading(true);
+          try {
+            const data = await doFetch('/auth/2fa/setup', null);
+            setSetupSecret(data.secret);
+            setSetupQr(data.qr);
+            setInfo('已生成二维码，请在验证器中扫描');
+          } catch (err) {
+            setError(err.message || '生成二维码失败');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleEnable2fa = async () => {
+          resetMessages();
+          if (!setupSecret || !setupCode) {
+            setError('请先获取二维码并输入验证码');
+            return;
+          }
+          setLoading(true);
+          try {
+            const data = await doFetch('/auth/2fa/enable', { code: setupCode, secret: setupSecret });
+            setRecoveryCodes(data.recoveryCodes || []);
+            setInfo(data.message || '已开启 2FA，请保存恢复码');
+          } catch (err) {
+            setError(err.message || '开启 2FA 失败');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleForgot = async () => {
+          resetMessages();
+          if (!account && !regEmail) {
+            setError('请输入邮箱或账户');
+            return;
+          }
+          setLoading(true);
+          try {
+            await doFetch('/auth/password/forgot', { email: regEmail || account });
+            setInfo('如果邮箱存在，将发送找回邮件（占位，无实发）');
+          } catch (err) {
+            setError(err.message || '操作失败');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const tabContent = mode === 'login'
+          ? React.createElement(Stack, { spacing: 2, component: 'form', onSubmit: handleLogin },
+              React.createElement(TextField, {
+                label: '用户名或邮箱',
+                value: account,
+                onChange: (e) => setAccount(e.target.value),
+                autoFocus: true,
+                fullWidth: true
+              }),
+              React.createElement(TextField, {
+                label: '密码',
+                type: showPassword ? 'text' : 'password',
+                value: password,
+                onChange: (e) => setPassword(e.target.value),
+                fullWidth: true,
+                InputProps: {
+                  endAdornment: React.createElement(InputAdornment, { position: 'end' },
+                    React.createElement(IconButton, { onClick: () => setShowPassword((p) => !p), edge: 'end' },
+                      showPassword ? '🙈' : '👁'
+                    )
+                  )
+                }
+              }),
+              need2fa
+                ? React.createElement(Stack, { spacing: 1 },
+                    React.createElement(TextField, {
+                      label: '2FA 验证码',
+                      value: totpCode,
+                      onChange: (e) => setTotpCode(e.target.value),
+                      fullWidth: true
+                    }),
+                    React.createElement(TextField, {
+                      label: '恢复码（可选）',
+                      value: recoveryCode,
+                      onChange: (e) => setRecoveryCode(e.target.value),
+                      fullWidth: true
+                    }),
+                    React.createElement(Button, {
+                      variant: 'contained',
+                      onClick: handleVerify2fa,
+                      disabled: loading
+                    }, loading ? React.createElement(CircularProgress, { size: 20, color: 'inherit' }) : '提交 2FA')
+                  )
+                : React.createElement(Button, {
+                    type: 'submit',
+                    variant: 'contained',
+                    disabled: loading
+                  }, loading ? React.createElement(CircularProgress, { size: 20, color: 'inherit' }) : '登录'),
+              React.createElement(Stack, { direction: 'row', justifyContent: 'space-between', spacing: 1 },
+                React.createElement(Button, { variant: 'text', size: 'small', onClick: () => setMode('register') }, '没有账号？去注册'),
+                React.createElement(Button, { variant: 'text', size: 'small', onClick: handleForgot }, '忘记密码 / 2FA')
+              )
+            )
+          : React.createElement(Stack, { spacing: 2, component: 'form', onSubmit: handleRegister },
+              React.createElement(TextField, {
+                label: '用户名',
+                value: regUsername,
+                onChange: (e) => setRegUsername(e.target.value),
+                fullWidth: true
+              }),
+              React.createElement(TextField, {
+                label: '邮箱',
+                type: 'email',
+                value: regEmail,
+                onChange: (e) => setRegEmail(e.target.value),
+                fullWidth: true
+              }),
+              React.createElement(TextField, {
+                label: '密码',
+                type: showRegPassword ? 'text' : 'password',
+                value: regPassword,
+                onChange: (e) => setRegPassword(e.target.value),
+                fullWidth: true,
+                InputProps: {
+                  endAdornment: React.createElement(InputAdornment, { position: 'end' },
+                    React.createElement(IconButton, { onClick: () => setShowRegPassword((p) => !p), edge: 'end' },
+                      showRegPassword ? '🙈' : '👁'
+                    )
+                  )
+                }
+              }),
+              React.createElement(TextField, {
+                label: '确认密码',
+                type: showRegPassword ? 'text' : 'password',
+                value: regConfirm,
+                onChange: (e) => setRegConfirm(e.target.value),
+                fullWidth: true
+              }),
+              React.createElement(Button, {
+                type: 'submit',
+                variant: 'contained',
+                disabled: loading
+              }, loading ? React.createElement(CircularProgress, { size: 20, color: 'inherit' }) : '注册'),
+              React.createElement(Stack, { spacing: 1.5, sx: { mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: 'rgba(48,64,214,0.06)' } },
+                React.createElement(Typography, { variant: 'subtitle2', fontWeight: 600 }, '绑定 2FA'),
+                React.createElement(Stack, { direction: 'row', spacing: 1 },
+                  React.createElement(Button, { size: 'small', variant: 'outlined', onClick: handleSetup2fa, disabled: loading }, '获取二维码'),
+                  React.createElement(TextField, {
+                    label: '验证码',
+                    size: 'small',
+                    value: setupCode,
+                    onChange: (e) => setSetupCode(e.target.value)
+                  }),
+                  React.createElement(Button, { size: 'small', variant: 'contained', onClick: handleEnable2fa, disabled: loading }, '确认开启')
+                ),
+                setupQr
+                  ? React.createElement(Box, { sx: { mt: 1 } },
+                      React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, '请使用认证器扫描：'),
+                      React.createElement('img', { src: setupQr, alt: '2FA QR', style: { width: 160, height: 160 } }),
+                      React.createElement(Typography, { variant: 'caption', sx: { wordBreak: 'break-all' } }, setupSecret)
+                    )
+                  : null,
+                recoveryCodes.length
+                  ? React.createElement(Box, { sx: { mt: 1 } },
+                      React.createElement(Typography, { variant: 'body2', color: 'error' }, '请保存恢复码：'),
+                      React.createElement(Stack, { spacing: 0.5 },
+                        recoveryCodes.map((c) => React.createElement(Typography, { key: c, variant: 'caption' }, c))
+                      )
+                    )
+                  : null
+              ),
+              React.createElement(Button, { variant: 'text', size: 'small', onClick: () => setMode('login') }, '已有账号？去登录')
+            );
 
         return (
           React.createElement(ThemeProvider, { theme: loginTheme },
@@ -108,128 +370,72 @@ html(lang="zh-CN")
                 py: { xs: 4, md: 6 }
               }
             },
-            React.createElement(Paper, {
-              elevation: 20,
-              sx: {
-                width: '100%',
-                maxWidth: 1080,
-                minHeight: { md: 520 },
-                borderRadius: 5,
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: { xs: 'column', md: 'row' }
-              }
-            },
-            React.createElement(Box, {
-              sx: {
-                display: { xs: 'none', md: 'flex' },
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                flex: '0 0 44%',
-                bgcolor: 'primary.main',
-                color: '#fff',
-                p: 5,
-                position: 'relative',
-                overflow: 'hidden'
-              }
-            },
-            React.createElement(Box, {
-              sx: {
-                position: 'absolute',
-                inset: 0,
-                background: 'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(255,255,255,0.2), transparent 40%)'
-              }
-            }),
-            React.createElement(Box, { sx: { position: 'relative' } },
-              React.createElement(Typography, {
-                variant: 'overline',
-                sx: { letterSpacing: 3, color: 'rgba(255,255,255,0.85)' }
-              }, 'ADMIN WORKSPACE'),
-              React.createElement(Typography, {
-                variant: 'h4',
-                fontWeight: 700,
-                gutterBottom: true,
-                sx: { mt: 1 }
-              }, '你好，欢迎回来'),
-              React.createElement(Typography, {
-                variant: 'body1',
-                sx: { color: 'rgba(255,255,255,0.85)', maxWidth: 320 }
-              }, '连接组织的人、角色、模块与权限，打造可持续迭代的后台体验。')
-            ),
-            React.createElement(Stack, {
-              spacing: 2,
-              sx: { mt: 6, position: 'relative' }
-            },
-              React.createElement(FeatureItem, { title: '多机构协作', description: '按组织、角色维度管理权限范围。' }),
-              React.createElement(FeatureItem, { title: '实时洞察', description: '跨模块的统一数据视图与策略。' })
-            ),
-            React.createElement(Typography, {
-              variant: 'caption',
-              sx: { position: 'relative', color: 'rgba(255,255,255,0.7)', mt: 4 }
-            }, '根据 AdminJS 设计语言定制')
-            ),
-            React.createElement(Box, {
-              component: 'form',
-              onSubmit: handleSubmit,
-              sx: {
-                flex: 1,
-                p: { xs: 4, md: 6 },
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center'
-              }
-            },
-            React.createElement(Box, { sx: { mb: 4 } },
-              React.createElement(Typography, { variant: 'overline', color: 'primary.main', letterSpacing: 2 }, 'SIGN IN'),
-              React.createElement(Typography, { variant: 'h4', fontWeight: 700, sx: { mt: 1 } }, '登录到管理控制台'),
-              React.createElement(Typography, { variant: 'body2', color: 'text.secondary', sx: { mt: 0.5 } }, '使用企业账户继续，开启今日的管理工作。')
-            ),
-            error ? React.createElement(Alert, { severity: 'error', sx: { mb: 2 } }, error) : null,
-            React.createElement(TextField, {
-              label: '用户名',
-              placeholder: '请输入账号',
-              fullWidth: true,
-              margin: 'normal',
-              value: account,
-              onChange: (e) => setAccount(e.target.value),
-              autoComplete: 'username',
-              variant: 'outlined'
-            }),
-            React.createElement(TextField, {
-              label: '密码',
-              placeholder: '请输入密码',
-              type: 'password',
-              fullWidth: true,
-              margin: 'normal',
-              value: password,
-              onChange: (e) => setPassword(e.target.value),
-              autoComplete: 'current-password',
-              variant: 'outlined'
-            }),
-            React.createElement(Button, {
-              type: 'submit',
-              variant: 'contained',
-              size: 'large',
-              sx: {
-                mt: 3,
-                borderRadius: 999,
-                height: 52,
-                fontSize: 16,
-                fontWeight: 600,
-                background: 'linear-gradient(135deg,#3040d6,#7c3aed)'
+              React.createElement(Paper, {
+                elevation: 20,
+                sx: {
+                  width: '100%',
+                  maxWidth: 1080,
+                  minHeight: { md: 560 },
+                  borderRadius: 5,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: { xs: 'column', md: 'row' }
+                }
               },
-              fullWidth: true,
-              disabled: loading,
-              startIcon: loading ? React.createElement(CircularProgress, { size: 18, color: 'inherit' }) : null
-            }, loading ? '登录中...' : '立即登录'),
-            React.createElement(Divider, { sx: { my: 4 } }),
-            React.createElement(Typography, {
-              variant: 'caption',
-              color: 'text.secondary',
-              textAlign: 'center'
-            }, '本系统会在验证成功后安全写入用户信息至会话，以便持续访问权限服务。')
+                React.createElement(Box, {
+                  sx: {
+                    display: { xs: 'none', md: 'flex' },
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    flex: '0 0 44%',
+                    background: 'linear-gradient(180deg,#4338ca,#312e81)',
+                    color: '#fff',
+                    p: 4
+                  }
+                },
+                  React.createElement(Box, null,
+                    React.createElement(Typography, { variant: 'h5', fontWeight: 700 }, '欢迎使用后台系统'),
+                    React.createElement(Typography, { variant: 'body2', sx: { mt: 1.5, color: 'rgba(255,255,255,0.82)' } },
+                      '支持账号密码 + 2FA，保障安全登录体验。'
+                    )
+                  ),
+                  React.createElement(Stack, { spacing: 1.5 },
+                    React.createElement(FeatureItem, { title: '高安全', description: '开启 2FA，多重验证登录。' }),
+                    React.createElement(FeatureItem, { title: '统一账号', description: '注册/登录一体化入口。' }),
+                    React.createElement(FeatureItem, { title: '找回友好', description: '支持邮箱找回密码/2FA。' })
+                  )
+                ),
+                React.createElement(Box, {
+                  sx: {
+                    flex: 1,
+                    p: { xs: 3, md: 4 },
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2
+                  }
+                },
+                  React.createElement(Tabs, {
+                    value: mode,
+                    onChange: (_, v) => { setMode(v); resetMessages(); },
+                    textColor: "primary",
+                    indicatorColor: "primary",
+                    sx: { mb: 1 }
+                  },
+                    React.createElement(Tab, { value: 'login', label: '登录' }),
+                    React.createElement(Tab, { value: 'register', label: '注册' })
+                  ),
+                  (error || info) ? React.createElement(Alert, {
+                    severity: error ? 'error' : 'success',
+                    onClose: () => { setError(''); setInfo(''); }
+                  }, error || info) : null,
+                  tabContent,
+                  React.createElement(Divider, { sx: { my: 1.5 } }),
+                  React.createElement(Typography, { variant: 'caption', color: 'text.secondary' },
+                    '登录或注册即表示同意系统的安全和使用规范。'
+                  )
+                )
+              )
             )
-            ))
           )
         );
       };
