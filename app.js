@@ -21,6 +21,11 @@ var permissionItemAdminRouter = require('./routes/permissionItemAdmin');
 var sequenceAdminRouter = require('./routes/sequenceAdmin');
 var tableFieldAdminRouter = require('./routes/tableFieldAdmin');
 var sysConfigAdminRouter = require('./routes/sysConfigAdmin');
+var parameterAdminRouter = require('./routes/parameterAdmin');
+var logAdminRouter = require('./routes/logAdmin');
+var exceptionAdminRouter = require('./routes/exceptionAdmin');
+var dataItemAdminRouter = require('./routes/dataItemAdmin');
+var messageAdminRouter = require('./routes/messageAdmin');
 
 var app = express();
 
@@ -61,6 +66,11 @@ app.use('/permission-item-admin', permissionItemAdminRouter);
 app.use('/sequence-admin', sequenceAdminRouter);
 app.use('/table-field-admin', tableFieldAdminRouter);
 app.use('/sys-config-admin', sysConfigAdminRouter);
+app.use('/parameter-admin', parameterAdminRouter);
+app.use('/log-admin', logAdminRouter);
+app.use('/exception-admin', exceptionAdminRouter);
+app.use('/data-item-admin', dataItemAdminRouter);
+app.use('/message-admin', messageAdminRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

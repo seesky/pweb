@@ -76,17 +76,25 @@ class UserPermission {
     return this.revoke(userId, revokePermissionItemId);
   }
 
-  getScopeOrganizeIdsByUserId(userId, permissionItemCode) {
+  async getScopeOrganizeIdsByUserId(userId, permissionItemCode) {
+    if (!permissionItemCode || typeof permissionItemCode !== 'string') {
+      return [];
+    }
+    const permissionIds = await this.prisma.pipermissionitem
+      .findMany({ where: { CODE: permissionItemCode }, select: { ID: true } })
+      .then((rows) => rows.map((r) => r.ID))
+      .catch(() => []);
+
+    if (!Array.isArray(permissionIds) || !permissionIds.length) {
+      return [];
+    }
+
     return this.prisma.pipermissionscope.findMany({
       where: {
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIORGANIZE',
-        PERMISSIONID: {
-          in: this.prisma.pipermissionitem
-            .findMany({ where: { CODE: permissionItemCode }, select: { ID: true } })
-            .then((rows) => rows.map((r) => r.ID))
-        }
+        PERMISSIONID: { in: permissionIds }
       },
       select: { TARGETID: true }
     });

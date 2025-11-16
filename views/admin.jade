@@ -46,6 +46,16 @@ html(lang="zh-CN")
 
     include admin-pages/sysConfigAdmin.jade
 
+    include admin-pages/parameterAdmin.jade
+
+    include admin-pages/logAdmin.jade
+
+    include admin-pages/exceptionAdmin.jade
+
+    include admin-pages/dataItemAdmin.jade
+
+    include admin-pages/messageAdmin.jade
+
     script.
       const { useState, useEffect, useMemo, useCallback } = React;
       const { createRoot } = ReactDOM;
@@ -109,6 +119,11 @@ html(lang="zh-CN")
       const SEQUENCE_ADMIN_CODES = ['SequenceAdmin'];
       const TABLE_FIELD_ADMIN_CODES = ['FrmTableFieldAdmin'];
       const SYS_CONFIG_ADMIN_CODES = ['FrmSysConfig'];
+      const PARAMETER_ADMIN_CODES = ['ParameterAdmin', 'FrmParameterAdmin'];
+      const LOG_ADMIN_CODES = ['FrmLogAdmin'];
+      const EXCEPTION_ADMIN_CODES = ['FrmExceptionAdmin'];
+      const DATA_ITEM_ADMIN_CODES = ['FrmDataDictionaryAdmin'];
+      const MESSAGE_ADMIN_CODES = ['MessageManagement'];
 
       const matchNavUrl = (node = {}, urls = []) => {
         const url = (
@@ -141,6 +156,16 @@ html(lang="zh-CN")
       const isTableFieldAdminNode = (node = {}) => matchNavUrl(node, TABLE_FIELD_ADMIN_CODES);
 
       const isSysConfigAdminNode = (node = {}) => matchNavUrl(node, SYS_CONFIG_ADMIN_CODES);
+
+      const isParameterAdminNode = (node = {}) => matchNavUrl(node, PARAMETER_ADMIN_CODES);
+
+      const isLogAdminNode = (node = {}) => matchNavUrl(node, LOG_ADMIN_CODES);
+
+      const isExceptionAdminNode = (node = {}) => matchNavUrl(node, EXCEPTION_ADMIN_CODES);
+
+      const isDataItemAdminNode = (node = {}) => matchNavUrl(node, DATA_ITEM_ADMIN_CODES);
+
+      const isMessageAdminNode = (node = {}) => matchNavUrl(node, MESSAGE_ADMIN_CODES);
 
       const NavItem = ({ node, onSelect, activeNodeId, depth = 0 }) => {
         const hasChildren = node.children && node.children.length > 0;
@@ -419,6 +444,16 @@ html(lang="zh-CN")
             setActiveView({ type: 'table-field-admin', node });
           } else if (isSysConfigAdminNode(node)) {
             setActiveView({ type: 'sys-config-admin', node });
+          } else if (isParameterAdminNode(node)) {
+            setActiveView({ type: 'parameter-admin', node });
+          } else if (isLogAdminNode(node)) {
+            setActiveView({ type: 'log-admin', node });
+          } else if (isExceptionAdminNode(node)) {
+            setActiveView({ type: 'exception-admin', node });
+          } else if (isDataItemAdminNode(node)) {
+            setActiveView({ type: 'data-item-admin', node });
+          } else if (isMessageAdminNode(node)) {
+            setActiveView({ type: 'message-admin', node });
           } else if (isRolePermissionAdminNode(node)) {
             setActiveView({ type: 'role-permission-admin', node });
           } else if (isRoleAdminNode(node)) {
@@ -482,6 +517,21 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'sys-config-admin') {
             return React.createElement(SysConfigAdminPage, null);
+          }
+          if (activeView.type === 'parameter-admin') {
+            return React.createElement(ParameterAdminPage, null);
+          }
+          if (activeView.type === 'log-admin') {
+            return React.createElement(LogAdminPage, null);
+          }
+          if (activeView.type === 'exception-admin') {
+            return React.createElement(ExceptionAdminPage, null);
+          }
+          if (activeView.type === 'data-item-admin') {
+            return React.createElement(DataItemAdminPage, null);
+          }
+          if (activeView.type === 'message-admin') {
+            return React.createElement(MessageAdminPage, null);
           }
           if (activeView.type === 'role-permission-admin') {
             return React.createElement(RolePermissionAdminPage, null);
@@ -568,6 +618,16 @@ html(lang="zh-CN")
               ? '表字段管理'
               : activeView.type === 'sys-config-admin'
               ? '系统配置管理'
+              : activeView.type === 'parameter-admin'
+              ? '系统参数管理'
+              : activeView.type === 'log-admin'
+              ? '系统日志管理'
+              : activeView.type === 'exception-admin'
+              ? '系统异常管理'
+              : activeView.type === 'data-item-admin'
+              ? '数据字典管理'
+              : activeView.type === 'message-admin'
+              ? '系统消息管理'
               : activeView.type === 'role-permission-admin'
               ? '角色权限管理'
               : '管理驾驶舱'),
