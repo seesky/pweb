@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Launch Express (bin/www)",
+      "program": "${workspaceFolder}/bin/www",
+      "runtimeArgs": ["--inspect"],
+      "env": {
+        "DEBUG": "pweb:*"
+      },
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "restart": true
+    },
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Attach to Node",
+      "port": 9229,
+      "restart": true
+    }
+  ]
+}

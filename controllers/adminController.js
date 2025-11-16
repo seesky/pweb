@@ -9,15 +9,29 @@ const UserInfo = require('../utilities/publiclibrary/user_info');
 const prisma = new PrismaClient();
 const moduleService = new ModuleService(prisma);
 
+const normalizeNavPath = (value) => {
+  const v = (value || '').trim();
+  if (!v || v === '#') {
+    return '';
+  }
+  return v;
+};
+
 const buildNavTree = (modules = []) => {
   const moduleNodes = new Map();
   modules.forEach((item) => {
+    const navPath =
+      normalizeNavPath(item.MVCNAVIGATEURL) ||
+      normalizeNavPath(item.NAVIGATEURL) ||
+      normalizeNavPath(item.PATH) ||
+      normalizeNavPath(item.CODE);
     moduleNodes.set(item.ID, {
       id: item.ID,
       title: item.FULLNAME || item.NAME || item.CODE,
       code: item.CODE,
       icon: item.ICON || 'dashboard',
-      path: `/modules/${item.CODE || item.ID}`,
+      mvcNavigateUrl: navPath,
+      path: navPath || `/modules/${(item.CODE || item.ID || '').toLowerCase()}`,
       children: []
     });
   });

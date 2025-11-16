@@ -42,6 +42,10 @@ html(lang="zh-CN")
 
     include admin-pages/userPermissionAdmin.jade
 
+    include admin-pages/tableFieldAdmin.jade
+
+    include admin-pages/sysConfigAdmin.jade
+
     script.
       const { useState, useEffect, useMemo, useCallback } = React;
       const { createRoot } = ReactDOM;
@@ -93,76 +97,50 @@ html(lang="zh-CN")
 
       const drawerWidth = 260;
       const collapsedWidth = 72;
-      const MODULE_ADMIN_CODES = ['moduleadmin', 'modulemanagement'];
-      const STAFF_ADMIN_CODES = ['staffadmin', 'staffmanagement', 'staff', 'employee'];
-      const USER_ADMIN_CODES = ['useradmin', 'usermanagement'];
-      const ORGANIZE_ADMIN_CODES = ['organizeadmin', 'organizemanagement', 'organize'];
-      const ROLE_ADMIN_CODES = ['roleadmin', 'rolemanagement', 'role'];
-      const POST_ADMIN_CODES = ['postadmin', 'postmanagement', 'post'];
-      const USER_PERMISSION_ADMIN_CODES = ['userpermissionadmin', 'userpermission', 'permissionuser'];
-      const PERMISSION_ITEM_ADMIN_CODES = ['permissionitemadmin', 'permissionitem', 'permissionitemmanagement'];
-      const ROLE_PERMISSION_ADMIN_CODES = ['rolepermissionadmin', 'rolepermission', 'permissionrole'];
-      const SEQUENCE_ADMIN_CODES = ['sequenceadmin', 'sequencemanagement', 'sequence'];
+      const MODULE_ADMIN_CODES = ['FrmModuleAdmin'];
+      const STAFF_ADMIN_CODES = ['FrmStaffAdmin'];
+      const USER_ADMIN_CODES = ['FrmUserAdmin'];
+      const ORGANIZE_ADMIN_CODES = ['FrmOrganizeAdmin'];
+      const ROLE_ADMIN_CODES = ['FrmRoleAdmin'];
+      const POST_ADMIN_CODES = ['FrmPostAdmin'];
+      const USER_PERMISSION_ADMIN_CODES = ['FrmUserPermissionAdmin'];
+      const PERMISSION_ITEM_ADMIN_CODES = ['FrmPermissionItemAdmin'];
+      const ROLE_PERMISSION_ADMIN_CODES = ['FrmRolePermissionAdmin'];
+      const SEQUENCE_ADMIN_CODES = ['SequenceAdmin'];
+      const TABLE_FIELD_ADMIN_CODES = ['FrmTableFieldAdmin'];
+      const SYS_CONFIG_ADMIN_CODES = ['FrmSysConfig'];
 
-      const isModuleAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return MODULE_ADMIN_CODES.includes(code) || path.indexOf('moduleadmin') >= 0;
+      const matchNavUrl = (node = {}, urls = []) => {
+        const url = (
+          node.code ||
+          ''
+        );
+        return urls.some((candidate) => url.includes(candidate));
       };
 
-      const isStaffAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return STAFF_ADMIN_CODES.includes(code) || path.indexOf('staff') >= 0;
-      };
+      const isModuleAdminNode = (node = {}) => matchNavUrl(node, MODULE_ADMIN_CODES);
 
-      const isUserAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return USER_ADMIN_CODES.includes(code) || path.indexOf('useradmin') >= 0;
-      };
+      const isStaffAdminNode = (node = {}) => matchNavUrl(node, STAFF_ADMIN_CODES);
 
-      const isOrganizeAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return ORGANIZE_ADMIN_CODES.includes(code) || path.indexOf('organize') >= 0;
-      };
+      const isUserAdminNode = (node = {}) => matchNavUrl(node, USER_ADMIN_CODES);
 
-      const isRoleAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return ROLE_ADMIN_CODES.includes(code) || path.indexOf('role') >= 0;
-      };
+      const isOrganizeAdminNode = (node = {}) => matchNavUrl(node, ORGANIZE_ADMIN_CODES);
 
-      const isPostAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return POST_ADMIN_CODES.includes(code) || path.indexOf('post') >= 0;
-      };
+      const isRoleAdminNode = (node = {}) => matchNavUrl(node, ROLE_ADMIN_CODES);
 
-      const isUserPermissionAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return USER_PERMISSION_ADMIN_CODES.includes(code) || path.indexOf('userpermission') >= 0;
-      };
+      const isPostAdminNode = (node = {}) => matchNavUrl(node, POST_ADMIN_CODES);
 
-      const isPermissionItemAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return PERMISSION_ITEM_ADMIN_CODES.includes(code) || path.indexOf('permissionitem') >= 0;
-      };
+      const isUserPermissionAdminNode = (node = {}) => matchNavUrl(node, USER_PERMISSION_ADMIN_CODES);
 
-      const isRolePermissionAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return ROLE_PERMISSION_ADMIN_CODES.includes(code) || path.indexOf('rolepermission') >= 0;
-      };
+      const isPermissionItemAdminNode = (node = {}) => matchNavUrl(node, PERMISSION_ITEM_ADMIN_CODES);
 
-      const isSequenceAdminNode = (node = {}) => {
-        const code = (node.code || '').toLowerCase();
-        const path = (node.path || '').toLowerCase();
-        return SEQUENCE_ADMIN_CODES.includes(code) || path.indexOf('sequence') >= 0;
-      };
+      const isRolePermissionAdminNode = (node = {}) => matchNavUrl(node, ROLE_PERMISSION_ADMIN_CODES);
+
+      const isSequenceAdminNode = (node = {}) => matchNavUrl(node, SEQUENCE_ADMIN_CODES);
+
+      const isTableFieldAdminNode = (node = {}) => matchNavUrl(node, TABLE_FIELD_ADMIN_CODES);
+
+      const isSysConfigAdminNode = (node = {}) => matchNavUrl(node, SYS_CONFIG_ADMIN_CODES);
 
       const NavItem = ({ node, onSelect, activeNodeId, depth = 0 }) => {
         const hasChildren = node.children && node.children.length > 0;
@@ -437,6 +415,10 @@ html(lang="zh-CN")
             setActiveView({ type: 'user-admin', node });
           } else if (isSequenceAdminNode(node)) {
             setActiveView({ type: 'sequence-admin', node });
+          } else if (isTableFieldAdminNode(node)) {
+            setActiveView({ type: 'table-field-admin', node });
+          } else if (isSysConfigAdminNode(node)) {
+            setActiveView({ type: 'sys-config-admin', node });
           } else if (isRolePermissionAdminNode(node)) {
             setActiveView({ type: 'role-permission-admin', node });
           } else if (isRoleAdminNode(node)) {
@@ -494,6 +476,12 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'sequence-admin') {
             return React.createElement(SequenceAdminPage, null);
+          }
+          if (activeView.type === 'table-field-admin') {
+            return React.createElement(TableFieldAdminPage, null);
+          }
+          if (activeView.type === 'sys-config-admin') {
+            return React.createElement(SysConfigAdminPage, null);
           }
           if (activeView.type === 'role-permission-admin') {
             return React.createElement(RolePermissionAdminPage, null);
@@ -576,6 +564,10 @@ html(lang="zh-CN")
               ? '权限项管理'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
+              : activeView.type === 'table-field-admin'
+              ? '表字段管理'
+              : activeView.type === 'sys-config-admin'
+              ? '系统配置管理'
               : activeView.type === 'role-permission-admin'
               ? '角色权限管理'
               : '管理驾驶舱'),
