@@ -8,6 +8,7 @@ html(lang="zh-CN")
     link(rel="preconnect" href="https://fonts.googleapis.com")
     link(rel="preconnect" href="https://fonts.gstatic.com" crossorigin="")
     link(href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet")
+    link(rel="stylesheet" href="/stylesheets/material_icons/material_icons.css")
     style.
       html, body { height: 100%; margin: 0; font-family: 'Roboto', sans-serif; background-color: #f4f6f8; }
   body
@@ -68,6 +69,7 @@ html(lang="zh-CN")
         Drawer,
         List,
         ListItemButton,
+        ListItemIcon,
         ListItemText,
         Collapse,
         IconButton,
@@ -176,6 +178,7 @@ html(lang="zh-CN")
           }
           onSelect?.(node);
         };
+        const IndicatorIcon = hasChildren ? (open ? ExpandLess : ExpandMore) : null;
         return React.createElement(React.Fragment, null,
           React.createElement(ListItemButton, {
             onClick: handleClick,
@@ -183,12 +186,19 @@ html(lang="zh-CN")
             sx: {
               borderRadius: 2,
               my: 0.25,
-              pl: 2 + depth * 1.5,
+              pl: 1.5 + depth * 1.5,
+              pr: 1.25,
               color: '#1f2937',
+              gap: 1,
               '&.Mui-selected': { backgroundColor: 'rgba(99,102,241,0.15)', color: '#312e81' }
             }
           },
-          React.createElement(ListItemText, { primary: node.title || node.code }),
+            hasChildren
+              ? React.createElement(ListItemIcon, {
+                  sx: { minWidth: 32, color: '#9ca3af', ml: -0.5 }
+                }, React.createElement(IndicatorIcon, { fontSize: 'small' }))
+              : React.createElement(Box, { sx: { width: 24, minWidth: 24, ml: 0.25 } }),
+            React.createElement(ListItemText, { primary: node.title || node.code })
           ),
           hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
             React.createElement(NavigationTree, {
