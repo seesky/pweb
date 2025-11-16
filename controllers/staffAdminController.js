@@ -111,6 +111,11 @@ const buildStaffOrganizeMap = async (staffList = []) => {
   return relationMap;
 };
 
+const parsePositive = (value, fallback = 1) => {
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed;
+};
+
 const formatStaff = (entity, relationMap) => {
   const relation = relationMap?.get(entity.ID) || {};
   return {
@@ -158,6 +163,8 @@ exports.list = async (req, res) => {
     return;
   }
   const { organizeId, keyword } = req.query || {};
+  const page = parsePositive(req.query?.page, 1);
+  const pageSize = Math.min(100, parsePositive(req.query?.pageSize, 10));
   try {
     let records = [];
     if (organizeId) {
@@ -167,9 +174,12 @@ exports.list = async (req, res) => {
     }
     records = (records || []).filter((row) => row.DELETEMARK === 0);
     const filtered = applyKeywordFilter(records, keyword);
-    const relationMap = await buildStaffOrganizeMap(filtered);
-    const data = filtered.map((record) => formatStaff(record, relationMap));
-    res.json({ success: true, data });
+    const total = filtered.length;
+    const start = (page - 1) * pageSize;
+    const pageItems = filtered.slice(start, start + pageSize);
+    const relationMap = await buildStaffOrganizeMap(pageItems);
+    const data = pageItems.map((record) => formatStaff(record, relationMap));
+    res.json({ success: true, data, total, page, pageSize });
   } catch (error) {
     console.error('[StaffAdminController.list]', error);
     res.status(500).json({ success: false, message: '获取员工数据失败' });

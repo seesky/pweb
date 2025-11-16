@@ -14,6 +14,9 @@
     const [saving, setSaving] = useState(false);
     const [selectedRow, setSelectedRow] = useState(null);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [total, setTotal] = useState(0);
 
     const loadOrganizes = useCallback(async () => {
       try {
@@ -49,6 +52,8 @@
         if (keyword) {
           params.append('keyword', keyword);
         }
+        params.append('page', page);
+        params.append('pageSize', pageSize);
         const query = params.toString();
         const resp = await fetch(query ? `/staff-admin/staff?${query}` : '/staff-admin/staff');
         if (resp.status === 401) {
@@ -59,13 +64,15 @@
         if (!resp.ok) {
           throw new Error(result.message || '加载员工失败');
         }
-        setStaffRows(result.data || []);
+        const list = result.data || [];
+        setStaffRows(list);
+        setTotal(result.total ?? list.length);
       } catch (err) {
         setError(err.message || '加载员工失败');
       } finally {
         setLoading(false);
       }
-    }, [selectedOrganize, keyword]);
+    }, [selectedOrganize, keyword, page, pageSize]);
 
     useEffect(() => {
       loadStaff();
@@ -77,8 +84,20 @@
       }
     }, [staffRows, selectedRow]);
 
+    const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize) || 1);
+    const pagedRows = useMemo(() => {
+      const start = (page - 1) * pageSize;
+      return staffRows.slice(start, start + pageSize);
+    }, [staffRows, page, pageSize]);
+
     const handleSearch = () => {
+      setPage(1);
       setKeyword(searchInput.trim());
+    };
+
+    const handleSelectOrganize = (id) => {
+      setSelectedOrganize(id || null);
+      setPage(1);
     };
 
     const handleOpenCreate = () => {
@@ -164,7 +183,7 @@
       React.createElement(OrganizeTree, {
         data: organizeTree,
         selectedId: selectedOrganize,
-        onSelect: setSelectedOrganize
+        onSelect: handleSelectOrganize
       })
     ),
     React.createElement(Box, null,
@@ -232,7 +251,7 @@
               )
             ),
             React.createElement(TableBody, null,
-              staffRows.map((row) =>
+              pagedRows.map((row) =>
                 React.createElement(TableRow, {
                   key: row.id,
                   hover: true,
@@ -264,7 +283,43 @@
             )
           )
         ),
-        !staffRows.length
+        React.createElement(Divider, null),
+        React.createElement(Box, {
+          sx: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            p: 2,
+            gap: 1.5
+          }
+        },
+          React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, `共${total} 条记录`),
+          React.createElement(Stack, { direction: 'row', spacing: 1.5, alignItems: 'center' },
+            React.createElement(TextField, {
+              select: true,
+              size: 'small',
+              label: '每页',
+              value: pageSize,
+              onChange: (event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              },
+              sx: { minWidth: 100 }
+            },
+              [10, 20, 50, 100].map((size) =>
+                React.createElement(MenuItem, { key: size, value: size }, `${size}条`)
+              )
+            ),
+            React.createElement(Pagination, {
+              count: totalPages,
+              page,
+              onChange: (event, value) => setPage(value),
+              color: 'primary'
+            })
+          )
+        ),
+        !pagedRows.length
           ? React.createElement(Box, { sx: { p: 4, textAlign: 'center', color: 'text.secondary' } }, '暂无符合条件的员工')
           : null
       )

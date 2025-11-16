@@ -27,6 +27,11 @@ const sanitize = (value) => {
   return value;
 };
 
+const parsePositive = (value, fallback = 1) => {
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed;
+};
+
 const ensureUser = (req, res) => {
   const user = req.currentUser || CommonUtils.getCurrent(res, req);
   if (!user) {
@@ -124,6 +129,8 @@ exports.list = async (req, res) => {
     return;
   }
   const { organizeId, keyword } = req.query || {};
+  const page = parsePositive(req.query?.page, 1);
+  const pageSize = Math.min(100, parsePositive(req.query?.pageSize, 10));
   try {
     let records = [];
     if (organizeId) {
@@ -133,7 +140,10 @@ exports.list = async (req, res) => {
     }
     records = (records || []).filter((row) => row.DELETEMARK === 0);
     const filtered = applyKeywordFilter(records, keyword);
-    res.json({ success: true, data: filtered.map(formatUser) });
+    const total = filtered.length;
+    const start = (page - 1) * pageSize;
+    const data = filtered.slice(start, start + pageSize).map(formatUser);
+    res.json({ success: true, data, total, page, pageSize });
   } catch (error) {
     console.error('[UserAdminController.list]', error);
     res.status(500).json({ success: false, message: '获取用户数据失败' });
