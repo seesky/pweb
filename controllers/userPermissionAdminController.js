@@ -280,15 +280,7 @@ exports.updateModules = async (req, res) => {
     if (!target) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
-    const existingIds = await userPermissionService
-      .getScopeModuleIdsByUserId(id, MODULE_SCOPE_CODE)
-      .then((records) => records.map((row) => row.TARGETID));
-    if (existingIds.length) {
-      await userPermissionService.revokeUserModuleScope(id, MODULE_SCOPE_CODE, existingIds);
-    }
-    if (moduleIds.length) {
-      await userPermissionService.grantUserModuleScope(current, id, MODULE_SCOPE_CODE, moduleIds);
-    }
+    await userPermissionService.setUserModuleScope(current, id, MODULE_SCOPE_CODE, moduleIds);
     res.json({ success: true, message: 'Module permissions updated.', data: moduleIds });
   } catch (error) {
     console.error('[UserPermissionAdmin.updateModules]', error);

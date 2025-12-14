@@ -1,6 +1,7 @@
 'use strict';
 
 const { PrismaClient } = require('@prisma/client');
+const { randomUUID } = require('node:crypto');
 
 const { PermissionScopeService } = require('../base/permission_scope_service');
 const { PermissionItemService } = require('../base/permission_item_service');
@@ -273,20 +274,62 @@ class UserPermission {
     return moduleService.getDTByUser(userId);
   }
 
-  getScopeModuleIdsByUserId(userId, permissionItemCode) {
+  async getScopeModuleIdsByUserId(userId, permissionItemCode) {
+    const permissionItems = await this.prisma.pipermissionitem.findMany({
+      where: { CODE: permissionItemCode },
+      select: { ID: true }
+    });
+    const permissionIds = permissionItems.map((row) => row.ID).filter(Boolean);
+    if (!permissionIds.length) {
+      return [];
+    }
     return this.prisma.pipermissionscope.findMany({
       where: {
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIMODULE',
-        PERMISSIONID: {
-          in: this.prisma.pipermissionitem
-            .findMany({ where: { CODE: permissionItemCode }, select: { ID: true } })
-            .then((rows) => rows.map((r) => r.ID))
-        }
+        PERMISSIONID: { in: permissionIds }
       },
       select: { TARGETID: true }
     });
+  }
+
+  async setUserModuleScope(userInfo, userId, permissionItemCode, moduleIds = []) {
+    const permissionId = await permissionItemService.getIdByAdd(permissionItemCode);
+    // 清空旧的同权限项范围
+    await this.prisma.pipermissionscope.deleteMany({
+      where: {
+        RESOURCECATEGORY: 'PIUSER',
+        RESOURCEID: userId,
+        TARGETCATEGORY: 'PIMODULE',
+        PERMISSIONID: permissionId
+      }
+    });
+    if (!moduleIds?.length) {
+      return 0;
+    }
+    const now = new Date();
+    const data = moduleIds.map((mid) => ({
+      ID: randomUUID(),
+      RESOURCECATEGORY: 'PIUSER',
+      RESOURCEID: userId,
+      TARGETCATEGORY: 'PIMODULE',
+      TARGETID: mid,
+      PERMISSIONID: permissionId,
+      ENABLED: 1,
+      DELETEMARK: 0,
+      CREATEON: now,
+      CREATEUSERID: userInfo?.Id || null,
+      CREATEBY: userInfo?.RealName || null,
+      MODIFIEDON: now,
+      MODIFIEDUSERID: userInfo?.Id || null,
+      MODIFIEDBY: userInfo?.RealName || null
+    }));
+    const result = await this.prisma.pipermissionscope.createMany({
+      data,
+      skipDuplicates: true
+    });
+    return result.count || data.length;
   }
 
   async grantUserModuleScope(userInfo, userId, permissionScopeItemCode, grantModuleIds = []) {
@@ -326,6 +369,7 @@ class UserPermission {
     const now = new Date();
     const record = await this.prisma.pipermission.create({
       data: {
+        ID: randomUUID(),
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         PERMISSIONID: permissionItemId,
@@ -369,6 +413,7 @@ class UserPermission {
 
     await this.prisma.pipermissionscope.create({
       data: {
+        ID: randomUUID(),
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIORGANIZE',
@@ -412,6 +457,7 @@ class UserPermission {
     }
     const record = await this.prisma.pipermissionscope.create({
       data: {
+        ID: randomUUID(),
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIUSER',
@@ -472,6 +518,7 @@ class UserPermission {
     const permissionId = await permissionItemService.getIdByAdd(permissionItemCode);
     const record = await this.prisma.pipermissionscope.create({
       data: {
+        ID: randomUUID(),
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIPERMISSIONITEM',
@@ -506,6 +553,7 @@ class UserPermission {
     const now = new Date();
     const record = await this.prisma.pipermissionscope.create({
       data: {
+        ID: randomUUID(),
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIMODULE',
