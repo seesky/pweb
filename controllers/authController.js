@@ -122,6 +122,58 @@ exports.register = async (req, res) => {
         MODIFIEDBY: 'SYSTEM'
       }
     });
+
+    // 默认绑定普通用户组织与角色（编码均为 User），不阻塞注册
+    (async () => {
+      try {
+        const defaultOrg = await prisma.piorganize.findFirst({
+          where: { CODE: 'User', DELETEMARK: 0 }
+        });
+        if (defaultOrg?.ID) {
+          await prisma.piuserorganize.create({
+            data: {
+              ID: randomUUID(),
+              USERID: userId,
+              DEPARTMENTID: defaultOrg.ID,
+              ENABLED: 1,
+              DELETEMARK: 0,
+              CREATEON: now,
+              CREATEUSERID: 'SYSTEM',
+              CREATEBY: 'SYSTEM',
+              MODIFIEDON: now,
+              MODIFIEDUSERID: 'SYSTEM',
+              MODIFIEDBY: 'SYSTEM'
+            }
+          });
+        }
+      } catch (err) {
+        console.error('[Auth.register] bind default organize failed', err);
+      }
+      try {
+        const defaultRole = await prisma.pirole.findFirst({
+          where: { CODE: 'User', DELETEMARK: 0 }
+        });
+        if (defaultRole?.ID) {
+          await prisma.piuserrole.create({
+            data: {
+              ID: randomUUID(),
+              USERID: userId,
+              ROLEID: defaultRole.ID,
+              ENABLED: 1,
+              DELETEMARK: 0,
+              CREATEON: now,
+              CREATEUSERID: 'SYSTEM',
+              CREATEBY: 'SYSTEM',
+              MODIFIEDON: now,
+              MODIFIEDUSERID: 'SYSTEM',
+              MODIFIEDBY: 'SYSTEM'
+            }
+          });
+        }
+      } catch (err) {
+        console.error('[Auth.register] bind default role failed', err);
+      }
+    })();
     // 自动登录，便于后续绑定 2FA
     const userInfo = await convertToUserInfo(createdUser, createdLogon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
