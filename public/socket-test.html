@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Socket.io 聊天测试</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #0f172a; color: #0f172a; }
+    .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    .sidebar { background: #111827; color: #e5e7eb; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .card { background: #1f2937; border: 1px solid #243142; border-radius: 12px; padding: 12px; }
+    label { display: block; margin: 8px 0 4px; font-size: 13px; color: #9ca3af; }
+    input { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid #374151; background: #0f172a; color: #e5e7eb; }
+    button { padding: 8px 12px; border-radius: 8px; border: 0; background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .chat { background: #f8fafc; padding: 16px; display: grid; grid-template-rows: auto 1fr auto; gap: 12px; }
+    .chat-header { display: flex; align-items: center; justify-content: space-between; }
+    .chat-body { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; overflow: auto; }
+    .msg { margin-bottom: 10px; }
+    .msg .meta { font-size: 12px; color: #6b7280; }
+    .msg .bubble { display: inline-block; padding: 8px 10px; border-radius: 10px; background: #eef2ff; color: #1f2937; }
+    .chat-input { display: grid; grid-template-columns: 1fr 120px; gap: 8px; }
+    textarea { width: 100%; height: 90px; border-radius: 10px; border: 1px solid #cbd5e1; padding: 10px; font-family: monospace; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { margin-bottom: 6px; font-size: 13px; color: #e5e7eb; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 12px; background: #1f2937; border: 1px solid #334155; }
+    small { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <div class="card">
+        <h3 style="margin:0 0 8px;">登录并连接</h3>
+        <label>账号</label>
+        <input id="account" value="admin">
+        <label>密码</label>
+        <input id="password" type="password" value="admin">
+      <label>终端ID（可空自动生成）</label>
+      <input id="terminalId">
+      <label>2FA 验证码（如账户已启用）</label>
+      <input id="twofaCode" placeholder="6 位验证码或恢复码">
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button id="loginBtn" style="flex:1;">登录并连接</button>
+        <button id="disconnectBtn" style="flex:1; background:#ef4444;">断开</button>
+      </div>
+        <div id="loginStatus" style="margin-top:8px; font-size:12px; color:#9ca3af;"></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h4 style="margin:0;">我的在线终端</h4>
+          <button id="refreshEndpoints" style="padding:4px 8px; font-size:12px;">刷新</button>
+        </div>
+        <ul id="endpointList" style="margin-top:8px;"></ul>
+      </div>
+    </div>
+
+    <div class="chat">
+      <div class="chat-header">
+        <div>
+          <div style="font-weight:600;">聊天测试窗口</div>
+          <div style="font-size:12px; color:#6b7280;">登录后自动连接 Socket.io</div>
+        </div>
+        <div>
+          <input id="toUserId" placeholder="目标用户ID" style="width:180px; padding:6px 8px; border:1px solid #cbd5e1; border-radius:8px;">
+          <input id="toTerminalId" placeholder="目标终端ID(可选)" style="width:200px; padding:6px 8px; border:1px solid #cbd5e1; border-radius:8px; margin-left:6px;">
+        </div>
+      </div>
+
+      <div class="chat-body" id="chatBody"></div>
+
+      <div class="chat-input">
+        <textarea id="payload">{ "hello": "world" }</textarea>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button id="sendUserBtn">发给用户</button>
+          <button id="sendTerminalBtn" style="background:#22c55e;">发给终端</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    let socket = null;
+    let token = '';
+    let pendingTempToken = '';
+
+    const endpointList = document.getElementById('endpointList');
+    const loginStatus = document.getElementById('loginStatus');
+    const chatBody = document.getElementById('chatBody');
+    const toUserInput = document.getElementById('toUserId');
+    const toTerminalInput = document.getElementById('toTerminalId');
+    const twofaInput = document.getElementById('twofaCode');
+    let myEndpoints = [];
+    let knownUsers = new Set();
+
+    const addMsg = (text, meta = '') => {
+      const box = document.createElement('div');
+      box.className = 'msg';
+      const m = document.createElement('div');
+      m.className = 'meta';
+      m.textContent = meta;
+      const b = document.createElement('div');
+      b.className = 'bubble';
+      b.textContent = text;
+      box.appendChild(m);
+      box.appendChild(b);
+      chatBody.appendChild(box);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    };
+
+    const renderEndpoints = (endpoints = []) => {
+      myEndpoints = endpoints;
+      endpointList.innerHTML = '';
+      endpoints.forEach((ep) => {
+        const li = document.createElement('li');
+        const pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.textContent = ep.terminalId;
+        pill.style.cursor = 'pointer';
+        pill.onclick = () => {
+          toTerminalInput.value = ep.terminalId;
+          toUserInput.value = ep.userId || '';
+        };
+        const sub = document.createElement('div');
+        sub.innerHTML = `<small>${ep.ip || ''} | ${ep.os || ''} | last: ${ep.lastSeen || ''}</small>`;
+        li.appendChild(pill);
+        li.appendChild(sub);
+        endpointList.appendChild(li);
+      });
+    };
+
+    const fetchEndpoints = () => {
+      if (!socket) return;
+      socket.emit('list_my_endpoints', (resp) => {
+        if (resp?.success) renderEndpoints(resp.data || []);
+      });
+    };
+
+    const connectSocket = () => {
+      const terminalId = document.getElementById('terminalId').value.trim() || undefined;
+      socket = io({
+        auth: { token, terminalId, deviceInfo: { os: navigator.platform, ua: navigator.userAgent } }
+      });
+      socket.on('connect', () => addMsg('Socket connected', '系统'));
+      socket.on('auth', (data) => {
+        addMsg('认证成功 ' + JSON.stringify(data), '系统');
+        fetchEndpoints();
+      });
+      socket.on('message', (data) => {
+        addMsg(JSON.stringify(data), `消息 from ${data.fromUserId}/${data.fromTerminalId}`);
+        if (data.fromUserId) {
+          knownUsers.add(data.fromUserId);
+          toUserInput.value = data.fromUserId;
+        }
+      });
+      socket.on('error', (err) => addMsg(JSON.stringify(err), '错误'));
+      socket.on('disconnect', (reason) => addMsg('断开: ' + reason, '系统'));
+    };
+
+    const fetchTokenAndConnect = async () => {
+      loginStatus.textContent = '获取 token...';
+      const tResp = await fetch('/socket/token', { method: 'POST', credentials: 'include' });
+      const tResult = await tResp.json();
+      if (!tResp.ok || !tResult.success) throw new Error(tResult.message || '获取 token 失败');
+      token = tResult.token;
+      loginStatus.textContent = '连接中...';
+      connectSocket();
+    };
+
+    const loginAndConnect = async () => {
+      const account = document.getElementById('account').value.trim();
+      const password = document.getElementById('password').value;
+      const twofaCode = twofaInput.value.trim();
+      try {
+        // 如果已有 tempToken，则走 2FA 验证
+        if (pendingTempToken) {
+          if (!twofaCode) throw new Error('请输入 2FA 验证码');
+          loginStatus.textContent = '验证 2FA...';
+          const vResp = await fetch('/auth/2fa/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ tempToken: pendingTempToken, code: twofaCode })
+          });
+          const vResult = await vResp.json();
+          if (!vResp.ok || !vResult.success) throw new Error(vResult.message || '2FA 验证失败');
+          pendingTempToken = '';
+          twofaInput.value = '';
+          await fetchTokenAndConnect();
+          return;
+        }
+
+        loginStatus.textContent = '登录中...';
+        const resp = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ account, password })
+        });
+        const result = await resp.json();
+        if (!resp.ok || !result.success) throw new Error(result.message || '登录失败');
+
+        if (result.need2fa) {
+          pendingTempToken = result.tempToken;
+          loginStatus.textContent = '需要 2FA 验证，请输入验证码后再次点击登录';
+          addMsg('需要 2FA 验证，请输入验证码后再次点击登录', '系统');
+          return;
+        }
+
+        await fetchTokenAndConnect();
+      } catch (err) {
+        loginStatus.textContent = err.message || '失败';
+        addMsg('登录失败: ' + err.message, '错误');
+      }
+    };
+
+    document.getElementById('loginBtn').onclick = loginAndConnect;
+    document.getElementById('disconnectBtn').onclick = () => { if (socket) socket.disconnect(); };
+    document.getElementById('refreshEndpoints').onclick = fetchEndpoints;
+
+    document.getElementById('sendUserBtn').onclick = () => {
+      if (!socket) return alert('未连接');
+      const toUserId = toUserInput.value.trim();
+      if (!toUserId) return alert('请选择或输入目标用户');
+      const payload = safeJSON(document.getElementById('payload').value);
+      socket.emit('send_to_user', { toUserId, payload }, (resp) => addMsg('send_to_user: ' + JSON.stringify(resp), '系统'));
+    };
+
+    document.getElementById('sendTerminalBtn').onclick = () => {
+      if (!socket) return alert('未连接');
+      const toTerminalId = toTerminalInput.value.trim();
+      if (!toTerminalId) return alert('请选择或输入目标终端');
+      const payload = safeJSON(document.getElementById('payload').value);
+      socket.emit('send_to_terminal', { toTerminalId, payload }, (resp) => addMsg('send_to_terminal: ' + JSON.stringify(resp), '系统'));
+    };
+
+    function safeJSON(str) {
+      try { return JSON.parse(str); } catch { return { text: str }; }
+    }
+  </script>
+</body>
+</html>

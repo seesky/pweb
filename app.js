@@ -27,6 +27,8 @@ var logAdminRouter = require('./routes/logAdmin');
 var exceptionAdminRouter = require('./routes/exceptionAdmin');
 var dataItemAdminRouter = require('./routes/dataItemAdmin');
 var messageAdminRouter = require('./routes/messageAdmin');
+var socketRouter = require('./routes/socket');
+var realtimeAdminRouter = require('./routes/realtimeAdmin');
 
 var app = express();
 
@@ -73,6 +75,8 @@ app.use('/log-admin', logAdminRouter);
 app.use('/exception-admin', exceptionAdminRouter);
 app.use('/data-item-admin', dataItemAdminRouter);
 app.use('/message-admin', messageAdminRouter);
+app.use('/socket', socketRouter);
+app.use('/realtime-admin', realtimeAdminRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

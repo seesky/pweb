@@ -57,6 +57,10 @@ html(lang="zh-CN")
 
     include admin-pages/messageAdmin.jade
 
+    include admin-pages/onlineManage.jade
+
+    include admin-pages/peerManage.jade
+
     script.
       const { useState, useEffect, useMemo, useCallback } = React;
       const { createRoot } = ReactDOM;
@@ -116,6 +120,8 @@ html(lang="zh-CN")
       const ROLE_ADMIN_CODES = ['FrmRoleAdmin'];
       const POST_ADMIN_CODES = ['FrmPostAdmin'];
       const USER_PERMISSION_ADMIN_CODES = ['FrmUserPermissionAdmin'];
+      const ONLINE_MANAGE_CODES = ['PoleisOnlineManage'];
+      const PEER_MANAGE_CODES = ['PoleisPeerManage'];
       const PERMISSION_ITEM_ADMIN_CODES = ['FrmPermissionItemAdmin'];
       const ROLE_PERMISSION_ADMIN_CODES = ['FrmRolePermissionAdmin'];
       const SEQUENCE_ADMIN_CODES = ['SequenceAdmin'];
@@ -150,6 +156,10 @@ html(lang="zh-CN")
       const isUserPermissionAdminNode = (node = {}) => matchNavUrl(node, USER_PERMISSION_ADMIN_CODES);
 
       const isPermissionItemAdminNode = (node = {}) => matchNavUrl(node, PERMISSION_ITEM_ADMIN_CODES);
+
+      const isOnlineManageNode = (node = {}) => matchNavUrl(node, ONLINE_MANAGE_CODES);
+
+      const isPeerManageNode = (node = {}) => matchNavUrl(node, PEER_MANAGE_CODES);
 
       const isRolePermissionAdminNode = (node = {}) => matchNavUrl(node, ROLE_PERMISSION_ADMIN_CODES);
 
@@ -474,6 +484,10 @@ html(lang="zh-CN")
             setActiveView({ type: 'user-permission-admin', node });
           } else if (isPermissionItemAdminNode(node)) {
             setActiveView({ type: 'permission-item-admin', node });
+          } else if (isOnlineManageNode(node)) {
+            setActiveView({ type: 'online-manage', node });
+          } else if (isPeerManageNode(node)) {
+            setActiveView({ type: 'peer-manage', node });
           } else {
             setActiveView({ type: 'dashboard', node });
           }
@@ -518,6 +532,12 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'permission-item-admin') {
             return React.createElement(PermissionItemAdminPage, null);
+          }
+          if (activeView.type === 'online-manage') {
+            return React.createElement(OnlineManagePage, null);
+          }
+          if (activeView.type === 'peer-manage') {
+            return React.createElement(PeerManagePage, null);
           }
           if (activeView.type === 'sequence-admin') {
             return React.createElement(SequenceAdminPage, null);
@@ -622,6 +642,10 @@ html(lang="zh-CN")
               ? '用户权限管理'
               : activeView.type === 'permission-item-admin'
               ? '权限项管理'
+              : activeView.type === 'online-manage'
+              ? '在线管理'
+              : activeView.type === 'peer-manage'
+              ? '终端管理'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
               : activeView.type === 'table-field-admin'
@@ -699,10 +723,4 @@ html(lang="zh-CN")
 
       const root = createRoot(document.getElementById('root'));
       root.render(React.createElement(AdminApp));
-
-
-
-
-
-
 

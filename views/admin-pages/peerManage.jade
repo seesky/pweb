@@ -1,0 +1,108 @@
+script.
+  const PeerManagePage = () => {
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+
+    const loadData = useCallback(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const resp = await fetch('/realtime-admin/endpoints');
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '加载终端失败');
+        setRows(result.data || []);
+      } catch (err) {
+        setError(err.message || '加载终端失败');
+      } finally {
+        setLoading(false);
+      }
+    }, []);
+
+    useEffect(() => {
+      loadData();
+    }, [loadData]);
+
+    const handleRemove = async (terminalId) => {
+      if (!terminalId) return;
+      try {
+        const resp = await fetch(`/realtime-admin/endpoints/${terminalId}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '移除终端失败');
+        setNotify({ open: true, severity: 'success', message: result.message || '终端已移除' });
+        await loadData();
+      } catch (err) {
+        setNotify({ open: true, severity: 'error', message: err.message || '移除终端失败' });
+      }
+    };
+
+    return React.createElement(Box, { sx: { display: 'grid', gap: 2 } },
+      React.createElement(Stack, { direction: 'row', alignItems: 'center', justifyContent: 'space-between' },
+        React.createElement(Typography, { variant: 'h6' }, '在线终端'),
+        React.createElement(Button, { variant: 'outlined', size: 'small', onClick: loadData, disabled: loading }, '刷新')
+      ),
+      error ? React.createElement(Alert, { severity: 'error' }, error) : null,
+      React.createElement(Paper, { sx: { borderRadius: 3, overflow: 'hidden', position: 'relative' } },
+        loading ? React.createElement(Box, {
+          sx: { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(255,255,255,0.6)', zIndex: 1 }
+        }, React.createElement(CircularProgress, { size: 32 })) : null,
+        React.createElement(TableContainer, null,
+          React.createElement(Table, { size: 'small' },
+            React.createElement(TableHead, null,
+              React.createElement(TableRow, null,
+                React.createElement(TableCell, null, '终端ID'),
+                React.createElement(TableCell, null, '用户ID'),
+                React.createElement(TableCell, null, 'IP'),
+                React.createElement(TableCell, null, 'OS'),
+                React.createElement(TableCell, null, 'UA'),
+                React.createElement(TableCell, null, '登录时间'),
+                React.createElement(TableCell, null, '最后心跳'),
+                React.createElement(TableCell, null, '操作')
+              )
+            ),
+            React.createElement(TableBody, null,
+              (rows || []).map((row) =>
+                React.createElement(TableRow, { key: row.terminalId },
+                  React.createElement(TableCell, null, row.terminalId),
+                  React.createElement(TableCell, null, row.userId || ''),
+                  React.createElement(TableCell, null, row.ip || ''),
+                  React.createElement(TableCell, null, row.os || ''),
+                  React.createElement(TableCell, null,
+                    React.createElement(Typography, { variant: 'caption', color: 'text.secondary' },
+                      (row.ua || '').slice(0, 50)
+                    )
+                  ),
+                  React.createElement(TableCell, null, row.loginAt ? new Date(Number(row.loginAt)).toLocaleString() : '-'),
+                  React.createElement(TableCell, null, row.lastSeen ? new Date(Number(row.lastSeen)).toLocaleString() : '-'),
+                  React.createElement(TableCell, null,
+                    React.createElement(Button, {
+                      variant: 'outlined',
+                      size: 'small',
+                      color: 'error',
+                      onClick: () => handleRemove(row.terminalId)
+                    }, '移除')
+                  )
+                )
+              )
+            )
+          )
+        )
+      ),
+      React.createElement(Snackbar, {
+        open: notify.open,
+        autoHideDuration: 3000,
+        onClose: () => setNotify((prev) => ({ ...prev, open: false }))
+      },
+        React.createElement(Alert, {
+          onClose: () => setNotify((prev) => ({ ...prev, open: false })),
+          severity: notify.severity,
+          sx: { width: '100%' }
+        }, notify.message)
+      )
+    );
+  };
