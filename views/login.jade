@@ -36,7 +36,11 @@ html(lang="zh-CN")
         Tabs,
         Tab,
         InputAdornment,
-        IconButton
+        IconButton,
+        Dialog,
+        DialogTitle,
+        DialogContent,
+        DialogActions
       } = MaterialUI;
 
       const loginTheme = createTheme({
@@ -85,6 +89,8 @@ html(lang="zh-CN")
         const [setupQr, setSetupQr] = useState('');
         const [setupCode, setSetupCode] = useState('');
         const [recoveryCodes, setRecoveryCodes] = useState([]);
+        const [twoFaDialogOpen, setTwoFaDialogOpen] = useState(false);
+        const [redirectAfter2fa, setRedirectAfter2fa] = useState('');
 
         const [error, setError] = useState('');
         const [info, setInfo] = useState('');
@@ -121,6 +127,11 @@ html(lang="zh-CN")
               setNeed2fa(true);
               setTempToken(result.tempToken);
               setInfo('已验证身份，请输入 2FA 验证码');
+            } else if (result.needSetup2fa) {
+              setInfo('登录成功，建议立即绑定 2FA');
+              setRedirectAfter2fa(result.redirect || '/admin');
+              setTwoFaDialogOpen(true);
+              await handleSetup2fa();
             } else if (result.redirect) {
               window.location.href = result.redirect;
             } else {
@@ -172,9 +183,8 @@ html(lang="zh-CN")
               password: regPassword,
               email: regEmail
             });
-            setInfo('注册成功，已登录，请扫描二维码绑定 2FA');
-            setMode('register');
-            // 自动生成二维码，便于立刻绑定
+            setInfo('注册成功，已登录，请完成 2FA 绑定');
+            setTwoFaDialogOpen(true);
             await handleSetup2fa();
           } catch (err) {
             setError(err.message || '注册失败');
@@ -209,10 +219,25 @@ html(lang="zh-CN")
             const data = await doFetch('/auth/2fa/enable', { code: setupCode, secret: setupSecret });
             setRecoveryCodes(data.recoveryCodes || []);
             setInfo(data.message || '已开启 2FA，请保存恢复码');
+            setTwoFaDialogOpen(false);
+            if (redirectAfter2fa) {
+              window.location.href = redirectAfter2fa;
+            } else {
+              setMode('login');
+            }
           } catch (err) {
             setError(err.message || '开启 2FA 失败');
           } finally {
             setLoading(false);
+          }
+        };
+
+        const handleClose2faDialog = () => {
+          setTwoFaDialogOpen(false);
+          if (redirectAfter2fa) {
+            window.location.href = redirectAfter2fa;
+          } else {
+            setMode('login');
           }
         };
 
@@ -326,34 +351,6 @@ html(lang="zh-CN")
                 variant: 'contained',
                 disabled: loading
               }, loading ? React.createElement(CircularProgress, { size: 20, color: 'inherit' }) : '注册'),
-              React.createElement(Stack, { spacing: 1.5, sx: { mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: 'rgba(48,64,214,0.06)' } },
-                React.createElement(Typography, { variant: 'subtitle2', fontWeight: 600 }, '绑定 2FA'),
-                React.createElement(Stack, { direction: 'row', spacing: 1 },
-                  React.createElement(Button, { size: 'small', variant: 'outlined', onClick: handleSetup2fa, disabled: loading }, '获取二维码'),
-                  React.createElement(TextField, {
-                    label: '验证码',
-                    size: 'small',
-                    value: setupCode,
-                    onChange: (e) => setSetupCode(e.target.value)
-                  }),
-                  React.createElement(Button, { size: 'small', variant: 'contained', onClick: handleEnable2fa, disabled: loading }, '确认开启')
-                ),
-                setupQr
-                  ? React.createElement(Box, { sx: { mt: 1 } },
-                      React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, '请使用认证器扫描：'),
-                      React.createElement('img', { src: setupQr, alt: '2FA QR', style: { width: 160, height: 160 } }),
-                      React.createElement(Typography, { variant: 'caption', sx: { wordBreak: 'break-all' } }, setupSecret)
-                    )
-                  : null,
-                recoveryCodes.length
-                  ? React.createElement(Box, { sx: { mt: 1 } },
-                      React.createElement(Typography, { variant: 'body2', color: 'error' }, '请保存恢复码：'),
-                      React.createElement(Stack, { spacing: 0.5 },
-                        recoveryCodes.map((c) => React.createElement(Typography, { key: c, variant: 'caption' }, c))
-                      )
-                    )
-                  : null
-              ),
               React.createElement(Button, { variant: 'text', size: 'small', onClick: () => setMode('login') }, '已有账号？去登录')
             );
 
@@ -434,6 +431,41 @@ html(lang="zh-CN")
                     '登录或注册即表示同意系统的安全和使用规范。'
                   )
                 )
+              )
+            ),
+            React.createElement(Dialog, { open: twoFaDialogOpen, onClose: handleClose2faDialog, fullWidth: true, maxWidth: 'sm' },
+              React.createElement(DialogTitle, null, '绑定 2FA'),
+              React.createElement(DialogContent, null,
+                React.createElement(Stack, { spacing: 2 },
+                  React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, '使用身份验证器扫描二维码，然后输入 6 位验证码完成绑定。'),
+                  setupQr
+                    ? React.createElement(Box, { sx: { textAlign: 'center' } },
+                        React.createElement('img', { src: setupQr, alt: '2FA QR', style: { width: 180, height: 180 } }),
+                        React.createElement(Typography, { variant: 'caption', sx: { wordBreak: 'break-all' } }, setupSecret)
+                      )
+                    : React.createElement(Button, { onClick: handleSetup2fa, variant: 'outlined', disabled: loading }, '获取二维码'),
+                  React.createElement(Stack, { direction: 'row', spacing: 1 },
+                    React.createElement(TextField, {
+                      label: '验证码',
+                      value: setupCode,
+                      onChange: (e) => setSetupCode(e.target.value),
+                      fullWidth: true
+                    }),
+                    React.createElement(Button, { variant: 'outlined', onClick: handleSetup2fa, disabled: loading }, '重新生成')
+                  ),
+                  recoveryCodes && recoveryCodes.length
+                    ? React.createElement(Box, { sx: { p: 1.5, borderRadius: 2, bgcolor: 'rgba(244,63,94,0.06)' } },
+                        React.createElement(Typography, { variant: 'body2', color: 'error' }, '请保存这些恢复码：'),
+                        React.createElement(Stack, { spacing: 0.5 },
+                          recoveryCodes.map((c) => React.createElement(Typography, { key: c, variant: 'caption' }, c))
+                        )
+                      )
+                    : null
+                )
+              ),
+              React.createElement(DialogActions, null,
+                React.createElement(Button, { onClick: handleClose2faDialog, color: 'inherit' }, '稍后再说'),
+                React.createElement(Button, { onClick: handleEnable2fa, variant: 'contained', disabled: loading }, '完成绑定')
               )
             )
           )

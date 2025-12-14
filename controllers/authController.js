@@ -8,6 +8,7 @@ const { authenticator } = require('otplib');
 const qrcode = require('qrcode');
 
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
+const SystemInfo = require('../utilities/publiclibrary/system_info');
 const NetHelper = require('../utilities/publiclibrary/net_helper');
 const UserInfo = require('../utilities/publiclibrary/user_info');
 const { logOnService } = require('../services/base/log_on_service');
@@ -140,6 +141,21 @@ exports.login = async (req, res) => {
     return res.status(400).json({ success: false, message: '请输入账户和密码' });
   }
   try {
+    // 超级管理员直通（原逻辑兼容）
+    if (account === SystemInfo.CurrentUserName && password === SystemInfo.CurrentPassword) {
+      const superAdmin = new UserInfo();
+      superAdmin.Id = 'Administrator';
+      superAdmin.UserName = SystemInfo.CurrentUserName;
+      superAdmin.RealName = '超级管理员';
+      superAdmin.Code = 'Administrator';
+      superAdmin.CompanyId = 'SYSTEM';
+      superAdmin.DepartmentId = 'SYSTEM';
+      superAdmin.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
+      superAdmin.IsAdministrator = true;
+      CommonUtils.addCurrent(superAdmin, res, req);
+      CommonUtils.uiStyle(superAdmin, res, req);
+      return res.json({ success: true, redirect: '/admin' });
+    }
     const user = await prisma.piuser.findFirst({
       where: {
         DELETEMARK: 0,
@@ -160,15 +176,18 @@ exports.login = async (req, res) => {
     if (!passed) {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
-    if (is2faEnabled(logon)) {
-      const tempToken = buildTempToken(user.ID);
-      return res.json({ success: true, need2fa: true, tempToken });
-    }
     const userInfo = await convertToUserInfo(user, logon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
     CommonUtils.addCurrent(userInfo, res, req);
     CommonUtils.uiStyle(userInfo, res, req);
-    return res.json({ success: true, redirect: '/admin' });
+    if (is2faEnabled(logon)) {
+      const tempToken = buildTempToken(user.ID);
+      // 清除已登录状态，等待 2FA 验证后再写入
+      CommonUtils.emptyCurrent(res, req);
+      return res.json({ success: true, need2fa: true, tempToken });
+    }
+    // 未开启 2FA 的场景，返回提示绑定，已登录可直接进入后台
+    return res.json({ success: true, needSetup2fa: true, redirect: '/admin' });
   } catch (error) {
     console.error('[Auth.login]', error);
     return res.status(500).json({ success: false, message: '登录失败，请稍后重试' });

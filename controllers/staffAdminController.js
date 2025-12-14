@@ -9,7 +9,29 @@ const { OrganizeService } = require('../services/base/organize_service');
 const staffService = new StaffService();
 const organizeService = new OrganizeService();
 
-const boolToInt = (value, defaultValue = 0) => (value ? 1 : defaultValue);
+const boolToInt = (value, defaultValue = 0) => {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return 1;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return 0;
+  }
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return defaultValue;
+    return value > 0 ? 1 : 0;
+  }
+  return value ? 1 : 0;
+};
+
+// 针对启用状态，若未传值则沿用原值，避免被默认 1 覆盖
+const resolveEnabledFlag = (incoming, current) => {
+  if (incoming === undefined || incoming === null) {
+    return boolToInt(current, 1);
+  }
+  return boolToInt(incoming, boolToInt(current, 1));
+};
 const parseNumber = (value, fallback = null) => {
   if (value === undefined || value === null || value === '') {
     return fallback;
@@ -48,7 +70,7 @@ const buildCreateEntity = (body, currentUser) => {
     DESCRIPTION: sanitize(body.description),
     SORTCODE: parseNumber(body.sortCode),
     ISDIMISSION: boolToInt(body.isDimission, 0),
-    ENABLED: boolToInt(body.enabled ?? true, 1),
+    ENABLED: boolToInt(body.enabled, 1),
     DELETEMARK: 0,
     CREATEON: now,
     CREATEUSERID: currentUser?.Id || null,
@@ -59,7 +81,7 @@ const buildCreateEntity = (body, currentUser) => {
   };
 };
 
-const buildUpdateEntity = (body, currentUser) => {
+const buildUpdateEntity = (body, currentUser, existing) => {
   const now = new Date();
   return {
     CODE: sanitize(body.code),
@@ -71,8 +93,8 @@ const buildUpdateEntity = (body, currentUser) => {
     EMAIL: sanitize(body.email),
     DESCRIPTION: sanitize(body.description),
     SORTCODE: parseNumber(body.sortCode),
-    ISDIMISSION: boolToInt(body.isDimission, 0),
-    ENABLED: boolToInt(body.enabled ?? true, 1),
+    ISDIMISSION: boolToInt(body.isDimission, existing?.ISDIMISSION ?? 0),
+    ENABLED: resolveEnabledFlag(body.enabled, existing?.ENABLED ?? 1),
     MODIFIEDON: now,
     MODIFIEDUSERID: currentUser?.Id || null,
     MODIFIEDBY: currentUser?.RealName || null
@@ -196,8 +218,8 @@ exports.detail = async (req, res) => {
     return res.status(400).json({ success: false, message: '缺少员工主键' });
   }
   try {
-    const entity = await staffService.getEntity(user, id);
-    if (!entity) {
+    const existing = await staffService.getEntity(user, id);
+    if (!existing) {
       return res.status(404).json({ success: false, message: '员工不存在' });
     }
     const relationMap = await buildStaffOrganizeMap([entity]);
@@ -247,11 +269,11 @@ exports.update = async (req, res) => {
   }
   const payload = req.body || {};
   try {
-    const entity = await staffService.getEntity(user, id);
-    if (!entity) {
+    const existing = await staffService.getEntity(user, id);
+    if (!existing) {
       return res.status(404).json({ success: false, message: '员工不存在' });
     }
-    const data = buildUpdateEntity(payload, user);
+    const data = buildUpdateEntity(payload, user, existing);
     const { returnCode, returnMessage } = await staffService.updateStaff(user, {
       ID: id,
       ...data
