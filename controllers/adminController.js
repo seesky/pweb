@@ -56,7 +56,9 @@ exports.dashboard = async (req, res) => {
 
   let navData = [];
   try {
-    const modules = await moduleService.getDT();
+    const modules = current?.IsAdministrator
+      ? await moduleService.getDT()
+      : await moduleService.getDTByUser(current?.Id);
     navData = buildNavTree(modules || []);
   } catch (error) {
     // log and fallback to default nav
