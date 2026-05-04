@@ -1,3 +1,6 @@
 /node_modules/*
 /generated/prisma
 .env
+build/
+/Poleis/*
+/public/poleis/poleis.exe

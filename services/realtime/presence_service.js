@@ -19,13 +19,16 @@ class PresenceService {
   async addEndpoint(userId, terminalId, socketId, info = {}) {
     if (!userId || !terminalId || !socketId) return;
     const now = Date.now();
-    const keyEndpoint = `sock:terminal:${terminalId}`;
+    const endpointKey = `sock:endpoint:${terminalId}:${socketId}`;
     const keyUser = `sock:endpoints:${userId}`;
     const keySocket = `sock:socket:${socketId}`;
+    const keyTerminalSockets = `sock:terminal-sockets:${terminalId}`;
     await this.redis.multi()
-      .sadd(keyUser, terminalId)
-      .hmset(keyEndpoint, {
+      .sadd(keyUser, endpointKey)
+      .sadd(keyTerminalSockets, socketId)
+      .hmset(endpointKey, {
         userId,
+        terminalId,
         socketId,
         ip: info.ip || '',
         ua: info.ua || '',
@@ -33,67 +36,105 @@ class PresenceService {
         loginAt: info.loginAt || now,
         lastSeen: now
       })
-      .set(keySocket, terminalId)
+      .set(keySocket, endpointKey)
       .exec();
   }
 
   async removeBySocket(socketId) {
     if (!socketId) return;
     const keySocket = `sock:socket:${socketId}`;
-    const terminalId = await this.redis.get(keySocket);
-    if (!terminalId) return;
-    await this.removeEndpoint(terminalId);
+    const endpointKey = await this.redis.get(keySocket);
+    if (!endpointKey) return;
+    await this.removeEndpointByKey(endpointKey);
   }
 
-  async removeEndpoint(terminalId) {
-    if (!terminalId) return;
-    const keyEndpoint = `sock:terminal:${terminalId}`;
-    const endpoint = await this.redis.hgetall(keyEndpoint);
-    const userId = endpoint?.userId;
-    const keySocket = endpoint?.socketId ? `sock:socket:${endpoint.socketId}` : null;
+  async removeEndpointByKey(endpointKey) {
+    if (!endpointKey) return;
+    const endpoint = await this.redis.hgetall(endpointKey);
+    if (!endpoint || !Object.keys(endpoint).length) return;
+    const userId = endpoint.userId;
+    const terminalId = endpoint.terminalId;
+    const socketId = endpoint.socketId;
+    const keyUser = userId ? `sock:endpoints:${userId}` : null;
+    const keyTerminalSockets = terminalId ? `sock:terminal-sockets:${terminalId}` : null;
+    const keySocket = socketId ? `sock:socket:${socketId}` : null;
     const m = this.redis.multi();
-    if (userId) m.srem(`sock:endpoints:${userId}`, terminalId);
-    m.del(keyEndpoint);
+    if (keyUser) m.srem(keyUser, endpointKey);
+    if (keyTerminalSockets) m.srem(keyTerminalSockets, socketId);
+    m.del(endpointKey);
     if (keySocket) m.del(keySocket);
     await m.exec();
+
+    // cleanup empty terminal set
+    if (keyTerminalSockets) {
+      const remaining = await this.redis.scard(keyTerminalSockets);
+      if (remaining === 0) {
+        await this.redis.del(keyTerminalSockets);
+      }
+    }
   }
 
-  async updateLastSeen(terminalId) {
-    if (!terminalId) return;
-    await this.redis.hset(`sock:terminal:${terminalId}`, 'lastSeen', Date.now());
+  async updateLastSeen(terminalId, socketId) {
+    if (!terminalId || !socketId) return;
+    const endpointKey = `sock:endpoint:${terminalId}:${socketId}`;
+    await this.redis.hset(endpointKey, 'lastSeen', Date.now());
   }
 
   async getEndpointsByUser(userId) {
     if (!userId) return [];
     const keyUser = `sock:endpoints:${userId}`;
-    const terminalIds = await this.redis.smembers(keyUser);
-    if (!terminalIds?.length) return [];
+    const endpointKeys = await this.redis.smembers(keyUser);
+    if (!endpointKeys?.length) return [];
     const results = await Promise.all(
-      terminalIds.map(async (tid) => {
-        const data = await this.redis.hgetall(`sock:terminal:${tid}`);
-        return Object.keys(data || {}).length
-          ? { terminalId: tid, ...data }
-          : null;
+      endpointKeys.map(async (key) => {
+        const data = await this.redis.hgetall(key);
+        return Object.keys(data || {}).length ? data : null;
+      })
+    );
+    return results.filter(Boolean);
+  }
+
+  async getEndpointsByTerminal(terminalId) {
+    if (!terminalId) return [];
+    const keyTerminalSockets = `sock:terminal-sockets:${terminalId}`;
+    const socketIds = await this.redis.smembers(keyTerminalSockets);
+    if (!socketIds?.length) return [];
+    const results = await Promise.all(
+      socketIds.map(async (sid) => {
+        const data = await this.redis.hgetall(`sock:endpoint:${terminalId}:${sid}`);
+        return Object.keys(data || {}).length ? data : null;
       })
     );
     return results.filter(Boolean);
   }
 
   async getEndpoint(terminalId) {
-    if (!terminalId) return null;
-    const data = await this.redis.hgetall(`sock:terminal:${terminalId}`);
-    if (!data || !Object.keys(data).length) return null;
-    return { terminalId, ...data };
+    // kept for backward compatibility: returns first endpoint if any
+    const endpoints = await this.getEndpointsByTerminal(terminalId);
+    return endpoints.length ? endpoints[0] : null;
+  }
+
+  async removeEndpoint(terminalId) {
+    // 移除指定terminalId的所有终端连接
+    if (!terminalId) return;
+    const keyTerminalSockets = `sock:terminal-sockets:${terminalId}`;
+    const socketIds = await this.redis.smembers(keyTerminalSockets);
+    if (!socketIds?.length) return;
+
+    // 移除每个socket连接
+    for (const socketId of socketIds) {
+      const endpointKey = `sock:endpoint:${terminalId}:${socketId}`;
+      await this.removeEndpointByKey(endpointKey);
+    }
   }
 
   async listAllEndpoints() {
-    const keys = await this.redis.keys('sock:terminal:*');
+    const keys = await this.redis.keys('sock:endpoint:*');
     if (!keys?.length) return [];
     const results = await Promise.all(
       keys.map(async (key) => {
         const data = await this.redis.hgetall(key);
-        const terminalId = key.split(':').pop();
-        return Object.keys(data || {}).length ? { terminalId, ...data } : null;
+        return Object.keys(data || {}).length ? data : null;
       })
     );
     return results.filter(Boolean);
@@ -113,6 +154,22 @@ class PresenceService {
       endpoints: eps,
       count: eps.length
     }));
+  }
+
+  async clearAllEndpoints() {
+    // 清理所有在线状态数据，用于服务端重启时
+    const patterns = [
+      'sock:endpoint:*',
+      'sock:endpoints:*',
+      'sock:socket:*',
+      'sock:terminal-sockets:*'
+    ];
+    for (const pattern of patterns) {
+      const keys = await this.redis.keys(pattern);
+      if (keys?.length) {
+        await this.redis.del(...keys);
+      }
+    }
   }
 }
 

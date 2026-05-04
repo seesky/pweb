@@ -1,0 +1,795 @@
+doctype html
+html(lang="zh-CN")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1")
+    title Poleis - 远程控制管理平台
+    link(rel="preconnect" href="https://fonts.googleapis.com")
+    link(rel="preconnect" href="https://fonts.gstatic.com" crossorigin="")
+    link(href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet")
+    link(rel="stylesheet" href="/stylesheets/material_icons/material_icons.css")
+    style.
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      html, body { height: 100%; margin: 0; font-family: 'Roboto','Noto Sans SC',sans-serif; }
+      #root { width: 100%; min-height: 100%; }
+  body
+    div#root
+    script(src="https://unpkg.com/react@18/umd/react.development.js" crossorigin)
+    script(src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@mui/material@5.15.14/umd/material-ui.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/react@11.11.4/dist/emotion-react.umd.min.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js" crossorigin)
+    script.
+      const { useState, useEffect, useMemo } = React;
+      const { createRoot } = ReactDOM;
+      const {
+        ThemeProvider,
+        createTheme,
+        CssBaseline,
+        Box,
+        Container,
+        Typography,
+        Button,
+        Stack,
+        Paper,
+        Grid,
+        AppBar,
+        Toolbar,
+        IconButton,
+        Drawer,
+        List,
+        ListItemButton,
+        ListItemText,
+        ListItemIcon,
+        Divider,
+        Chip,
+        Icon,
+        Fade,
+        Grow,
+        Slide,
+        Avatar,
+        Card,
+        CardContent,
+        useScrollTrigger,
+        LinearProgress
+      } = MaterialUI;
+
+      // 主题配置
+      const landingTheme = createTheme({
+        palette: {
+          mode: 'light',
+          primary: { main: '#3040d6', light: '#5c6bc0', dark: '#1a237e' },
+          secondary: { main: '#7c3aed', light: '#b388ff', dark: '#4a148c' },
+          background: { default: '#fafbfc', paper: '#ffffff' },
+          text: { primary: '#1a1a2e', secondary: '#4a5568' }
+        },
+        typography: {
+          fontFamily: "'Roboto','Noto Sans SC',sans-serif",
+          h1: { fontWeight: 800, letterSpacing: '-0.02em' },
+          h2: { fontWeight: 700, letterSpacing: '-0.01em' },
+          h3: { fontWeight: 600 },
+          h4: { fontWeight: 600 },
+          h5: { fontWeight: 500 },
+          h6: { fontWeight: 500 }
+        },
+        shape: { borderRadius: 12 },
+        components: {
+          MuiButton: {
+            styleOverrides: {
+              root: { textTransform: 'none', fontWeight: 600, borderRadius: 8 }
+            }
+          }
+        }
+      });
+
+      // 动画数字计数器组件
+      const AnimatedCounter = ({ end, duration = 2000, suffix = '' }) => {
+        const [count, setCount] = useState(0);
+        const [started, setStarted] = useState(false);
+
+        useEffect(() => {
+          if (!started) return;
+          let startTime;
+          const step = (timestamp) => {
+            if (!startTime) startTime = timestamp;
+            const progress = Math.min((timestamp - startTime) / duration, 1);
+            setCount(Math.floor(progress * end));
+            if (progress < 1) requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        }, [started, end, duration]);
+
+        useEffect(() => {
+          const timer = setTimeout(() => setStarted(true), 500);
+          return () => clearTimeout(timer);
+        }, []);
+
+        return React.createElement(Typography, {
+          variant: 'h3',
+          fontWeight: 700,
+          color: 'primary.main'
+        }, count.toLocaleString() + suffix);
+      };
+
+      // 特性卡片组件
+      const FeatureCard = ({ icon, title, description, delay = 0 }) => {
+        const [visible, setVisible] = useState(false);
+        useEffect(() => {
+          const timer = setTimeout(() => setVisible(true), delay);
+          return () => clearTimeout(timer);
+        }, []);
+
+        return React.createElement(Grow, { in: visible, timeout: 600 },
+          React.createElement(Card, {
+            elevation: 0,
+            sx: {
+              height: '100%',
+              borderRadius: 3,
+              border: '1px solid',
+              borderColor: 'divider',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                borderColor: 'primary.main',
+                boxShadow: '0 8px 32px rgba(48,64,214,0.12)',
+                transform: 'translateY(-4px)'
+              }
+            }
+          },
+            React.createElement(CardContent, { sx: { p: 3 } },
+              React.createElement(Box, {
+                sx: {
+                  width: 56,
+                  height: 56,
+                  borderRadius: 2,
+                  bgcolor: 'primary.main',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  mb: 2,
+                  color: '#fff'
+                }
+              },
+                React.createElement(Icon, { sx: { fontSize: 28 } }, icon)
+              ),
+              React.createElement(Typography, { variant: 'h6', gutterBottom: true, fontWeight: 600 }, title),
+              React.createElement(Typography, { variant: 'body2', color: 'text.secondary', lineHeight: 1.7 }, description)
+            )
+          )
+        );
+      };
+
+      // 导航栏组件
+      const NavBar = () => {
+        const [scrolled, setScrolled] = useState(false);
+        const [mobileOpen, setMobileOpen] = useState(false);
+
+        useEffect(() => {
+          const handleScroll = () => setScrolled(window.scrollY > 50);
+          window.addEventListener('scroll', handleScroll);
+          return () => window.removeEventListener('scroll', handleScroll);
+        }, []);
+
+        const navItems = [
+          { label: '功能特性', href: '#features' },
+          { label: '系统架构', href: '#architecture' },
+          { label: '数据统计', href: '#stats' },
+          { label: '关于我们', href: '#about' }
+        ];
+
+        const drawerContent = React.createElement(Box, { sx: { width: 250 } },
+          React.createElement(Box, { sx: { p: 2 } },
+            React.createElement(Typography, { variant: 'h6', fontWeight: 700, color: 'primary.main' }, 'Poleis')
+          ),
+          React.createElement(Divider, null),
+          React.createElement(List, null,
+            navItems.map((item) =>
+              React.createElement(ListItemButton, {
+                key: item.href,
+                component: 'a',
+                href: item.href,
+                onClick: () => setMobileOpen(false)
+              },
+                React.createElement(ListItemText, { primary: item.label })
+              )
+            )
+          )
+        );
+
+        return React.createElement(AppBar, {
+          position: 'fixed',
+          elevation: scrolled ? 4 : 0,
+          sx: {
+            bgcolor: scrolled ? 'rgba(255,255,255,0.95)' : 'transparent',
+            backdropFilter: scrolled ? 'blur(8px)' : 'none',
+            borderBottom: scrolled ? '1px solid' : 'none',
+            borderColor: 'divider',
+            transition: 'all 0.3s ease'
+          }
+        },
+          React.createElement(Toolbar, { sx: { py: 1 } },
+            React.createElement(Typography, {
+              variant: 'h6',
+              component: 'a',
+              href: '/',
+              sx: {
+                flexGrow: { xs: 1, md: 0 },
+                fontWeight: 800,
+                color: scrolled ? 'primary.main' : '#fff',
+                textDecoration: 'none',
+                letterSpacing: '-0.02em',
+                fontSize: '1.5rem'
+              }
+            }, 'Poleis'),
+            React.createElement(Box, {
+              sx: {
+                display: { xs: 'none', md: 'flex' },
+                flexGrow: 1,
+                gap: 4,
+                ml: 6
+              }
+            },
+              navItems.map((item) =>
+                React.createElement(Typography, {
+                  key: item.href,
+                  component: 'a',
+                  href: item.href,
+                  sx: {
+                    color: scrolled ? 'text.primary' : 'rgba(255,255,255,0.85)',
+                    textDecoration: 'none',
+                    fontWeight: 500,
+                    fontSize: '0.95rem',
+                    transition: 'color 0.2s',
+                    '&:hover': { color: scrolled ? 'primary.main' : '#fff' }
+                  }
+                }, item.label)
+              )
+            ),
+            React.createElement(Box, { sx: { display: { xs: 'none', md: 'flex' }, gap: 2 } },
+              React.createElement(Button, {
+                variant: 'text',
+                href: '/login',
+                sx: { color: scrolled ? 'text.primary' : '#fff' }
+              }, '登录'),
+              React.createElement(Button, {
+                variant: 'contained',
+                href: '/admin',
+                disableElevation: true,
+                sx: {
+                  bgcolor: scrolled ? 'primary.main' : '#fff',
+                  color: scrolled ? '#fff' : 'primary.main',
+                  '&:hover': {
+                    bgcolor: scrolled ? 'primary.dark' : 'rgba(255,255,255,0.9)'
+                  }
+                }
+              }, '进入后台')
+            ),
+            React.createElement(IconButton, {
+              sx: { display: { md: 'none' }, color: scrolled ? 'primary.main' : '#fff' },
+              onClick: () => setMobileOpen(true)
+            },
+              React.createElement(Icon, null, 'menu')
+            )
+          ),
+          React.createElement(Drawer, {
+            anchor: 'right',
+            open: mobileOpen,
+            onClose: () => setMobileOpen(false)
+          }, drawerContent)
+        );
+      };
+
+      // Hero 区域
+      const HeroSection = () => {
+        const [loaded, setLoaded] = useState(false);
+        useEffect(() => {
+          setLoaded(true);
+        }, []);
+
+        return React.createElement(Box, {
+          sx: {
+            minHeight: '100vh',
+            background: 'linear-gradient(135deg, #1a237e 0%, #3040d6 50%, #7c3aed 100%)',
+            position: 'relative',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center'
+          }
+        },
+          // 背景装饰
+          React.createElement(Box, {
+            sx: {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              opacity: 0.1,
+              background: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
+            }
+          }),
+          React.createElement(Box, {
+            sx: {
+              position: 'absolute',
+              top: '10%',
+              right: '5%',
+              width: 400,
+              height: 400,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(124,58,237,0.3) 0%, transparent 70%)',
+              filter: 'blur(40px)'
+            }
+          }),
+          React.createElement(Box, {
+            sx: {
+              position: 'absolute',
+              bottom: '20%',
+              left: '10%',
+              width: 300,
+              height: 300,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(48,64,214,0.4) 0%, transparent 70%)',
+              filter: 'blur(40px)'
+            }
+          }),
+          // 内容
+          React.createElement(Container, { maxWidth: 'lg', sx: { position: 'relative', zIndex: 1, pt: 12 } },
+            React.createElement(Grid, { container: true, spacing: 6, alignItems: 'center' },
+              React.createElement(Grid, { item: true, xs: 12, md: 7 },
+                React.createElement(Fade, { in: loaded, timeout: 800 },
+                  React.createElement(Box, null,
+                    React.createElement(Chip, {
+                      label: '远程控制管理平台',
+                      sx: {
+                        mb: 3,
+                        bgcolor: 'rgba(255,255,255,0.15)',
+                        color: '#fff',
+                        fontWeight: 500,
+                        border: '1px solid rgba(255,255,255,0.2)'
+                      }
+                    }),
+                    React.createElement(Typography, {
+                      variant: 'h1',
+                      sx: {
+                        color: '#fff',
+                        fontSize: { xs: '2.5rem', md: '3.5rem', lg: '4rem' },
+                        lineHeight: 1.2,
+                        mb: 3
+                      }
+                    }, '高效安全的', React.createElement('br', null),
+                      React.createElement('span', { style: { color: '#a5b4fc' } }, '远程控制解决方案')
+                    ),
+                    React.createElement(Typography, {
+                      variant: 'h6',
+                      sx: {
+                        color: 'rgba(255,255,255,0.8)',
+                        fontWeight: 400,
+                        maxWidth: 600,
+                        mb: 4,
+                        lineHeight: 1.7
+                      }
+                    }, 'Poleis 提供企业级远程控制管理能力，支持多终端协同、实时监控、安全认证，让远程管理更简单高效。'),
+                    React.createElement(Stack, {
+                      direction: { xs: 'column', sm: 'row' },
+                      spacing: 2,
+                      sx: { flexWrap: 'wrap' }
+                    },
+                      React.createElement(Button, {
+                        variant: 'contained',
+                        size: 'large',
+                        href: '/admin',
+                        sx: {
+                          bgcolor: '#fff',
+                          color: 'primary.main',
+                          px: 4,
+                          py: 1.5,
+                          fontSize: '1rem',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' }
+                        },
+                        endIcon: React.createElement(Icon, null, 'arrow_forward')
+                      }, '立即开始'),
+                      React.createElement(Button, {
+                        variant: 'outlined',
+                        size: 'large',
+                        href: '#features',
+                        sx: {
+                          borderColor: 'rgba(255,255,255,0.5)',
+                          color: '#fff',
+                          px: 4,
+                          py: 1.5,
+                          fontSize: '1rem',
+                          '&:hover': {
+                            borderColor: '#fff',
+                            bgcolor: 'rgba(255,255,255,0.1)'
+                          }
+                        }
+                      }, '了解更多')
+                    )
+                  )
+                )
+              ),
+              React.createElement(Grid, {
+                item: true,
+                xs: 12,
+                md: 5,
+                sx: { display: { xs: 'none', md: 'block' } }
+              },
+                React.createElement(Slide, { in: loaded, direction: 'left', timeout: 1000 },
+                  React.createElement(Paper, {
+                    elevation: 24,
+                    sx: {
+                      borderRadius: 4,
+                      overflow: 'hidden',
+                      background: 'linear-gradient(145deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)',
+                      backdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      p: 3
+                    }
+                  },
+                    React.createElement(Box, {
+                      sx: {
+                        bgcolor: 'rgba(0,0,0,0.3)',
+                        borderRadius: 2,
+                        p: 2,
+                        mb: 2,
+                        fontFamily: 'monospace',
+                        fontSize: '0.85rem',
+                        color: '#a5b4fc'
+                      }
+                    },
+                      React.createElement(Typography, { variant: 'caption', color: 'rgba(255,255,255,0.6)' }, 'System Status'),
+                      React.createElement(Box, { sx: { mt: 1 } },
+                        React.createElement(Typography, { variant: 'body2', color: '#4ade80' }, '> Agent Online: 128'),
+                        React.createElement(Typography, { variant: 'body2', color: '#4ade80' }, '> Client Connected: 89'),
+                        React.createElement(Typography, { variant: 'body2', color: '#60a5fa' }, '> Bandwidth: 1.2 GB/s'),
+                        React.createElement(Typography, { variant: 'body2', color: '#fbbf24' }, '> Latency: 12ms')
+                      )
+                    ),
+                    React.createElement(Stack, { direction: 'row', spacing: 1, justifyContent: 'center' },
+                      React.createElement(Chip, {
+                        label: 'Web Console',
+                        size: 'small',
+                        sx: { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff' }
+                      }),
+                      React.createElement(Chip, {
+                        label: 'Agent',
+                        size: 'small',
+                        sx: { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff' }
+                      }),
+                      React.createElement(Chip, {
+                        label: 'Client',
+                        size: 'small',
+                        sx: { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff' }
+                      })
+                    )
+                  )
+                )
+              )
+            )
+          )
+        );
+      };
+
+      // 功能特性区域
+      const FeaturesSection = () => {
+        const features = [
+          {
+            icon: 'devices',
+            title: '多端协同',
+            description: '支持 Web、Agent、Client 三端协同工作，实现跨平台远程管理，随时随地掌控全局。'
+          },
+          {
+            icon: 'security',
+            title: '安全认证',
+            description: '采用 JWT + 双因素认证（2FA）机制，支持角色权限管理，确保系统访问安全可控。'
+          },
+          {
+            icon: 'speed',
+            title: '实时通信',
+            description: '基于 Socket.io 实现实时双向通信，毫秒级消息推送，让远程操作如本地般流畅。'
+          },
+          {
+            icon: 'dashboard',
+            title: '统一管理',
+            description: '集成用户、角色、权限、日志等完整管理功能，一站式后台解决方案。'
+          },
+          {
+            icon: 'storage',
+            title: '数据驱动',
+            description: 'MySQL + Redis 双数据库架构，支持高性能数据存储与缓存，保障系统稳定性。'
+          },
+          {
+            icon: 'extension',
+            title: '模块化设计',
+            description: '灵活的模块化架构，支持功能扩展与定制，满足不同业务场景需求。'
+          }
+        ];
+
+        return React.createElement(Box, {
+          id: 'features',
+          sx: { py: { xs: 8, md: 12 }, bgcolor: 'background.default' }
+        },
+          React.createElement(Container, { maxWidth: 'lg' },
+            React.createElement(Box, { sx: { textAlign: 'center', mb: 8 } },
+              React.createElement(Typography, {
+                variant: 'overline',
+                color: 'primary.main',
+                sx: { fontWeight: 600, letterSpacing: 2 }
+              }, 'FEATURES'),
+              React.createElement(Typography, {
+                variant: 'h2',
+                sx: { mt: 1, color: 'text.primary' }
+              }, '核心功能'),
+              React.createElement(Typography, {
+                variant: 'h6',
+                color: 'text.secondary',
+                sx: { mt: 2, maxWidth: 600, mx: 'auto', fontWeight: 400 }
+              }, 'Poleis 提供完整的远程控制管理能力，助力企业数字化转型')
+            ),
+            React.createElement(Grid, { container: true, spacing: 3 },
+              features.map((feature, index) =>
+                React.createElement(Grid, { item: true, xs: 12, sm: 6, md: 4, key: index },
+                  React.createElement(FeatureCard, {
+                    icon: feature.icon,
+                    title: feature.title,
+                    description: feature.description,
+                    delay: index * 100
+                  })
+                )
+              )
+            )
+          )
+        );
+      };
+
+      // 系统架构区域
+      const ArchitectureSection = () => {
+        const components = [
+          { name: 'Web Console', desc: '管理后台', color: '#3040d6', icon: 'web' },
+          { name: 'Agent', desc: '被控端代理', color: '#7c3aed', icon: 'memory' },
+          { name: 'Client', desc: '控制端客户端', color: '#059669', icon: 'computer' }
+        ];
+
+        return React.createElement(Box, {
+          id: 'architecture',
+          sx: { py: { xs: 8, md: 12 }, bgcolor: 'grey.50' }
+        },
+          React.createElement(Container, { maxWidth: 'lg' },
+            React.createElement(Box, { sx: { textAlign: 'center', mb: 8 } },
+              React.createElement(Typography, {
+                variant: 'overline',
+                color: 'primary.main',
+                sx: { fontWeight: 600, letterSpacing: 2 }
+              }, 'ARCHITECTURE'),
+              React.createElement(Typography, {
+                variant: 'h2',
+                sx: { mt: 1 }
+              }, '系统架构'),
+              React.createElement(Typography, {
+                variant: 'h6',
+                color: 'text.secondary',
+                sx: { mt: 2, maxWidth: 600, mx: 'auto', fontWeight: 400 }
+              }, '三端协同，构建完整的远程控制生态系统')
+            ),
+            React.createElement(Box, {
+              sx: {
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 4,
+                flexWrap: 'wrap'
+              }
+            },
+              components.map((comp, index) =>
+                React.createElement(Fade, { in: true, key: index, timeout: 800 + index * 200 },
+                  React.createElement(Paper, {
+                    elevation: 8,
+                    sx: {
+                      width: { xs: '100%', md: 280 },
+                      p: 4,
+                      borderRadius: 4,
+                      textAlign: 'center',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 4,
+                        bgcolor: comp.color
+                      }
+                    }
+                  },
+                    React.createElement(Box, {
+                      sx: {
+                        width: 72,
+                        height: 72,
+                        borderRadius: '50%',
+                        bgcolor: comp.color,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mx: 'auto',
+                        mb: 2,
+                        color: '#fff'
+                      }
+                    },
+                      React.createElement(Icon, { sx: { fontSize: 36 } }, comp.icon)
+                    ),
+                    React.createElement(Typography, { variant: 'h5', fontWeight: 600 }, comp.name),
+                    React.createElement(Typography, { variant: 'body2', color: 'text.secondary', sx: { mt: 1 } }, comp.desc)
+                  )
+                )
+              ),
+              // 连接线
+              React.createElement(Box, {
+                sx: {
+                  display: { xs: 'none', md: 'flex' },
+                  position: 'absolute',
+                  width: '60%',
+                  maxWidth: 800,
+                  justifyContent: 'space-around',
+                  alignItems: 'center',
+                  mt: 15,
+                  pointerEvents: 'none'
+                }
+              })
+            ),
+            // 技术栈
+            React.createElement(Box, { sx: { mt: 8, textAlign: 'center' } },
+              React.createElement(Typography, { variant: 'subtitle1', color: 'text.secondary', gutterBottom: true }, '技术栈'),
+              React.createElement(Stack, {
+                direction: 'row',
+                spacing: 2,
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                useFlexGap: true,
+                sx: { mt: 2 }
+              },
+                ['Node.js', 'Express', 'React', 'Material UI', 'Socket.io', 'MySQL', 'Redis', 'Prisma'].map((tech) =>
+                  React.createElement(Chip, {
+                    key: tech,
+                    label: tech,
+                    variant: 'outlined',
+                    sx: { borderRadius: 2, px: 1 }
+                  })
+                )
+              )
+            )
+          )
+        );
+      };
+
+      // 数据统计区域
+      const StatsSection = () => {
+        const stats = [
+          { value: 99.9, suffix: '%', label: '系统可用性' },
+          { value: 50, suffix: 'ms', label: '平均响应时间' },
+          { value: 10000, suffix: '+', label: '并发连接支持' },
+          { value: 24, suffix: '/7', label: '全天候服务' }
+        ];
+
+        return React.createElement(Box, {
+          id: 'stats',
+          sx: {
+            py: { xs: 8, md: 12 },
+            background: 'linear-gradient(135deg, #1a237e 0%, #3040d6 100%)'
+          }
+        },
+          React.createElement(Container, { maxWidth: 'lg' },
+            React.createElement(Grid, { container: true, spacing: 4, justifyContent: 'center' },
+              stats.map((stat, index) =>
+                React.createElement(Grid, { item: true, xs: 6, md: 3, key: index },
+                  React.createElement(Box, { sx: { textAlign: 'center', color: '#fff' } },
+                    React.createElement(Typography, {
+                      variant: 'h2',
+                      fontWeight: 700,
+                      sx: { color: '#fff', fontSize: { xs: '2rem', md: '3rem' } }
+                    }, stat.value + stat.suffix),
+                    React.createElement(Typography, {
+                      variant: 'body1',
+                      sx: { color: 'rgba(255,255,255,0.7)', mt: 1 }
+                    }, stat.label)
+                  )
+                )
+              )
+            )
+          )
+        );
+      };
+
+      // 关于区域
+      const AboutSection = () => {
+        return React.createElement(Box, {
+          id: 'about',
+          sx: { py: { xs: 8, md: 12 }, bgcolor: 'background.default' }
+        },
+          React.createElement(Container, { maxWidth: 'md' },
+            React.createElement(Box, { sx: { textAlign: 'center' } },
+              React.createElement(Typography, {
+                variant: 'overline',
+                color: 'primary.main',
+                sx: { fontWeight: 600, letterSpacing: 2 }
+              }, 'ABOUT'),
+              React.createElement(Typography, {
+                variant: 'h2',
+                sx: { mt: 1 }
+              }, '关于 Poleis'),
+              React.createElement(Typography, {
+                variant: 'h6',
+                color: 'text.secondary',
+                sx: { mt: 3, fontWeight: 400, lineHeight: 1.8 }
+              }, 'Poleis 是一款专为企业和个人设计的远程控制管理平台。我们致力于提供安全、高效、易用的远程管理解决方案，让技术服务于每个人的需求。'),
+              React.createElement(Box, { sx: { mt: 4 } },
+                React.createElement(Button, {
+                  variant: 'contained',
+                  size: 'large',
+                  href: '/admin',
+                  sx: { px: 6, py: 1.5 }
+                }, '立即体验')
+              )
+            )
+          )
+        );
+      };
+
+      // Footer
+      const Footer = () => {
+        return React.createElement(Box, {
+          component: 'footer',
+          sx: {
+            py: 4,
+            bgcolor: 'grey.900',
+            color: 'grey.400'
+          }
+        },
+          React.createElement(Container, { maxWidth: 'lg' },
+            React.createElement(Stack, {
+              direction: { xs: 'column', md: 'row' },
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              spacing: 2
+            },
+              React.createElement(Typography, { variant: 'body2' },
+                '\u00A9 2024 Poleis. All rights reserved.'
+              ),
+              React.createElement(Stack, { direction: 'row', spacing: 3 },
+                React.createElement(Typography, {
+                  variant: 'body2',
+                  component: 'a',
+                  href: '/login',
+                  sx: { color: 'grey.400', textDecoration: 'none', '&:hover': { color: '#fff' } }
+                }, '登录'),
+                React.createElement(Typography, {
+                  variant: 'body2',
+                  component: 'a',
+                  href: '/admin',
+                  sx: { color: 'grey.400', textDecoration: 'none', '&:hover': { color: '#fff' } }
+                }, '管理后台')
+              )
+            )
+          )
+        );
+      };
+
+      // 主应用
+      const LandingApp = () => {
+        return React.createElement(ThemeProvider, { theme: landingTheme },
+          React.createElement(CssBaseline, null),
+          React.createElement(Box, { sx: { minHeight: '100vh' } },
+            React.createElement(NavBar, null),
+            React.createElement(HeroSection, null),
+            React.createElement(FeaturesSection, null),
+            React.createElement(ArchitectureSection, null),
+            React.createElement(StatsSection, null),
+            React.createElement(AboutSection, null),
+            React.createElement(Footer, null)
+          )
+        );
+      };
+
+      const root = createRoot(document.getElementById('root'));
+      root.render(React.createElement(LandingApp));

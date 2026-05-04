@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(xargs:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(cmake --build:*)",
+      "Bash(cmake:*)",
+      "Bash(make:*)",
+      "Bash(mingw32-make:*)",
+      "Bash(tee:*)",
+      "Bash(del \"D:\\\\pweb\\\\Poleis\\\\utils\\\\endpoint_client.h\" \"D:\\\\pweb\\\\Poleis\\\\utils\\\\endpoint_client.cpp\")",
+      "Bash(cd:*)",
+      "Bash(dir *)",
+      "Bash(findstr /i \"hole_puncher\")",
+      "Bash(findstr /i \"SDP\")"
+    ]
+  }
+}

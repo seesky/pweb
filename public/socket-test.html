@@ -148,6 +148,20 @@
         addMsg('认证成功 ' + JSON.stringify(data), '系统');
         fetchEndpoints();
       });
+      socket.on('endpoints_snapshot', (resp) => {
+        if (resp?.success) renderEndpoints(resp.data || []);
+      });
+      socket.on('endpoint_online', (ep) => {
+        addMsg('终端上线 ' + JSON.stringify(ep), '系统');
+        myEndpoints = myEndpoints.filter(e => e.terminalId !== ep.terminalId);
+        myEndpoints.push(ep);
+        renderEndpoints(myEndpoints);
+      });
+      socket.on('endpoint_offline', (ep) => {
+        addMsg('终端下线 ' + JSON.stringify(ep), '系统');
+        myEndpoints = myEndpoints.filter(e => e.terminalId !== ep.terminalId);
+        renderEndpoints(myEndpoints);
+      });
       socket.on('message', (data) => {
         addMsg(JSON.stringify(data), `消息 from ${data.fromUserId}/${data.fromTerminalId}`);
         if (data.fromUserId) {

@@ -2,7 +2,7 @@
 
 const jwt = require('jsonwebtoken');
 
-const DEFAULT_EXPIRES_SECONDS = 60 * 30; // 30 minutes for socket token
+const DEFAULT_EXPIRES_SECONDS = 60 * 60 * 24 * 90; // 90 days for socket token
 
 class SocketTokenService {
   constructor(secret) {
