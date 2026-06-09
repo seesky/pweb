@@ -14,7 +14,11 @@
       "Bash(cd:*)",
       "Bash(dir *)",
       "Bash(findstr /i \"hole_puncher\")",
-      "Bash(findstr /i \"SDP\")"
+      "Bash(findstr /i \"SDP\")",
+      "Bash(Remove-Item *)",
+      "Bash(python3 *)",
+      "Bash(Get-ChildItem -Recurse -Name -File -Filter \"*.cpp\")",
+      "Bash(Select-Object -First 50)"
     ]
   }
 }
