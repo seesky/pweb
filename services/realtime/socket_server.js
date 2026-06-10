@@ -1,7 +1,7 @@
 'use strict';
 
 const { Server } = require('socket.io');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomBytes } = require('node:crypto');
 const { SocketTokenService } = require('./token_service');
 const { PresenceService } = require('./presence_service');
 const { AuditService } = require('./audit_service');
@@ -24,6 +24,10 @@ const SOCKET_EVENTS = {
   POLEIS_NAT_PUNCH_START: 'poleis_nat_punch_start',
   POLEIS_NAT_CONNECTED: 'poleis_nat_connected',
   POLEIS_NAT_FAILED: 'poleis_nat_failed',
+  // Parsec-style relay (TURN-like) fallback signaling
+  POLEIS_RELAY_REQUEST: 'poleis_relay_request',  // peer asks web to allocate a relay session
+  POLEIS_RELAY_OFFER: 'poleis_relay_offer',      // web pushes relay endpoint+token to the other peer
+  POLEIS_RELAY_ANSWER: 'poleis_relay_answer',    // peer confirms it bound to the relay
   // Poleis P2P连接事件
   POLEIS_CONNECT_REQUEST: 'poleis_connect_request',  // 请求建立P2P连接
   POLEIS_SDP_OFFER: 'poleis_sdp_offer',              // SDP offer（服务端->客户端）
@@ -34,13 +38,21 @@ const SOCKET_EVENTS = {
   POLEIS_NAT_RETRY: 'poleis_nat_retry'               // 请求重发NAT信息（打洞协调）
 };
 
-const buildSocketServer = (httpServer) => {
+const buildSocketServer = (httpServer, options = {}) => {
   const io = new Server(httpServer, {
     cors: { origin: '*', methods: ['GET', 'POST'] }
   });
   const tokenService = new SocketTokenService();
   const presence = new PresenceService();
   const audit = new AuditService();
+  const relay = options.relay || null;
+  // Public endpoint that peers should send relay UDP traffic to. Defaults to env
+  // (set RELAY_PUBLIC_HOST to the web server's reachable IP/domain in prod).
+  // 0.0.0.0 / :: are listen wildcards, NOT routable destinations — treat them as
+  // unset so we fall back to the address the client actually connected to.
+  let relayPublicHost = process.env.RELAY_PUBLIC_HOST || '';
+  if (relayPublicHost === '0.0.0.0' || relayPublicHost === '::') relayPublicHost = '';
+  const relayPublicPort = Number(process.env.RELAY_UDP_PORT || 3479);
 
   // 服务启动时清理旧的在线状态数据，防止重启后显示幽灵设备
   presence.clearAllEndpoints().then(() => {
@@ -52,10 +64,12 @@ const buildSocketServer = (httpServer) => {
   const socketIndex = new Map(); // socketId -> { userId, terminalId }
   const terminalIndex = new Map(); // terminalId -> Set<socketId>
   const natSessions = new Map(); // sessionId -> { clientTerminalId, agentTerminalId, createdAt, state }
+  const relayPairTokens = new Map(); // sorted "termA|termB" -> { token, createdAt }
   setInterval(() => {
     const cutoff = Date.now() - 2 * 60 * 1000;
     for (const [sessionId, session] of natSessions.entries()) {
       if (!session.createdAt || session.createdAt < cutoff) {
+        if (relay && session.relayToken) relay.revokeSession(session.relayToken);
         natSessions.delete(sessionId);
       }
     }
@@ -191,6 +205,33 @@ const buildSocketServer = (httpServer) => {
       cb({ success: sent });
     });
 
+    // Poleis exchanges its NatInfo as the base64-encoded "SDP". Inject the
+    // Parsec-style relay allocation (one token per terminal pair) into that JSON
+    // so both peers learn the same relay endpoint+token via the normal SDP
+    // exchange and can fall back to the relay without any extra round trip.
+    const augmentSdpWithRelay = (toTerminalId, sdpB64) => {
+      if (!relay || typeof sdpB64 !== 'string' || !sdpB64.length) return sdpB64;
+      const host = relayPublicHost || (socket.handshake.headers.host || '').split(':')[0] || '';
+      if (!host) return sdpB64;
+      const pairKey = [terminalId, toTerminalId].sort().join('|');
+      let entry = relayPairTokens.get(pairKey);
+      if (!entry) {
+        entry = { token: randomBytes(16).toString('hex'), createdAt: Date.now() };
+        relayPairTokens.set(pairKey, entry);
+        relay.authorizeSession(entry.token);
+      }
+      try {
+        const obj = JSON.parse(Buffer.from(sdpB64, 'base64').toString('utf8'));
+        if (!obj || typeof obj !== 'object') return sdpB64;
+        obj.relay_host = host;
+        obj.relay_port = relayPublicPort;
+        obj.relay_token = entry.token;
+        return Buffer.from(JSON.stringify(obj), 'utf8').toString('base64');
+      } catch (e) {
+        return sdpB64; // not relay-augmentable (e.g. non-JSON SDP)
+      }
+    };
+
     socket.on(SOCKET_EVENTS.POLEIS_SDP_OFFER, async (payload, cb = () => {}) => {
       // 服务端发送SDP offer到客户端
       const targetTerminalId = payload?.toTerminalId;
@@ -202,7 +243,7 @@ const buildSocketServer = (httpServer) => {
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_SDP_OFFER',
         fromTerminalId: terminalId,
-        sdp
+        sdp: augmentSdpWithRelay(targetTerminalId, sdp)
       });
       audit.log({ action: 'poleis_sdp_offer', userId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
@@ -219,7 +260,7 @@ const buildSocketServer = (httpServer) => {
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_SDP_ANSWER',
         fromTerminalId: terminalId,
-        sdp
+        sdp: augmentSdpWithRelay(targetTerminalId, sdp)
       });
       audit.log({ action: 'poleis_sdp_answer', userId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
@@ -272,13 +313,39 @@ const buildSocketServer = (httpServer) => {
         existing.state = eventType;
       }
 
+      const session = natSessions.get(sessionId);
+      // Allocate a one-time relay token for this NAT session (Parsec-style relay
+      // fallback) and ride it along inside the exchanged NatInfo so both peers
+      // learn the same relay endpoint without an extra round trip.
+      if (relay && session && !session.relayToken) {
+        session.relayToken = randomBytes(16).toString('hex');
+        relay.authorizeSession(session.relayToken);
+      }
+
+      let natToSend = payload?.nat;
+      if (relay && session && session.relayToken && typeof natToSend === 'string' && natToSend.length) {
+        try {
+          const obj = JSON.parse(natToSend);
+          const host = relayPublicHost ||
+                       (socket.handshake.headers.host || '').split(':')[0] || '';
+          if (host) {
+            obj.relay_host = host;
+            obj.relay_port = relayPublicPort;
+            obj.relay_token = session.relayToken;
+            natToSend = JSON.stringify(obj);
+          }
+        } catch (e) {
+          // leave natToSend unchanged on parse failure
+        }
+      }
+
       const sent = await sendToTerminal(targetTerminalId, {
         type: eventType,
         sessionId,
         fromTerminalId: terminalId,
         fromUserId: userId,
         role: payload?.role,
-        nat: payload?.nat,
+        nat: natToSend,
         error: payload?.error
       });
       audit.log({ action: eventType.toLowerCase(), userId, description: `session:${sessionId} to:${targetTerminalId}` });
@@ -346,6 +413,70 @@ const buildSocketServer = (httpServer) => {
       cb({ success: sent });
     });
 
+    // Parsec-style relay fallback: a peer asks the web to allocate a relay
+    // session for an existing NAT session. The web authorizes a one-time token
+    // on the UDP relay, returns the relay endpoint+token to the requester, and
+    // pushes a relay_offer (same token+endpoint) to the other peer so both BIND
+    // to the same relay session and tunnel their QUIC stream through it.
+    socket.on(SOCKET_EVENTS.POLEIS_RELAY_REQUEST, async (payload, cb = () => {}) => {
+      const targetTerminalId = payload?.toTerminalId;
+      const sessionId = payload?.sessionId;
+      if (!targetTerminalId || !sessionId) {
+        cb({ success: false, message: 'missing target terminal or sessionId' });
+        return;
+      }
+      if (!relay) {
+        cb({ success: false, message: 'relay not available' });
+        return;
+      }
+      const existing = natSessions.get(sessionId);
+      // Reuse a token already allocated for this NAT session if present.
+      let token = existing && existing.relayToken;
+      if (!token) {
+        token = randomBytes(16).toString('hex');
+      }
+      relay.authorizeSession(token);
+      if (existing) {
+        existing.relayToken = token;
+        existing.state = 'relay';
+      }
+      const host = relayPublicHost || socket.handshake.headers['x-forwarded-host'] ||
+                   (socket.handshake.headers.host || '').split(':')[0] || '';
+      const relayInfo = { token, relayHost: host, relayPort: relayPublicPort };
+
+      // Push relay_offer to the peer (the agent side binds with role=agent).
+      await sendToTerminal(targetTerminalId, {
+        type: 'POLEIS_RELAY_OFFER',
+        sessionId,
+        fromTerminalId: terminalId,
+        fromUserId: userId,
+        relay: relayInfo
+      });
+      audit.log({ action: 'poleis_relay_request', userId, description: `session:${sessionId} to:${targetTerminalId}` });
+      cb({ success: true, relay: relayInfo });
+    });
+
+    socket.on(SOCKET_EVENTS.POLEIS_RELAY_ANSWER, async (payload, cb = () => {}) => {
+      if (!relay) {
+        cb({ success: false, message: 'relay disabled' });
+        return;
+      }
+      const targetTerminalId = payload?.toTerminalId;
+      const sessionId = payload?.sessionId;
+      if (!targetTerminalId || !sessionId) {
+        cb({ success: false, message: 'missing target terminal or sessionId' });
+        return;
+      }
+      const sent = await sendToTerminal(targetTerminalId, {
+        type: 'POLEIS_RELAY_ANSWER',
+        sessionId,
+        fromTerminalId: terminalId,
+        fromUserId: userId,
+        ok: payload?.ok !== false
+      });
+      cb({ success: sent });
+    });
+
     socket.on('disconnect', async () => {
       socketIndex.delete(socket.id);
       const set = terminalIndex.get(terminalId);
@@ -358,7 +489,14 @@ const buildSocketServer = (httpServer) => {
       await presence.removeBySocket(socket.id);
       for (const [sessionId, session] of natSessions.entries()) {
         if (session.clientTerminalId === terminalId || session.agentTerminalId === terminalId) {
+          if (relay && session.relayToken) relay.revokeSession(session.relayToken);
           natSessions.delete(sessionId);
+        }
+      }
+      for (const [pairKey, entry] of relayPairTokens.entries()) {
+        if (pairKey.split('|').includes(terminalId)) {
+          if (relay && entry.token) relay.revokeSession(entry.token);
+          relayPairTokens.delete(pairKey);
         }
       }
       io.to(userRoom).emit(SOCKET_EVENTS.ENDPOINT_OFFLINE, { terminalId, userId, socketId: socket.id });

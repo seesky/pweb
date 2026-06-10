@@ -2,22 +2,89 @@
 
 const Redis = require('ioredis');
 
+const memoryState = {
+  endpoints: new Map(),
+  socketEndpoints: new Map()
+};
+let lastRedisErrorLog = 0;
+
+class MemoryPresenceStore {
+  async addEndpoint(userId, terminalId, socketId, info = {}) {
+    const now = Date.now();
+    const endpoint = {
+      userId,
+      terminalId,
+      socketId,
+      ip: info.ip || '',
+      ua: info.ua || '',
+      os: info.os || '',
+      loginAt: String(info.loginAt || now),
+      lastSeen: String(now)
+    };
+    memoryState.endpoints.set(`${terminalId}:${socketId}`, endpoint);
+    memoryState.socketEndpoints.set(socketId, endpoint);
+  }
+
+  async removeBySocket(socketId) {
+    const endpoint = memoryState.socketEndpoints.get(socketId);
+    if (!endpoint) return;
+    memoryState.socketEndpoints.delete(socketId);
+    memoryState.endpoints.delete(`${endpoint.terminalId}:${socketId}`);
+  }
+
+  async updateLastSeen(terminalId, socketId) {
+    const endpoint = memoryState.endpoints.get(`${terminalId}:${socketId}`);
+    if (endpoint) endpoint.lastSeen = String(Date.now());
+  }
+
+  async getEndpointsByUser(userId) {
+    return Array.from(memoryState.endpoints.values()).filter((endpoint) => endpoint.userId === userId);
+  }
+
+  async getEndpointsByTerminal(terminalId) {
+    return Array.from(memoryState.endpoints.values()).filter((endpoint) => endpoint.terminalId === terminalId);
+  }
+
+  async removeEndpoint(terminalId) {
+    const endpoints = await this.getEndpointsByTerminal(terminalId);
+    await Promise.all(endpoints.map((endpoint) => this.removeBySocket(endpoint.socketId)));
+  }
+
+  async listAllEndpoints() {
+    return Array.from(memoryState.endpoints.values());
+  }
+
+  async clearAllEndpoints() {
+    memoryState.endpoints.clear();
+    memoryState.socketEndpoints.clear();
+  }
+}
+
 const buildRedis = () => {
   const url = process.env.REDIS_URL || process.env.REDIS_CONNECTION || '';
-  if (url) {
-    return new Redis(url);
-  }
-  // fallback to localhost
-  return new Redis();
+  if (!url) return null;
+
+  const redis = new Redis(url, { maxRetriesPerRequest: 1 });
+  redis.on('error', (error) => {
+    const now = Date.now();
+    if (now - lastRedisErrorLog >= 30000) {
+      console.error(`[presence] Redis connection error: ${error.message}`);
+      lastRedisErrorLog = now;
+    }
+  });
+  return redis;
 };
 
 class PresenceService {
   constructor(redisClient) {
     this.redis = redisClient || buildRedis();
+    this.memory = this.redis ? null : new MemoryPresenceStore();
   }
 
   async addEndpoint(userId, terminalId, socketId, info = {}) {
     if (!userId || !terminalId || !socketId) return;
+    if (this.memory) return this.memory.addEndpoint(userId, terminalId, socketId, info);
+
     const now = Date.now();
     const endpointKey = `sock:endpoint:${terminalId}:${socketId}`;
     const keyUser = `sock:endpoints:${userId}`;
@@ -42,122 +109,99 @@ class PresenceService {
 
   async removeBySocket(socketId) {
     if (!socketId) return;
-    const keySocket = `sock:socket:${socketId}`;
-    const endpointKey = await this.redis.get(keySocket);
-    if (!endpointKey) return;
-    await this.removeEndpointByKey(endpointKey);
+    if (this.memory) return this.memory.removeBySocket(socketId);
+
+    const endpointKey = await this.redis.get(`sock:socket:${socketId}`);
+    if (endpointKey) await this.removeEndpointByKey(endpointKey);
   }
 
   async removeEndpointByKey(endpointKey) {
     if (!endpointKey) return;
     const endpoint = await this.redis.hgetall(endpointKey);
     if (!endpoint || !Object.keys(endpoint).length) return;
-    const userId = endpoint.userId;
-    const terminalId = endpoint.terminalId;
-    const socketId = endpoint.socketId;
-    const keyUser = userId ? `sock:endpoints:${userId}` : null;
-    const keyTerminalSockets = terminalId ? `sock:terminal-sockets:${terminalId}` : null;
-    const keySocket = socketId ? `sock:socket:${socketId}` : null;
-    const m = this.redis.multi();
-    if (keyUser) m.srem(keyUser, endpointKey);
-    if (keyTerminalSockets) m.srem(keyTerminalSockets, socketId);
-    m.del(endpointKey);
-    if (keySocket) m.del(keySocket);
-    await m.exec();
 
-    // cleanup empty terminal set
-    if (keyTerminalSockets) {
-      const remaining = await this.redis.scard(keyTerminalSockets);
-      if (remaining === 0) {
-        await this.redis.del(keyTerminalSockets);
-      }
+    const keyUser = endpoint.userId ? `sock:endpoints:${endpoint.userId}` : null;
+    const keyTerminalSockets = endpoint.terminalId ? `sock:terminal-sockets:${endpoint.terminalId}` : null;
+    const keySocket = endpoint.socketId ? `sock:socket:${endpoint.socketId}` : null;
+    const transaction = this.redis.multi();
+    if (keyUser) transaction.srem(keyUser, endpointKey);
+    if (keyTerminalSockets) transaction.srem(keyTerminalSockets, endpoint.socketId);
+    transaction.del(endpointKey);
+    if (keySocket) transaction.del(keySocket);
+    await transaction.exec();
+
+    if (keyTerminalSockets && await this.redis.scard(keyTerminalSockets) === 0) {
+      await this.redis.del(keyTerminalSockets);
     }
   }
 
   async updateLastSeen(terminalId, socketId) {
     if (!terminalId || !socketId) return;
-    const endpointKey = `sock:endpoint:${terminalId}:${socketId}`;
-    await this.redis.hset(endpointKey, 'lastSeen', Date.now());
+    if (this.memory) return this.memory.updateLastSeen(terminalId, socketId);
+    await this.redis.hset(`sock:endpoint:${terminalId}:${socketId}`, 'lastSeen', Date.now());
   }
 
   async getEndpointsByUser(userId) {
     if (!userId) return [];
-    const keyUser = `sock:endpoints:${userId}`;
-    const endpointKeys = await this.redis.smembers(keyUser);
-    if (!endpointKeys?.length) return [];
-    const results = await Promise.all(
-      endpointKeys.map(async (key) => {
-        const data = await this.redis.hgetall(key);
-        return Object.keys(data || {}).length ? data : null;
-      })
-    );
-    return results.filter(Boolean);
+    if (this.memory) return this.memory.getEndpointsByUser(userId);
+    return this.getEndpointsByKeys(await this.redis.smembers(`sock:endpoints:${userId}`));
   }
 
   async getEndpointsByTerminal(terminalId) {
     if (!terminalId) return [];
-    const keyTerminalSockets = `sock:terminal-sockets:${terminalId}`;
-    const socketIds = await this.redis.smembers(keyTerminalSockets);
-    if (!socketIds?.length) return [];
-    const results = await Promise.all(
-      socketIds.map(async (sid) => {
-        const data = await this.redis.hgetall(`sock:endpoint:${terminalId}:${sid}`);
-        return Object.keys(data || {}).length ? data : null;
-      })
-    );
+    if (this.memory) return this.memory.getEndpointsByTerminal(terminalId);
+
+    const socketIds = await this.redis.smembers(`sock:terminal-sockets:${terminalId}`);
+    return this.getEndpointsByKeys(socketIds.map((socketId) => `sock:endpoint:${terminalId}:${socketId}`));
+  }
+
+  async getEndpointsByKeys(keys = []) {
+    if (!keys.length) return [];
+    const results = await Promise.all(keys.map(async (key) => {
+      const data = await this.redis.hgetall(key);
+      return Object.keys(data || {}).length ? data : null;
+    }));
     return results.filter(Boolean);
   }
 
   async getEndpoint(terminalId) {
-    // kept for backward compatibility: returns first endpoint if any
     const endpoints = await this.getEndpointsByTerminal(terminalId);
     return endpoints.length ? endpoints[0] : null;
   }
 
   async removeEndpoint(terminalId) {
-    // 移除指定terminalId的所有终端连接
     if (!terminalId) return;
-    const keyTerminalSockets = `sock:terminal-sockets:${terminalId}`;
-    const socketIds = await this.redis.smembers(keyTerminalSockets);
-    if (!socketIds?.length) return;
+    if (this.memory) return this.memory.removeEndpoint(terminalId);
 
-    // 移除每个socket连接
+    const socketIds = await this.redis.smembers(`sock:terminal-sockets:${terminalId}`);
     for (const socketId of socketIds) {
-      const endpointKey = `sock:endpoint:${terminalId}:${socketId}`;
-      await this.removeEndpointByKey(endpointKey);
+      await this.removeEndpointByKey(`sock:endpoint:${terminalId}:${socketId}`);
     }
   }
 
   async listAllEndpoints() {
-    const keys = await this.redis.keys('sock:endpoint:*');
-    if (!keys?.length) return [];
-    const results = await Promise.all(
-      keys.map(async (key) => {
-        const data = await this.redis.hgetall(key);
-        return Object.keys(data || {}).length ? data : null;
-      })
-    );
-    return results.filter(Boolean);
+    if (this.memory) return this.memory.listAllEndpoints();
+    return this.getEndpointsByKeys(await this.redis.keys('sock:endpoint:*'));
   }
 
   async listOnlineUsers() {
     const endpoints = await this.listAllEndpoints();
     const map = new Map();
-    endpoints.forEach((ep) => {
-      const uid = ep.userId;
-      if (!uid) return;
-      if (!map.has(uid)) map.set(uid, []);
-      map.get(uid).push(ep);
+    endpoints.forEach((endpoint) => {
+      if (!endpoint.userId) return;
+      if (!map.has(endpoint.userId)) map.set(endpoint.userId, []);
+      map.get(endpoint.userId).push(endpoint);
     });
-    return Array.from(map.entries()).map(([userId, eps]) => ({
+    return Array.from(map.entries()).map(([userId, endpointsForUser]) => ({
       userId,
-      endpoints: eps,
-      count: eps.length
+      endpoints: endpointsForUser,
+      count: endpointsForUser.length
     }));
   }
 
   async clearAllEndpoints() {
-    // 清理所有在线状态数据，用于服务端重启时
+    if (this.memory) return this.memory.clearAllEndpoints();
+
     const patterns = [
       'sock:endpoint:*',
       'sock:endpoints:*',
@@ -166,9 +210,7 @@ class PresenceService {
     ];
     for (const pattern of patterns) {
       const keys = await this.redis.keys(pattern);
-      if (keys?.length) {
-        await this.redis.del(...keys);
-      }
+      if (keys.length) await this.redis.del(...keys);
     }
   }
 }

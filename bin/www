@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 
 /**
+ * Load environment variables from pweb/.env (if present) before anything else,
+ * so settings like RELAY_PUBLIC_HOST / RELAY_UDP_PORT / PORT can live in .env.
+ */
+try { require('dotenv').config(); } catch (e) { /* dotenv optional */ }
+
+/**
  * Module dependencies.
  */
 
@@ -8,6 +14,7 @@ var app = require('../app');
 var debug = require('debug')('pweb:server');
 var http = require('http');
 var { buildSocketServer } = require('../services/realtime/socket_server');
+var { RelayServer } = require('../services/realtime/relay_server');
 
 /**
  * Get port from environment and store in Express.
@@ -21,7 +28,18 @@ app.set('port', port);
  */
 
 var server = http.createServer(app);
-buildSocketServer(server);
+
+// Relay is opt-in. Direct P2P remains the default until a production-grade
+// relay service is ready.
+var relayEnabled = /^(1|true|yes|on)$/i.test(process.env.POLEIS_RELAY_ENABLED || '');
+var relay = null;
+if (relayEnabled) {
+  relay = new RelayServer();
+  relay.start();
+} else {
+  console.log('[relay] disabled; direct P2P only');
+}
+buildSocketServer(server, { relay });
 
 /**
  * Listen on provided port, on all network interfaces.
