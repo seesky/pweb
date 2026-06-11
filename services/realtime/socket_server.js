@@ -53,6 +53,11 @@ const buildSocketServer = (httpServer, options = {}) => {
   let relayPublicHost = process.env.RELAY_PUBLIC_HOST || '';
   if (relayPublicHost === '0.0.0.0' || relayPublicHost === '::') relayPublicHost = '';
   const relayPublicPort = Number(process.env.RELAY_UDP_PORT || 3479);
+  // GameViewer-style synchronized punch start (report §7.5). The web server is
+  // the natural coordination point: injecting the SAME relative countdown into
+  // both peers' NatInfo makes them begin their punch strategies together (helps
+  // Linear-Linear where two predicted ports must line up in time). 0 disables.
+  const punchStartCountdownMs = Math.max(0, Number(process.env.POLEIS_PUNCH_COUNTDOWN_MS || 0));
 
   // 服务启动时清理旧的在线状态数据，防止重启后显示幽灵设备
   presence.clearAllEndpoints().then(() => {
@@ -210,25 +215,34 @@ const buildSocketServer = (httpServer, options = {}) => {
     // so both peers learn the same relay endpoint+token via the normal SDP
     // exchange and can fall back to the relay without any extra round trip.
     const augmentSdpWithRelay = (toTerminalId, sdpB64) => {
-      if (!relay || typeof sdpB64 !== 'string' || !sdpB64.length) return sdpB64;
-      const host = relayPublicHost || (socket.handshake.headers.host || '').split(':')[0] || '';
-      if (!host) return sdpB64;
-      const pairKey = [terminalId, toTerminalId].sort().join('|');
-      let entry = relayPairTokens.get(pairKey);
-      if (!entry) {
-        entry = { token: randomBytes(16).toString('hex'), createdAt: Date.now() };
-        relayPairTokens.set(pairKey, entry);
-        relay.authorizeSession(entry.token);
+      if (typeof sdpB64 !== 'string' || !sdpB64.length) return sdpB64;
+      // Inject the relay allocation (one token per terminal pair) only when a
+      // relay is configured and reachable.
+      let relayFields = null;
+      if (relay) {
+        const host = relayPublicHost || (socket.handshake.headers.host || '').split(':')[0] || '';
+        if (host) {
+          const pairKey = [terminalId, toTerminalId].sort().join('|');
+          let entry = relayPairTokens.get(pairKey);
+          if (!entry) {
+            entry = { token: randomBytes(16).toString('hex'), createdAt: Date.now() };
+            relayPairTokens.set(pairKey, entry);
+            relay.authorizeSession(entry.token);
+          }
+          relayFields = { relay_host: host, relay_port: relayPublicPort, relay_token: entry.token };
+        }
       }
+      // Nothing to inject -> leave the blob untouched (unknown fields, e.g. the
+      // peer's candidate_groups, always pass through this exchange intact).
+      if (!relayFields && punchStartCountdownMs <= 0) return sdpB64;
       try {
         const obj = JSON.parse(Buffer.from(sdpB64, 'base64').toString('utf8'));
         if (!obj || typeof obj !== 'object') return sdpB64;
-        obj.relay_host = host;
-        obj.relay_port = relayPublicPort;
-        obj.relay_token = entry.token;
+        if (relayFields) Object.assign(obj, relayFields);
+        if (punchStartCountdownMs > 0) obj.punch_start_countdown_ms = punchStartCountdownMs;
         return Buffer.from(JSON.stringify(obj), 'utf8').toString('base64');
       } catch (e) {
-        return sdpB64; // not relay-augmentable (e.g. non-JSON SDP)
+        return sdpB64; // not augmentable (e.g. non-JSON SDP)
       }
     };
 
@@ -323,17 +337,23 @@ const buildSocketServer = (httpServer, options = {}) => {
       }
 
       let natToSend = payload?.nat;
-      if (relay && session && session.relayToken && typeof natToSend === 'string' && natToSend.length) {
+      if (typeof natToSend === 'string' && natToSend.length &&
+          ((relay && session && session.relayToken) || punchStartCountdownMs > 0)) {
         try {
           const obj = JSON.parse(natToSend);
-          const host = relayPublicHost ||
-                       (socket.handshake.headers.host || '').split(':')[0] || '';
-          if (host) {
-            obj.relay_host = host;
-            obj.relay_port = relayPublicPort;
-            obj.relay_token = session.relayToken;
-            natToSend = JSON.stringify(obj);
+          if (relay && session && session.relayToken) {
+            const host = relayPublicHost ||
+                         (socket.handshake.headers.host || '').split(':')[0] || '';
+            if (host) {
+              obj.relay_host = host;
+              obj.relay_port = relayPublicPort;
+              obj.relay_token = session.relayToken;
+            }
           }
+          // Synchronized punch start (same value to both peers). candidate_groups
+          // and other unknown fields pass through this re-serialization intact.
+          if (punchStartCountdownMs > 0) obj.punch_start_countdown_ms = punchStartCountdownMs;
+          natToSend = JSON.stringify(obj);
         } catch (e) {
           // leave natToSend unchanged on parse failure
         }
