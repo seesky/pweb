@@ -5,6 +5,7 @@ const { randomUUID, randomBytes } = require('node:crypto');
 const { SocketTokenService } = require('./token_service');
 const { PresenceService } = require('./presence_service');
 const { AuditService } = require('./audit_service');
+const { AssistanceService } = require('./assistance_service');
 
 const SOCKET_EVENTS = {
   AUTH: 'auth',
@@ -24,6 +25,12 @@ const SOCKET_EVENTS = {
   POLEIS_NAT_PUNCH_START: 'poleis_nat_punch_start',
   POLEIS_NAT_CONNECTED: 'poleis_nat_connected',
   POLEIS_NAT_FAILED: 'poleis_nat_failed',
+  ASSIST_REGISTER: 'assist_register',
+  ASSIST_REFRESH: 'assist_refresh',
+  ASSIST_UNREGISTER: 'assist_unregister',
+  ASSIST_CONNECT: 'assist_connect',
+  ASSIST_GRANTED: 'assist_granted',
+  ASSIST_REVOKED: 'assist_revoked',
   // Parsec-style relay (TURN-like) fallback signaling
   POLEIS_RELAY_REQUEST: 'poleis_relay_request',  // peer asks web to allocate a relay session
   POLEIS_RELAY_OFFER: 'poleis_relay_offer',      // web pushes relay endpoint+token to the other peer
@@ -44,6 +51,7 @@ const buildSocketServer = (httpServer, options = {}) => {
   });
   const tokenService = new SocketTokenService();
   const presence = new PresenceService();
+  const assistance = new AssistanceService();
   const audit = new AuditService();
   const relay = options.relay || null;
   // Public endpoint that peers should send relay UDP traffic to. Defaults to env
@@ -64,6 +72,13 @@ const buildSocketServer = (httpServer, options = {}) => {
     console.log('[socket.io] Cleared stale presence data on startup');
   }).catch((err) => {
     console.error('[socket.io] Failed to clear presence data:', err);
+  });
+  // 同理清理远程协助配对数据（partner/grant 生命周期 = socket 连接，断线即删；
+  // 此处兜底清除上次非正常退出残留的幽灵配对）。
+  assistance.clearAllPartners().then(() => {
+    console.log('[socket.io] Cleared stale assistance data on startup');
+  }).catch((err) => {
+    console.error('[socket.io] Failed to clear assistance data:', err);
   });
 
   const socketIndex = new Map(); // socketId -> { userId, terminalId }
@@ -192,6 +207,104 @@ const buildSocketServer = (httpServer, options = {}) => {
       cb({ success: true, delivered });
     });
 
+    socket.on(SOCKET_EVENTS.ASSIST_REGISTER, async (payload, cb = () => {}) => {
+      try {
+        const result = await assistance.registerPartner({
+          desiredPartnerId: payload?.desiredPartnerId,
+          terminalId,
+          userId,
+          socketId: socket.id,
+          saltHex: payload?.saltHex,
+          pwdHashHex: payload?.pwdHashHex
+        });
+        audit.log({ action: 'assist_register', userId, description: `terminal:${terminalId} partner:${result.partnerId}` });
+        cb({ success: true, partnerId: result.partnerId });
+      } catch (err) {
+        audit.log({ action: 'assist_register_failed', userId, description: String(err?.message || err) });
+        cb({ success: false, code: 'INVALID_REQUEST', message: 'invalid assistance registration' });
+      }
+    });
+
+    socket.on(SOCKET_EVENTS.ASSIST_REFRESH, async (payload, cb = () => {}) => {
+      try {
+        const ok = await assistance.refreshPassword({
+          terminalId,
+          saltHex: payload?.saltHex,
+          pwdHashHex: payload?.pwdHashHex
+        });
+        audit.log({ action: ok ? 'assist_refresh' : 'assist_refresh_failed', userId, description: `terminal:${terminalId}` });
+        cb({ success: ok, code: ok ? undefined : 'NOT_REGISTERED' });
+      } catch (err) {
+        cb({ success: false, code: 'INVALID_REQUEST' });
+      }
+    });
+
+    // Host turned off "允许远程协助接入": stop advertising so assist_connect returns
+    // OFFLINE immediately (no grant issued). Scoped to this socket's terminal.
+    socket.on(SOCKET_EVENTS.ASSIST_UNREGISTER, async (payload, cb = () => {}) => {
+      await assistance.removeByTerminal(terminalId, socket.id);
+      audit.log({ action: 'assist_unregister', userId, description: `terminal:${terminalId}` });
+      cb({ success: true });
+    });
+
+    socket.on(SOCKET_EVENTS.ASSIST_CONNECT, async (payload, cb = () => {}) => {
+      const partnerId = String(payload?.partnerId || '').replace(/\D/g, '').slice(0, 9);
+      const password = String(payload?.password || '');
+      if (!partnerId || !password) {
+        cb({ success: false, code: 'INVALID_REQUEST' });
+        return;
+      }
+      if (assistance.isRateLimited(partnerId, userId)) {
+        audit.log({ action: 'assist_connect_rate_limited', userId, description: `partner:${partnerId}` });
+        cb({ success: false, code: 'RATE_LIMITED' });
+        return;
+      }
+      const partner = await assistance.lookupPartner(partnerId);
+      if (!partner) {
+        assistance.recordFailure(partnerId, userId);
+        audit.log({ action: 'assist_connect_offline', userId, description: `partner:${partnerId}` });
+        cb({ success: false, code: 'OFFLINE' });
+        return;
+      }
+      if (!assistance.verifyPassword(partner, password)) {
+        assistance.recordFailure(partnerId, userId);
+        audit.log({ action: 'assist_connect_bad_password', userId, description: `partner:${partnerId}` });
+        cb({ success: false, code: 'BAD_PASSWORD' });
+        return;
+      }
+
+      assistance.clearFailures(partnerId, userId);
+      const grantToken = await assistance.issueGrant({
+        hostTerminalId: partner.terminalId,
+        controllerTerminalId: terminalId,
+        controllerUserId: userId,
+        partnerId
+      });
+      const granted = await sendToTerminal(partner.terminalId, {
+        type: 'ASSIST_GRANTED',
+        grantToken,
+        controllerTerminalId: terminalId,
+        controllerUserId: userId,
+        partnerId,
+        ts: Date.now()
+      });
+      audit.log({
+        action: granted ? 'assist_connect' : 'assist_connect_host_unreachable',
+        userId,
+        description: `partner:${partnerId} host:${partner.terminalId}`
+      });
+      if (!granted) {
+        cb({ success: false, code: 'OFFLINE' });
+        return;
+      }
+      cb({
+        success: true,
+        hostTerminalId: partner.terminalId,
+        hostUserId: partner.userId,
+        grantToken
+      });
+    });
+
     // Poleis P2P连接事件处理器
     socket.on(SOCKET_EVENTS.POLEIS_CONNECT_REQUEST, async (payload, cb = () => {}) => {
       // 客户端请求连接到远程终端
@@ -204,7 +317,8 @@ const buildSocketServer = (httpServer, options = {}) => {
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_CONNECT_REQUEST',
         fromTerminalId: terminalId,
-        fromUserId: userId
+        fromUserId: userId,
+        grantToken: payload?.grantToken || ''
       });
       audit.log({ action: 'poleis_connect', userId, description: `request to:${targetTerminalId}` });
       cb({ success: sent });
@@ -366,7 +480,8 @@ const buildSocketServer = (httpServer, options = {}) => {
         fromUserId: userId,
         role: payload?.role,
         nat: natToSend,
-        error: payload?.error
+        error: payload?.error,
+        grantToken: payload?.grantToken || ''
       });
       audit.log({ action: eventType.toLowerCase(), userId, description: `session:${sessionId} to:${targetTerminalId}` });
       cb({ success: sent });
@@ -507,6 +622,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         }
       }
       await presence.removeBySocket(socket.id);
+      await assistance.removeByTerminal(terminalId, socket.id);
       for (const [sessionId, session] of natSessions.entries()) {
         if (session.clientTerminalId === terminalId || session.agentTerminalId === terminalId) {
           if (relay && session.relayToken) relay.revokeSession(session.relayToken);
