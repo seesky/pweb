@@ -1,9 +1,12 @@
 'use strict';
 
+const { PrismaClient } = require('@prisma/client');
+
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const { SocketTokenService } = require('../services/realtime/token_service');
 const { PresenceService } = require('../services/realtime/presence_service');
 
+const prisma = new PrismaClient();
 const tokenService = new SocketTokenService();
 const presenceService = new PresenceService();
 
@@ -16,12 +19,25 @@ const ensureUser = (req, res) => {
   return user;
 };
 
-exports.issueToken = (req, res) => {
+exports.issueToken = async (req, res) => {
   const user = ensureUser(req, res);
   if (!user) return;
   try {
-    const token = tokenService.issue(user.Id, null, 60 * 30);
-    res.json({ success: true, token, expiresIn: 60 * 30 });
+    // Resolve the registered username/email for display in clients. Fall back to
+    // the session values if the profile lookup fails (e.g. the super-admin login).
+    let username = user.UserName || '';
+    let email = '';
+    try {
+      const profile = await prisma.piuser.findUnique({ where: { ID: user.Id } });
+      if (profile) {
+        username = profile.USERNAME || username;
+        email = profile.EMAIL || '';
+      }
+    } catch (lookupError) {
+      console.error('[SocketController.issueToken] profile lookup failed', lookupError);
+    }
+    const token = tokenService.issue(user.Id, null, 60 * 30, { username, email });
+    res.json({ success: true, token, expiresIn: 60 * 30, username, email });
   } catch (error) {
     console.error('[SocketController.issueToken]', error);
     res.status(500).json({ success: false, message: 'Failed to issue token' });
