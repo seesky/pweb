@@ -43,11 +43,15 @@ class UserInfo {
   }
 
   async initializeMachineInfo() {
+    // NOTE: Only machine/network fields may be populated here. Never assign
+    // user-identity fields (Id / RealName): this method runs asynchronously and
+    // is NOT awaited by the constructor, so any write here lands *after* callers
+    // have set the real per-user identity — clobbering it. Writing the server
+    // hostname into `Id` previously collapsed every logged-in user onto the same
+    // identity (the server's hostname), leaking all users' devices into each
+    // other's device list. Keep this limited to IP/MAC.
     this.IPAddress = await MachineInfoHelper.getIPAddress();
     this.MACAddress = MachineInfoHelper.getMacAddress();
-    const hostname = MachineInfoHelper.getHostname();
-    this.Id = hostname;
-    this.RealName = hostname;
   }
 
   static objToJson(obj) {
