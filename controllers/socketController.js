@@ -10,6 +10,14 @@ const prisma = new PrismaClient();
 const tokenService = new SocketTokenService();
 const presenceService = new PresenceService();
 
+// Socket token lifetime. The desktop client only fetches this token at
+// login/startup and reuses it across socket.io reconnects, so a short lifetime
+// makes any reconnect after expiry fail the auth middleware ("unauthorized"),
+// which the client surfaces as an endless "无法连接服务器" retry. Keep it long
+// (1 year) so reconnects keep authenticating; the client falls back to a
+// cookie→token refresh / re-login when it does eventually expire.
+const SOCKET_TOKEN_EXPIRES_SECONDS = 60 * 60 * 24 * 365; // 1 year
+
 const ensureUser = (req, res) => {
   const user = req.currentUser || CommonUtils.getCurrent(res, req);
   if (!user) {
@@ -36,8 +44,8 @@ exports.issueToken = async (req, res) => {
     } catch (lookupError) {
       console.error('[SocketController.issueToken] profile lookup failed', lookupError);
     }
-    const token = tokenService.issue(user.Id, null, 60 * 30, { username, email });
-    res.json({ success: true, token, expiresIn: 60 * 30, username, email });
+    const token = tokenService.issue(user.Id, null, SOCKET_TOKEN_EXPIRES_SECONDS, { username, email });
+    res.json({ success: true, token, expiresIn: SOCKET_TOKEN_EXPIRES_SECONDS, username, email });
   } catch (error) {
     console.error('[SocketController.issueToken]', error);
     res.status(500).json({ success: false, message: 'Failed to issue token' });
