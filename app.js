@@ -30,6 +30,7 @@ var dataItemAdminRouter = require('./routes/dataItemAdmin');
 var messageAdminRouter = require('./routes/messageAdmin');
 var socketRouter = require('./routes/socket');
 var realtimeAdminRouter = require('./routes/realtimeAdmin');
+var managementPlatformRouter = require('./routes/managementPlatform');
 
 var app = express();
 
@@ -79,6 +80,7 @@ app.use('/data-item-admin', dataItemAdminRouter);
 app.use('/message-admin', messageAdminRouter);
 app.use('/socket', socketRouter);
 app.use('/realtime-admin', realtimeAdminRouter);
+app.use('/', managementPlatformRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

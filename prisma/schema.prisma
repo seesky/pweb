@@ -1255,6 +1255,225 @@ model poleis_frontend_role_permissions {
   @@unique([role_id, permission_id], map: "admin_role_permissions_role_id_permission_id_index")
 }
 
+model poleis_tenant {
+  ID          String    @id @default("default") @db.VarChar(40)
+  NAME        String    @db.VarChar(200)
+  EDITION     String    @default("personal") @db.VarChar(20)
+  MAX_MEMBERS Int       @default(0)
+  MAX_DEVICES Int       @default(0)
+  BRANDING    Json?
+  ENABLED     Int       @default(1)
+  DELETEMARK  Int       @default(0)
+  CREATEON    DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID String?  @db.VarChar(50)
+  CREATEBY    String?   @db.VarChar(50)
+  MODIFIEDON  DateTime? @db.DateTime(0)
+  MODIFIEDUSERID String? @db.VarChar(50)
+  MODIFIEDBY  String?   @db.VarChar(50)
+}
+
+model poleis_member {
+  ID        String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID  String    @db.VarChar(40)
+  USERID    String    @db.VarChar(40)
+  ROLE      String    @default("member") @db.VarChar(20)
+  ENABLED   Int       @default(1)
+  DELETEMARK Int      @default(0)
+  CREATEON  DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID String? @db.VarChar(50)
+  CREATEBY   String?  @db.VarChar(50)
+  MODIFIEDON DateTime? @db.DateTime(0)
+  MODIFIEDUSERID String? @db.VarChar(50)
+  MODIFIEDBY String?  @db.VarChar(50)
+
+  @@unique([TENANTID, USERID])
+  @@index([USERID])
+}
+
+model poleis_device {
+  ID                 String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID           String    @db.VarChar(40)
+  TERMINALID         String    @unique @db.VarChar(64)
+  OWNERUSERID        String?   @db.VarChar(40)
+  GROUPID            String?   @db.VarChar(40)
+  ALIAS              String?   @db.VarChar(100)
+  HOSTNAME           String?   @db.VarChar(200)
+  OS                 String?   @db.VarChar(100)
+  OSVERSION          String?   @db.VarChar(50)
+  CLIENTVERSION      String?   @db.VarChar(50)
+  LASTIP             String?   @db.VarChar(64)
+  NATTYPE            String?   @db.VarChar(30)
+  TAGS               Json?
+  UNATTENDED         Int       @default(0)
+  UNATTENDED_SECRET  String?   @db.VarChar(200)
+  POLICYID           String?   @db.VarChar(40)
+  STATUS             String    @default("offline") @db.VarChar(20)
+  LASTSEEN           DateTime? @db.DateTime(0)
+  ENROLLEDAT         DateTime? @db.DateTime(0)
+  ENABLED            Int       @default(1)
+  DELETEMARK         Int       @default(0)
+  CREATEON           DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID       String?   @db.VarChar(50)
+  CREATEBY           String?   @db.VarChar(50)
+  MODIFIEDON         DateTime? @db.DateTime(0)
+  MODIFIEDUSERID     String?   @db.VarChar(50)
+  MODIFIEDBY         String?   @db.VarChar(50)
+
+  @@index([TENANTID])
+  @@index([OWNERUSERID])
+  @@index([GROUPID])
+}
+
+model poleis_device_group {
+  ID        String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID  String    @db.VarChar(40)
+  PARENTID  String?   @db.VarChar(40)
+  NAME      String    @db.VarChar(100)
+  POLICYID  String?   @db.VarChar(40)
+  ENABLED   Int       @default(1)
+  DELETEMARK Int      @default(0)
+  CREATEON  DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID String? @db.VarChar(50)
+  CREATEBY   String?  @db.VarChar(50)
+  MODIFIEDON DateTime? @db.DateTime(0)
+  MODIFIEDUSERID String? @db.VarChar(50)
+  MODIFIEDBY String?  @db.VarChar(50)
+
+  @@index([TENANTID])
+}
+
+model poleis_enrollment_token {
+  ID          String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID    String    @db.VarChar(40)
+  TOKEN       String    @unique @db.VarChar(80)
+  OWNERUSERID String?   @db.VarChar(40)
+  GROUPID     String?   @db.VarChar(40)
+  POLICYID    String?   @db.VarChar(40)
+  MAXUSES     Int       @default(0)
+  USEDCOUNT   Int       @default(0)
+  EXPIRESAT   DateTime? @db.DateTime(0)
+  ENABLED     Int       @default(1)
+  DELETEMARK  Int       @default(0)
+  CREATEON    DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID String?  @db.VarChar(50)
+  CREATEBY    String?   @db.VarChar(50)
+  MODIFIEDON  DateTime? @db.DateTime(0)
+  MODIFIEDUSERID String? @db.VarChar(50)
+  MODIFIEDBY  String?   @db.VarChar(50)
+
+  @@index([TENANTID])
+}
+
+model poleis_device_assignment {
+  ID          String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID    String    @db.VarChar(40)
+  SUBJECTTYPE String    @db.VarChar(20)
+  SUBJECTID   String    @db.VarChar(40)
+  TARGETTYPE  String    @db.VarChar(20)
+  TARGETID    String    @db.VarChar(40)
+  PROFILEID   String?   @db.VarChar(40)
+  STARTDATE   DateTime? @db.DateTime(0)
+  ENDDATE     DateTime? @db.DateTime(0)
+  ALLOWEDCIDR String?   @db.VarChar(255)
+  ENABLED     Int       @default(1)
+  DELETEMARK  Int       @default(0)
+  CREATEON    DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID String?  @db.VarChar(50)
+  CREATEBY    String?   @db.VarChar(50)
+  MODIFIEDON  DateTime? @db.DateTime(0)
+  MODIFIEDUSERID String? @db.VarChar(50)
+  MODIFIEDBY  String?   @db.VarChar(50)
+
+  @@index([TENANTID])
+  @@index([SUBJECTID])
+  @@index([TARGETID])
+}
+
+model poleis_permission_profile {
+  ID               String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID         String    @db.VarChar(40)
+  NAME             String    @db.VarChar(100)
+  ISBUILTIN        Int       @default(0)
+  CONTROL_INPUT    Int       @default(1)
+  FILE_TRANSFER    Int       @default(0)
+  CLIPBOARD        Int       @default(0)
+  AUDIO            Int       @default(0)
+  MULTI_MONITOR    Int       @default(1)
+  GAMEPAD          Int       @default(0)
+  REMOTE_REBOOT    Int       @default(0)
+  PRIVACY_SCREEN   Int       @default(0)
+  RECORD_SESSION   Int       @default(0)
+  REQUIRE_CONFIRM  Int       @default(1)
+  IDLE_TIMEOUT_SEC Int       @default(0)
+  ENABLED          Int       @default(1)
+  DELETEMARK       Int       @default(0)
+  CREATEON         DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID     String?   @db.VarChar(50)
+  CREATEBY         String?   @db.VarChar(50)
+  MODIFIEDON       DateTime? @db.DateTime(0)
+  MODIFIEDUSERID   String?   @db.VarChar(50)
+  MODIFIEDBY       String?   @db.VarChar(50)
+
+  @@index([TENANTID])
+}
+
+model poleis_session {
+  ID                 String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID           String    @db.VarChar(40)
+  CONTROLLERUSERID   String    @db.VarChar(40)
+  CONTROLLERTERMINAL String?   @db.VarChar(64)
+  TARGETDEVICEID     String    @db.VarChar(40)
+  TARGETTERMINAL     String    @db.VarChar(64)
+  PROFILEID          String?   @db.VarChar(40)
+  STARTAT            DateTime  @db.DateTime(0)
+  ENDAT              DateTime? @db.DateTime(0)
+  DURATIONSEC        Int?
+  TRANSPORT          String?   @db.VarChar(20)
+  NATTYPE            String?   @db.VarChar(30)
+  RESULT             String    @default("active") @db.VarChar(20)
+  FAILREASON         String?   @db.VarChar(200)
+  RECORDINGURL       String?   @db.VarChar(500)
+  ENABLED            Int       @default(1)
+  DELETEMARK         Int       @default(0)
+  CREATEON           DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID       String?   @db.VarChar(50)
+  CREATEBY           String?   @db.VarChar(50)
+  MODIFIEDON         DateTime? @db.DateTime(0)
+  MODIFIEDUSERID     String?   @db.VarChar(50)
+  MODIFIEDBY         String?   @db.VarChar(50)
+
+  @@index([TENANTID])
+  @@index([TARGETDEVICEID])
+  @@index([CONTROLLERUSERID])
+}
+
+model poleis_session_event {
+  ID        String   @id @default("uuid()") @db.VarChar(40)
+  SESSIONID String   @db.VarChar(40)
+  TYPE      String   @db.VarChar(40)
+  PAYLOAD   Json?
+  CREATEON  DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([SESSIONID])
+}
+
+model poleis_audit_log {
+  ID        String   @id @default("uuid()") @db.VarChar(40)
+  TENANTID  String   @db.VarChar(40)
+  ACTORID   String?  @db.VarChar(40)
+  ACTORNAME String?  @db.VarChar(100)
+  CATEGORY  String   @db.VarChar(40)
+  ACTION    String   @db.VarChar(80)
+  TARGET    String?  @db.VarChar(200)
+  IP        String?  @db.VarChar(64)
+  DETAIL    Json?
+  CREATEON  DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([TENANTID])
+  @@index([CATEGORY])
+  @@index([CREATEON])
+}
+
 model queryengine {
   ID             String   @id @default("") @db.VarChar(40)
   PARENTID       String?  @db.VarChar(40)

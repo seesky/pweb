@@ -1,6 +1,7 @@
 'use strict';
 
 const { PrismaClient } = require('@prisma/client');
+const { platformService } = require('../management/platform_service');
 
 class AuditService {
   constructor(client = new PrismaClient()) {
@@ -8,6 +9,21 @@ class AuditService {
   }
 
   async log(event) {
+    try {
+      await platformService.writeAudit({
+        actorId: event.userId,
+        actorName: event.userName,
+        category: event.category || 'session',
+        action: event.action,
+        target: event.description,
+        ip: event.ip,
+        detail: event.payload || {}
+      });
+      return;
+    } catch (err) {
+      // fall through to legacy audit
+    }
+
     // Best-effort logging into existing cILog table if present; otherwise console.
     try {
       if (this.prisma.cilog) {

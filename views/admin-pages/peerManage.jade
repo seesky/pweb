@@ -1,108 +1,1650 @@
 script.
-  const PeerManagePage = () => {
-    const [rows, setRows] = useState([]);
+  // ===== Poleis 控制台（现代 SaaS 风 / 自带侧栏 + 顶栏） =====
+  const PM_H = React.createElement;
+
+  const PM_GRADS = {
+    indigo: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+    blue: 'linear-gradient(135deg,#0ea5e9,#3b82f6)',
+    emerald: 'linear-gradient(135deg,#10b981,#34d399)',
+    amber: 'linear-gradient(135deg,#f59e0b,#fbbf24)',
+    rose: 'linear-gradient(135deg,#f43f5e,#fb7185)',
+    slate: 'linear-gradient(135deg,#64748b,#94a3b8)'
+  };
+  const PM_CARD_SX = {
+    borderRadius: 3,
+    border: '1px solid #eef0f4',
+    boxShadow: '0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06)'
+  };
+
+  const pmIcon = (name, props) => PM_H(MaterialUI.Icon, Object.assign({ fontSize: 'small' }, props || {}), name);
+
+  const pmFormatDate = (value) => (value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-');
+  const pmIsToday = (value) => {
+    if (!value) return false;
+    const d = new Date(value); const n = new Date();
+    return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+  };
+  const pmTimeAgo = (value) => {
+    if (!value) return '从未';
+    const diff = Date.now() - new Date(value).getTime();
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+    if (diff < 2592000000) return Math.floor(diff / 86400000) + ' 天前';
+    return new Date(value).toLocaleDateString('zh-CN');
+  };
+  const pmFormatDuration = (sec) => {
+    if (!sec && sec !== 0) return '-';
+    if (sec < 60) return sec + ' 秒';
+    if (sec < 3600) return Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒';
+    return Math.floor(sec / 3600) + ' 时 ' + Math.floor((sec % 3600) / 60) + ' 分';
+  };
+
+  // KPI 卡片
+  const PmKpiCard = ({ label, value, hint, icon, grad }) =>
+    PM_H(MaterialUI.Paper, { sx: Object.assign({ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }, PM_CARD_SX) },
+      PM_H(MaterialUI.Box, {
+        sx: { width: 50, height: 50, borderRadius: 2.5, background: PM_GRADS[grad] || PM_GRADS.indigo, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 6px 16px rgba(99,102,241,.25)' }
+      }, pmIcon(icon, { sx: { fontSize: 26 } })),
+      PM_H(MaterialUI.Box, { sx: { minWidth: 0 } },
+        PM_H(MaterialUI.Typography, { sx: { fontSize: 28, fontWeight: 800, lineHeight: 1.1, color: '#101828' } }, String(value)),
+        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085', mt: 0.25 } }, label),
+        hint ? PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, hint) : null
+      )
+    );
+
+  // 内容区卡片（带标题）
+  const PmPanel = ({ title, subtitle, action, dense, children }) =>
+    PM_H(MaterialUI.Paper, { sx: Object.assign({ overflow: 'hidden' }, PM_CARD_SX) },
+      (title || action)
+        ? PM_H(MaterialUI.Box, { sx: { px: 2.5, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f0f1f4' } },
+            PM_H(MaterialUI.Box, null,
+              title ? PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#101828' } }, title) : null,
+              subtitle ? PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, subtitle) : null
+            ),
+            action || null
+          )
+        : null,
+      PM_H(MaterialUI.Box, { sx: { p: dense ? 0 : 2.5 } }, children)
+    );
+
+  const PmStatusChip = (status) =>
+    PM_H(MaterialUI.Box, { sx: { display: 'inline-flex', alignItems: 'center', gap: 0.75 } },
+      PM_H(MaterialUI.Box, { sx: { width: 8, height: 8, borderRadius: '50%', background: status === 'online' ? '#12b76a' : '#d0d5dd', boxShadow: status === 'online' ? '0 0 0 3px rgba(18,183,106,.15)' : 'none' } }),
+      PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: status === 'online' ? '#027a48' : '#667085', fontWeight: 500 } }, status === 'online' ? '在线' : '离线')
+    );
+
+  const PmEmpty = ({ icon, title, hint }) =>
+    PM_H(MaterialUI.Box, { sx: { py: 7, textAlign: 'center' } },
+      PM_H(MaterialUI.Box, { sx: { width: 64, height: 64, borderRadius: '50%', background: '#f2f4f7', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#98a2b3', mb: 1.5 } }, pmIcon(icon, { sx: { fontSize: 30 } })),
+      PM_H(MaterialUI.Typography, { sx: { fontWeight: 600, color: '#475467' } }, title),
+      hint ? PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mt: 0.5, maxWidth: 420, mx: 'auto' } }, hint) : null
+    );
+
+  const PM_SECTIONS = [
+    { key: 'overview', label: '总览', icon: 'dashboard', title: '总览', subtitle: '远程控制服务的整体运行态势' },
+    { key: 'devices', label: '设备资产', icon: 'devices', title: '设备资产', subtitle: '纳管设备、设备组与注册令牌' },
+    { key: 'sessions', label: '会话记录', icon: 'cast_connected', title: '会话记录', subtitle: '远程控制会话与连接质量' },
+    { key: 'network', label: '网络与中继', icon: 'settings_ethernet', title: '网络与中继', subtitle: 'P2P 成功率、中继占比与 NAT 分布' },
+    { key: 'access', label: '访问授权', icon: 'verified_user', title: '访问授权', subtitle: '谁可以连接哪些设备' },
+    { key: 'members', label: '成员管理', icon: 'group', title: '成员管理', subtitle: '空间成员与角色（角色授权的依据）' },
+    { key: 'policies', label: '权限模板', icon: 'tune', title: '权限模板', subtitle: '一次会话允许的能力（键鼠/文件/剪贴板/确认/超时）' },
+    { key: 'devicePolicies', label: '设备策略', icon: 'settings', title: '设备策略', subtitle: '设备侧客户端运行配置（码率/帧率/传输/更新/日志），可按设备或设备组绑定并继承' },
+    { key: 'deploy', label: '部署中心', icon: 'cloud_download', title: '部署中心', subtitle: '客户端版本发布、渠道管理与安装纳管指引' },
+    { key: 'tickets', label: '支持工单', icon: 'confirmation_number', title: '支持工单', subtitle: '报修、接单、指派、沟通与处理' },
+    { key: 'audit', label: '审计日志', icon: 'assignment', title: '审计日志', subtitle: '关键操作的合规记录' }
+  ];
+
+  // 权限模板能力位（与后端 poleis_permission_profile 列一一对应）
+  const PM_PROFILE_CAPS = [
+    { key: 'controlInput', label: '键鼠控制', icon: 'mouse' },
+    { key: 'fileTransfer', label: '文件传输', icon: 'insert_drive_file' },
+    { key: 'clipboard', label: '剪贴板', icon: 'content_paste' },
+    { key: 'audio', label: '音频', icon: 'volume_up' },
+    { key: 'multiMonitor', label: '多显示器', icon: 'desktop_windows' },
+    { key: 'gamepad', label: '游戏手柄', icon: 'videogame_asset' },
+    { key: 'remoteReboot', label: '远程重启', icon: 'power_settings_new' },
+    { key: 'privacyScreen', label: '隐私屏', icon: 'visibility_off' },
+    { key: 'recordSession', label: '会话录制', icon: 'videocam' }
+  ];
+  // 会话事件类型 → 展示（图标 + 文案 + 颜色）
+  const PM_EVENT_META = {
+    request: { icon: 'send', label: '发起连接', color: '#6366f1' },
+    nat_info: { icon: 'info', label: 'NAT 信息交换', color: '#0ea5e9' },
+    nat_punch: { icon: 'flash_on', label: '开始打洞', color: '#f59e0b' },
+    connected: { icon: 'check_circle', label: '连接成功', color: '#12b76a' },
+    relay_fallback: { icon: 'cloud', label: '回退中继', color: '#f59e0b' },
+    failed: { icon: 'error', label: '连接失败', color: '#f04438' },
+    disconnect: { icon: 'link_off', label: '断开', color: '#667085' }
+  };
+  const pmEventMeta = (type) => PM_EVENT_META[type] || { icon: 'fiber_manual_record', label: type, color: '#98a2b3' };
+  const PM_TRANSPORT_LABELS = { auto: '自动', p2p: '优先 P2P', relay: '优先中继' };
+  const PM_CHANNEL_LABELS = { stable: '稳定', beta: '测试', gray: '灰度' };
+  const PM_CHANNEL_COLORS = { stable: 'success', beta: 'info', gray: 'warning' };
+  const PM_TICKET_STATUS = { open: '待处理', in_progress: '处理中', resolved: '已解决', closed: '已关闭' };
+  const PM_TICKET_STATUS_COLORS = { open: 'warning', in_progress: 'info', resolved: 'success', closed: 'default' };
+  const PM_TICKET_PRIORITY = { low: '低', normal: '普通', high: '高', urgent: '紧急' };
+  const PM_TICKET_PRIORITY_COLORS = { low: 'default', normal: 'info', high: 'warning', urgent: 'error' };
+  const pmEmptyBuildForm = () => ({ version: '', channel: 'stable', url: '', notes: '', presetServerUrl: '', presetGroupId: '', presetPolicyId: '' });
+  const pmEmptyDevicePolicyForm = () => ({
+    name: '', priority: 0, maxBitrateKbps: 0, maxFps: 0, preferTransport: 'auto', autoUpdate: true, logRetentionDays: 14
+  });
+  const pmEmptyProfileForm = () => ({
+    name: '', controlInput: true, fileTransfer: false, clipboard: false, audio: false,
+    multiMonitor: true, gamepad: false, remoteReboot: false, privacyScreen: false,
+    recordSession: false, requireConfirm: true, idleTimeoutSec: 0
+  });
+
+  const PeerManagePage = (props) => {
+    const data = window.__APP_DATA__ || {};
+    const currentUser = data.user || {};
+    const embeddedSection = props && props.section;
+    const embedded = !!embeddedSection;
+
+    const [section, setSection] = useState(embeddedSection || 'overview');
+    const [deviceTab, setDeviceTab] = useState('list');
+    const [devices, setDevices] = useState([]);
+    const [groups, setGroups] = useState([]);
+    const [tokens, setTokens] = useState([]);
+    const [sessions, setSessions] = useState([]);
+    const [profiles, setProfiles] = useState([]);
+    const [assignments, setAssignments] = useState([]);
+    const [users, setUsers] = useState([]);
+    const [auditLogs, setAuditLogs] = useState([]);
+    const [keyword, setKeyword] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [editingDevice, setEditingDevice] = useState(null);
+    const [deviceForm, setDeviceForm] = useState({ alias: '', groupId: '', policyId: '', tags: '', unattended: false, enabled: true });
+    const [groupName, setGroupName] = useState('');
+    const [tokenForm, setTokenForm] = useState({ groupId: '', maxUses: 0, expiresAt: '' });
+    const [assignmentForm, setAssignmentForm] = useState({
+      subjectType: 'user', subjectId: '', targetType: 'device', targetId: '',
+      profileId: '', startDate: '', endDate: '', allowedCidr: ''
+    });
     const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+    const [editingProfile, setEditingProfile] = useState(null); // null | { mode:'new' } | { mode:'edit', id }
+    const [profileForm, setProfileForm] = useState(pmEmptyProfileForm());
+    const [members, setMembers] = useState([]);
+    const [networkOverview, setNetworkOverview] = useState(null);
+    const [addingMember, setAddingMember] = useState(false);
+    const [memberForm, setMemberForm] = useState({ userId: '', role: 'member' });
+    const [deviceDetail, setDeviceDetail] = useState(null); // { device, sessions, assignments }
+    const [sessionDetail, setSessionDetail] = useState(null); // { session, events }
+    const [devicePolicies, setDevicePolicies] = useState([]);
+    const [editingDevicePolicy, setEditingDevicePolicy] = useState(null); // null | {mode:'new'} | {mode:'edit', id}
+    const [devicePolicyForm, setDevicePolicyForm] = useState(pmEmptyDevicePolicyForm());
+    const [clientBuilds, setClientBuilds] = useState([]);
+    const [editingBuild, setEditingBuild] = useState(null); // null | {mode:'new'} | {mode:'edit', id}
+    const [buildForm, setBuildForm] = useState(pmEmptyBuildForm());
+    const [deployTokenId, setDeployTokenId] = useState('');
+    const [tickets, setTickets] = useState([]);
+    const [ticketStatusFilter, setTicketStatusFilter] = useState('');
+    const [ticketDetail, setTicketDetail] = useState(null); // { ...ticket, comments }
+    const [addingTicket, setAddingTicket] = useState(false);
+    const [ticketForm, setTicketForm] = useState({ title: '', description: '', priority: 'normal', deviceId: '' });
+    const [ticketComment, setTicketComment] = useState('');
 
-    const loadData = useCallback(async () => {
+    const toast = (severity, message) => setNotify({ open: true, severity, message });
+
+    const loadAll = useCallback(async () => {
       setLoading(true);
       setError('');
       try {
-        const resp = await fetch('/realtime-admin/endpoints');
-        if (resp.status === 401) {
-          window.location.href = '/login';
-          return;
-        }
-        const result = await resp.json();
-        if (!resp.ok) throw new Error(result.message || '加载终端失败');
-        setRows(result.data || []);
+        const params = new URLSearchParams();
+        if (keyword) params.set('keyword', keyword);
+        const resps = await Promise.all([
+          fetch(`/management-platform/devices?${params.toString()}`),
+          fetch('/management-platform/device-groups'),
+          fetch('/management-platform/enrollment-tokens'),
+          fetch('/management-platform/sessions'),
+          fetch('/management-platform/permission-profiles'),
+          fetch('/management-platform/assignments'),
+          fetch('/management-platform/users'),
+          fetch('/management-platform/audit-logs'),
+          fetch('/management-platform/members'),
+          fetch('/management-platform/network-overview'),
+          fetch('/management-platform/device-policies'),
+          fetch('/management-platform/client-builds'),
+          fetch(`/management-platform/tickets${ticketStatusFilter ? '?status=' + ticketStatusFilter : ''}`)
+        ]);
+        if (resps.some((resp) => resp.status === 401)) { window.location.href = '/login'; return; }
+        const [deviceJson, groupJson, tokenJson, sessionJson, profileJson, assignmentJson, userJson, auditJson, memberJson, networkJson, devicePolicyJson, buildJson, ticketJson] =
+          await Promise.all(resps.map((resp) => resp.json()));
+        if (!resps[0].ok) throw new Error(deviceJson.message || '加载设备失败');
+        setDevices(deviceJson.data || []);
+        setGroups(groupJson.data || []);
+        setTokens(tokenJson.data || []);
+        setSessions(sessionJson.data || []);
+        setProfiles(profileJson.data || []);
+        setAssignments(assignmentJson.data || []);
+        setUsers(userJson.data || []);
+        setAuditLogs(auditJson.data || []);
+        setMembers(memberJson.data || []);
+        setNetworkOverview(networkJson.data || null);
+        setDevicePolicies(devicePolicyJson.data || []);
+        setClientBuilds(buildJson.data || []);
+        setTickets(ticketJson.data || []);
       } catch (err) {
-        setError(err.message || '加载终端失败');
+        setError(err.message || '加载管理数据失败');
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [keyword, ticketStatusFilter]);
 
-    useEffect(() => {
-      loadData();
-    }, [loadData]);
+    useEffect(() => { loadAll(); }, [loadAll]);
+    useEffect(() => { if (embeddedSection) setSection(embeddedSection); }, [embeddedSection]);
 
-    const handleRemove = async (terminalId) => {
-      if (!terminalId) return;
+    const stats = useMemo(() => {
+      const online = devices.filter((d) => d.status === 'online').length;
+      const active = sessions.filter((s) => s.result === 'active').length;
+      const today = sessions.filter((s) => pmIsToday(s.startAt)).length;
+      const failed = sessions.filter((s) => s.result === 'failed').length;
+      return {
+        online, offline: devices.length - online, total: devices.length,
+        active, today, grants: assignments.length, groups: groups.length, tokens: tokens.length,
+        failRate: sessions.length ? Math.round((failed / sessions.length) * 100) : 0
+      };
+    }, [devices, sessions, assignments, groups, tokens]);
+
+    const visibleDevices = useMemo(() =>
+      devices.filter((d) => statusFilter === 'all' ? true : d.status === statusFilter),
+    [devices, statusFilter]);
+
+    // ---------- handlers ----------
+    const openEditDevice = (device) => {
+      setEditingDevice(device);
+      setDeviceForm({
+        alias: device.alias || '', groupId: device.groupId || '', policyId: device.policyId || '',
+        tags: (device.tags || []).join(','), unattended: !!device.unattended, enabled: device.enabled !== false
+      });
+    };
+    const saveDevice = async () => {
+      if (!editingDevice) return;
       try {
-        const resp = await fetch(`/realtime-admin/endpoints/${terminalId}`, { method: 'DELETE' });
+        const resp = await fetch(`/management-platform/devices/${editingDevice.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alias: deviceForm.alias, groupId: deviceForm.groupId || null, policyId: deviceForm.policyId || null,
+            tags: deviceForm.tags.split(',').map((item) => item.trim()).filter(Boolean),
+            unattended: deviceForm.unattended, enabled: deviceForm.enabled
+          })
+        });
         const result = await resp.json();
-        if (!resp.ok) throw new Error(result.message || '移除终端失败');
-        setNotify({ open: true, severity: 'success', message: result.message || '终端已移除' });
-        await loadData();
-      } catch (err) {
-        setNotify({ open: true, severity: 'error', message: err.message || '移除终端失败' });
-      }
+        if (!resp.ok) throw new Error(result.message || '保存设备失败');
+        toast('success', '设备已保存'); setEditingDevice(null); await loadAll();
+      } catch (err) { toast('error', err.message || '保存设备失败'); }
+    };
+    const createGroup = async () => {
+      const name = groupName.trim();
+      if (!name) return;
+      try {
+        const resp = await fetch('/management-platform/device-groups', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '创建设备组失败');
+        setGroupName(''); toast('success', '设备组已创建'); await loadAll();
+      } catch (err) { toast('error', err.message || '创建设备组失败'); }
+    };
+    const createToken = async () => {
+      try {
+        const resp = await fetch('/management-platform/enrollment-tokens', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupId: tokenForm.groupId || null, maxUses: Number(tokenForm.maxUses || 0), expiresAt: tokenForm.expiresAt || null })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '创建注册令牌失败');
+        toast('success', '注册令牌已创建'); await loadAll();
+      } catch (err) { toast('error', err.message || '创建注册令牌失败'); }
+    };
+    const revokeToken = async (tokenId) => {
+      try {
+        const resp = await fetch(`/management-platform/enrollment-tokens/${tokenId}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '停用注册令牌失败');
+        toast('success', '注册令牌已停用'); await loadAll();
+      } catch (err) { toast('error', err.message || '停用注册令牌失败'); }
+    };
+    const copyToken = (value) => {
+      try { navigator.clipboard.writeText(value); toast('success', '令牌已复制'); }
+      catch (e) { toast('warning', '复制失败，请手动选择'); }
+    };
+    const createAssignment = async () => {
+      if (!assignmentForm.subjectId || !assignmentForm.targetId) { toast('warning', '请选择授权主体和目标'); return; }
+      try {
+        const resp = await fetch('/management-platform/assignments', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subjectType: assignmentForm.subjectType, subjectId: assignmentForm.subjectId,
+            targetType: assignmentForm.targetType, targetId: assignmentForm.targetId,
+            profileId: assignmentForm.profileId || null, startDate: assignmentForm.startDate || null,
+            endDate: assignmentForm.endDate || null, allowedCidr: assignmentForm.allowedCidr || null
+          })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '创建授权失败');
+        toast('success', '授权已创建'); await loadAll();
+      } catch (err) { toast('error', err.message || '创建授权失败'); }
+    };
+    const revokeAssignment = async (assignmentId) => {
+      try {
+        const resp = await fetch(`/management-platform/assignments/${assignmentId}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '撤销授权失败');
+        toast('success', '授权已撤销'); await loadAll();
+      } catch (err) { toast('error', err.message || '撤销授权失败'); }
     };
 
-    return React.createElement(Box, { sx: { display: 'grid', gap: 2 } },
-      React.createElement(Stack, { direction: 'row', alignItems: 'center', justifyContent: 'space-between' },
-        React.createElement(Typography, { variant: 'h6' }, '在线终端'),
-        React.createElement(Button, { variant: 'outlined', size: 'small', onClick: loadData, disabled: loading }, '刷新')
-      ),
-      error ? React.createElement(Alert, { severity: 'error' }, error) : null,
-      React.createElement(Paper, { sx: { borderRadius: 3, overflow: 'hidden', position: 'relative' } },
-        loading ? React.createElement(Box, {
-          sx: { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(255,255,255,0.6)', zIndex: 1 }
-        }, React.createElement(CircularProgress, { size: 32 })) : null,
-        React.createElement(TableContainer, null,
-          React.createElement(Table, { size: 'small' },
-            React.createElement(TableHead, null,
-              React.createElement(TableRow, null,
-                React.createElement(TableCell, null, '终端ID'),
-                React.createElement(TableCell, null, '用户ID'),
-                React.createElement(TableCell, null, 'IP'),
-                React.createElement(TableCell, null, 'OS'),
-                React.createElement(TableCell, null, 'UA'),
-                React.createElement(TableCell, null, '登录时间'),
-                React.createElement(TableCell, null, '最后心跳'),
-                React.createElement(TableCell, null, '操作')
-              )
-            ),
-            React.createElement(TableBody, null,
-              (rows || []).map((row) =>
-                React.createElement(TableRow, { key: row.terminalId },
-                  React.createElement(TableCell, null, row.terminalId),
-                  React.createElement(TableCell, null, row.userId || ''),
-                  React.createElement(TableCell, null, row.ip || ''),
-                  React.createElement(TableCell, null, row.os || ''),
-                  React.createElement(TableCell, null,
-                    React.createElement(Typography, { variant: 'caption', color: 'text.secondary' },
-                      (row.ua || '').slice(0, 50)
+    const openNewProfile = () => { setProfileForm(pmEmptyProfileForm()); setEditingProfile({ mode: 'new' }); };
+    const openEditProfile = (p) => {
+      setProfileForm({
+        name: p.name || '', controlInput: !!p.controlInput, fileTransfer: !!p.fileTransfer,
+        clipboard: !!p.clipboard, audio: !!p.audio, multiMonitor: !!p.multiMonitor, gamepad: !!p.gamepad,
+        remoteReboot: !!p.remoteReboot, privacyScreen: !!p.privacyScreen, recordSession: !!p.recordSession,
+        requireConfirm: !!p.requireConfirm, idleTimeoutSec: p.idleTimeoutSec || 0
+      });
+      setEditingProfile({ mode: 'edit', id: p.id });
+    };
+    const saveProfile = async () => {
+      if (!String(profileForm.name || '').trim()) { toast('warning', '请填写模板名称'); return; }
+      const isNew = editingProfile && editingProfile.mode === 'new';
+      try {
+        const resp = await fetch(
+          isNew ? '/management-platform/permission-profiles' : `/management-platform/permission-profiles/${editingProfile.id}`,
+          { method: isNew ? 'POST' : 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profileForm) }
+        );
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '保存模板失败');
+        toast('success', '权限模板已保存'); setEditingProfile(null); await loadAll();
+      } catch (err) { toast('error', err.message || '保存模板失败'); }
+    };
+    const removeProfile = async (p) => {
+      try {
+        const resp = await fetch(`/management-platform/permission-profiles/${p.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '删除模板失败');
+        toast('success', '权限模板已删除'); await loadAll();
+      } catch (err) { toast('error', err.message || '删除模板失败'); }
+    };
+
+    const submitMember = async () => {
+      if (!memberForm.userId) { toast('warning', '请选择用户'); return; }
+      try {
+        const resp = await fetch('/management-platform/members', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(memberForm)
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '添加成员失败');
+        toast('success', '成员已添加'); setAddingMember(false); setMemberForm({ userId: '', role: 'member' }); await loadAll();
+      } catch (err) { toast('error', err.message || '添加成员失败'); }
+    };
+    const changeMemberRole = async (member, role) => {
+      try {
+        const resp = await fetch(`/management-platform/members/${member.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '更新角色失败');
+        toast('success', '角色已更新'); await loadAll();
+      } catch (err) { toast('error', err.message || '更新角色失败'); }
+    };
+    const removeMember = async (member) => {
+      try {
+        const resp = await fetch(`/management-platform/members/${member.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '移除成员失败');
+        toast('success', '成员已移除'); await loadAll();
+      } catch (err) { toast('error', err.message || '移除成员失败'); }
+    };
+
+    const openDeviceDetail = async (row) => {
+      setDeviceDetail({ device: row, sessions: [], assignments: [], loading: true });
+      try {
+        const resp = await fetch(`/management-platform/devices/${row.id}`);
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '加载设备详情失败');
+        setDeviceDetail({ ...result.data, loading: false });
+      } catch (err) { toast('error', err.message || '加载设备详情失败'); setDeviceDetail(null); }
+    };
+    const removeDevice = async (device) => {
+      try {
+        const resp = await fetch(`/management-platform/devices/${device.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '删除设备失败');
+        toast('success', '设备已删除'); setDeviceDetail(null); await loadAll();
+      } catch (err) { toast('error', err.message || '删除设备失败'); }
+    };
+    const openSessionDetail = async (s) => {
+      setSessionDetail({ session: s, events: [], loading: true });
+      try {
+        const resp = await fetch(`/management-platform/sessions/${s.id}/events`);
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '加载会话事件失败');
+        setSessionDetail({ session: s, events: result.data || [], loading: false });
+      } catch (err) { toast('error', err.message || '加载会话事件失败'); setSessionDetail(null); }
+    };
+    const disconnectSession = async (s) => {
+      try {
+        const resp = await fetch(`/management-platform/sessions/${s.id}/disconnect`, { method: 'POST' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '强制断开失败');
+        toast('success', '会话已强制断开'); setSessionDetail(null); await loadAll();
+      } catch (err) { toast('error', err.message || '强制断开失败'); }
+    };
+
+    const openNewDevicePolicy = () => { setDevicePolicyForm(pmEmptyDevicePolicyForm()); setEditingDevicePolicy({ mode: 'new' }); };
+    const openEditDevicePolicy = (p) => {
+      const s = p.settings || {};
+      setDevicePolicyForm({
+        name: p.name || '', priority: p.priority || 0,
+        maxBitrateKbps: s.maxBitrateKbps || 0, maxFps: s.maxFps || 0,
+        preferTransport: s.preferTransport || 'auto',
+        autoUpdate: s.autoUpdate !== false, logRetentionDays: s.logRetentionDays || 0
+      });
+      setEditingDevicePolicy({ mode: 'edit', id: p.id });
+    };
+    const saveDevicePolicy = async () => {
+      if (!String(devicePolicyForm.name || '').trim()) { toast('warning', '请填写策略名称'); return; }
+      const isNew = editingDevicePolicy && editingDevicePolicy.mode === 'new';
+      const body = {
+        name: devicePolicyForm.name, priority: Number(devicePolicyForm.priority || 0),
+        settings: {
+          maxBitrateKbps: Number(devicePolicyForm.maxBitrateKbps || 0),
+          maxFps: Number(devicePolicyForm.maxFps || 0),
+          preferTransport: devicePolicyForm.preferTransport,
+          autoUpdate: !!devicePolicyForm.autoUpdate,
+          logRetentionDays: Number(devicePolicyForm.logRetentionDays || 0)
+        }
+      };
+      try {
+        const resp = await fetch(
+          isNew ? '/management-platform/device-policies' : `/management-platform/device-policies/${editingDevicePolicy.id}`,
+          { method: isNew ? 'POST' : 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        );
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '保存策略失败');
+        toast('success', '设备策略已保存'); setEditingDevicePolicy(null); await loadAll();
+      } catch (err) { toast('error', err.message || '保存策略失败'); }
+    };
+    const removeDevicePolicy = async (p) => {
+      try {
+        const resp = await fetch(`/management-platform/device-policies/${p.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '删除策略失败');
+        toast('success', '设备策略已删除'); await loadAll();
+      } catch (err) { toast('error', err.message || '删除策略失败'); }
+    };
+    const changeGroupPolicy = async (group, policyId) => {
+      try {
+        const resp = await fetch(`/management-platform/device-groups/${group.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policyId: policyId || null })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '更新设备组策略失败');
+        toast('success', '设备组策略已更新'); await loadAll();
+      } catch (err) { toast('error', err.message || '更新设备组策略失败'); }
+    };
+
+    const openNewBuild = () => { setBuildForm(pmEmptyBuildForm()); setEditingBuild({ mode: 'new' }); };
+    const openEditBuild = (b) => {
+      const preset = b.preset || {};
+      setBuildForm({
+        version: b.version || '', channel: b.channel || 'stable', url: b.url || '', notes: b.notes || '',
+        presetServerUrl: preset.serverUrl || '', presetGroupId: preset.groupId || '', presetPolicyId: preset.policyId || ''
+      });
+      setEditingBuild({ mode: 'edit', id: b.id });
+    };
+    const saveBuild = async () => {
+      if (!String(buildForm.version || '').trim()) { toast('warning', '请填写版本号'); return; }
+      const isNew = editingBuild && editingBuild.mode === 'new';
+      const body = {
+        version: buildForm.version, channel: buildForm.channel, url: buildForm.url, notes: buildForm.notes,
+        preset: { serverUrl: buildForm.presetServerUrl || '', groupId: buildForm.presetGroupId || '', policyId: buildForm.presetPolicyId || '' }
+      };
+      try {
+        const resp = await fetch(
+          isNew ? '/management-platform/client-builds' : `/management-platform/client-builds/${editingBuild.id}`,
+          { method: isNew ? 'POST' : 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        );
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '发布失败');
+        toast('success', '版本已保存'); setEditingBuild(null); await loadAll();
+      } catch (err) { toast('error', err.message || '发布失败'); }
+    };
+    const removeBuild = async (b) => {
+      try {
+        const resp = await fetch(`/management-platform/client-builds/${b.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '删除失败');
+        toast('success', '版本已删除'); await loadAll();
+      } catch (err) { toast('error', err.message || '删除失败'); }
+    };
+    const copyText = (text) => {
+      try { navigator.clipboard.writeText(text); toast('success', '已复制'); }
+      catch (e) { toast('warning', '复制失败，请手动选择'); }
+    };
+
+    const openTicket = async (t) => {
+      setTicketComment('');
+      setTicketDetail({ ...t, comments: [], loading: true });
+      try {
+        const resp = await fetch(`/management-platform/tickets/${t.id}`);
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '加载工单失败');
+        setTicketDetail({ ...result.data, loading: false });
+      } catch (err) { toast('error', err.message || '加载工单失败'); setTicketDetail(null); }
+    };
+    const submitTicket = async () => {
+      if (!String(ticketForm.title || '').trim()) { toast('warning', '请填写标题'); return; }
+      try {
+        const resp = await fetch('/management-platform/tickets', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ticketForm)
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '创建工单失败');
+        toast('success', '工单已创建'); setAddingTicket(false); setTicketForm({ title: '', description: '', priority: 'normal', deviceId: '' }); await loadAll();
+      } catch (err) { toast('error', err.message || '创建工单失败'); }
+    };
+    const patchTicket = async (id, patch) => {
+      try {
+        const resp = await fetch(`/management-platform/tickets/${id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch)
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '更新工单失败');
+        if (ticketDetail && ticketDetail.id === id) setTicketDetail({ ...result.data, loading: false });
+        await loadAll();
+      } catch (err) { toast('error', err.message || '更新工单失败'); }
+    };
+    const submitTicketComment = async () => {
+      if (!ticketDetail || !String(ticketComment || '').trim()) return;
+      try {
+        const resp = await fetch(`/management-platform/tickets/${ticketDetail.id}/comments`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: ticketComment })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '评论失败');
+        setTicketComment(''); setTicketDetail({ ...result.data, loading: false }); await loadAll();
+      } catch (err) { toast('error', err.message || '评论失败'); }
+    };
+
+    // ---------- 侧栏 ----------
+    const renderSidebar = () =>
+      PM_H(MaterialUI.Paper, {
+        sx: Object.assign({
+          width: 236, flexShrink: 0, p: 1.5, position: 'sticky', top: 16,
+          display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 140px)'
+        }, PM_CARD_SX)
+      },
+        PM_H(MaterialUI.Box, { sx: { display: 'flex', alignItems: 'center', gap: 1.25, px: 1, py: 1.25 } },
+          PM_H(MaterialUI.Box, { sx: { width: 40, height: 40, borderRadius: 2, background: PM_GRADS.indigo, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px rgba(99,102,241,.3)' } }, pmIcon('device_hub', { sx: { fontSize: 22 } })),
+          PM_H(MaterialUI.Box, null,
+            PM_H(MaterialUI.Typography, { sx: { fontWeight: 800, color: '#101828', lineHeight: 1.1 } }, 'Poleis'),
+            PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, '远程控制台')
+          )
+        ),
+        PM_H(MaterialUI.Divider, { sx: { my: 1 } }),
+        PM_H(MaterialUI.List, { sx: { flex: 1 }, disablePadding: true },
+          PM_SECTIONS.map((item) => {
+            const selected = section === item.key;
+            return PM_H(MaterialUI.ListItemButton, {
+              key: item.key, selected, onClick: () => setSection(item.key),
+              sx: {
+                borderRadius: 2, mb: 0.5, px: 1.5, py: 1, color: selected ? '#312e81' : '#475467',
+                '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' },
+                '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' }
+              }
+            },
+              PM_H(MaterialUI.ListItemIcon, { sx: { minWidth: 34, color: selected ? '#6366f1' : '#98a2b3' } }, pmIcon(item.icon)),
+              PM_H(MaterialUI.ListItemText, { primary: item.label, primaryTypographyProps: { fontSize: 14, fontWeight: selected ? 700 : 500 } })
+            );
+          })
+        ),
+        PM_H(MaterialUI.Divider, { sx: { my: 1 } }),
+        PM_H(MaterialUI.Box, { sx: { display: 'flex', alignItems: 'center', gap: 1.25, px: 1, py: 0.5 } },
+          PM_H(MaterialUI.Avatar, { sx: { width: 34, height: 34, bgcolor: '#6366f1', fontSize: 15 } }, (currentUser.RealName || 'A').slice(0, 1)),
+          PM_H(MaterialUI.Box, { sx: { minWidth: 0 } },
+            PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600, color: '#344054', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, currentUser.RealName || '管理员'),
+            PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, currentUser.UserName || '')
+          )
+        )
+      );
+
+    // ---------- 总览 ----------
+    const renderOverview = () => {
+      const recent = sessions.slice(0, 6);
+      return PM_H(MaterialUI.Stack, { spacing: 2.5 },
+        PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' } },
+          PM_H(PmKpiCard, { label: '在线设备', value: stats.online, hint: '共 ' + stats.total + ' 台纳管设备', icon: 'desktop_windows', grad: 'emerald' }),
+          PM_H(PmKpiCard, { label: '进行中会话', value: stats.active, hint: '实时远程控制', icon: 'cast_connected', grad: 'indigo' }),
+          PM_H(PmKpiCard, { label: '今日会话', value: stats.today, hint: '今日发起的连接', icon: 'today', grad: 'blue' }),
+          PM_H(PmKpiCard, { label: '访问授权', value: stats.grants, hint: '已配置授权关系', icon: 'verified_user', grad: 'amber' }),
+          PM_H(PmKpiCard, { label: '会话失败率', value: stats.failRate + '%', hint: '历史连接失败占比', icon: 'error_outline', grad: stats.failRate > 20 ? 'rose' : 'slate' })
+        ),
+        PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2.5, gridTemplateColumns: { xs: '1fr', md: '1.6fr 1fr' } } },
+          PM_H(PmPanel, { title: '最近会话', subtitle: '最新的远程控制连接', dense: true },
+            recent.length
+              ? PM_H(MaterialUI.Table, { size: 'small' },
+                  PM_H(MaterialUI.TableHead, null,
+                    PM_H(MaterialUI.TableRow, null,
+                      PM_H(MaterialUI.TableCell, null, '目标设备'),
+                      PM_H(MaterialUI.TableCell, null, '发起人'),
+                      PM_H(MaterialUI.TableCell, null, '开始'),
+                      PM_H(MaterialUI.TableCell, null, '结果')
                     )
                   ),
-                  React.createElement(TableCell, null, row.loginAt ? new Date(Number(row.loginAt)).toLocaleString() : '-'),
-                  React.createElement(TableCell, null, row.lastSeen ? new Date(Number(row.lastSeen)).toLocaleString() : '-'),
-                  React.createElement(TableCell, null,
-                    React.createElement(Button, {
-                      variant: 'outlined',
-                      size: 'small',
-                      color: 'error',
-                      onClick: () => handleRemove(row.terminalId)
-                    }, '移除')
+                  PM_H(MaterialUI.TableBody, null,
+                    recent.map((s) =>
+                      PM_H(MaterialUI.TableRow, { key: s.id, hover: true },
+                        PM_H(MaterialUI.TableCell, null, s.targetName || s.targetTerminal),
+                        PM_H(MaterialUI.TableCell, null, s.controllerUserId || '-'),
+                        PM_H(MaterialUI.TableCell, null, pmTimeAgo(s.startAt)),
+                        PM_H(MaterialUI.TableCell, null,
+                          PM_H(MaterialUI.Chip, { size: 'small', color: s.result === 'active' ? 'primary' : s.result === 'failed' ? 'error' : 'default', variant: s.result === 'ended' ? 'outlined' : 'filled', label: s.result === 'active' ? '进行中' : s.result === 'failed' ? '失败' : '已结束' })
+                        )
+                      )
+                    )
                   )
                 )
+              : PM_H(PmEmpty, { icon: 'history', title: '暂无会话记录', hint: '客户端发起远程控制后，会话会实时出现在这里。' })
+          ),
+          PM_H(MaterialUI.Stack, { spacing: 2.5 },
+            PM_H(PmPanel, { title: '设备状态' },
+              PM_H(MaterialUI.Stack, { spacing: 1.5 },
+                PM_H(MaterialUI.Box, null,
+                  PM_H(MaterialUI.Box, { sx: { display: 'flex', justifyContent: 'space-between', mb: 0.75 } },
+                    PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#475467' } }, '在线'),
+                    PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 700, color: '#027a48' } }, stats.online + ' / ' + stats.total)
+                  ),
+                  PM_H(MaterialUI.LinearProgress, { variant: 'determinate', value: stats.total ? (stats.online / stats.total) * 100 : 0, sx: { height: 8, borderRadius: 4, bgcolor: '#edeef2', '& .MuiLinearProgress-bar': { background: PM_GRADS.emerald } } })
+                ),
+                PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1, sx: { pt: 0.5 } },
+                  PM_H(MaterialUI.Chip, { size: 'small', label: '设备组 ' + stats.groups, variant: 'outlined' }),
+                  PM_H(MaterialUI.Chip, { size: 'small', label: '注册令牌 ' + stats.tokens, variant: 'outlined' })
+                )
+              )
+            ),
+            stats.total === 0
+              ? PM_H(MaterialUI.Paper, { sx: Object.assign({ p: 2.5, background: 'linear-gradient(135deg,#eef2ff,#faf5ff)' }, PM_CARD_SX) },
+                  PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#3730a3', mb: 0.5 } }, '开始纳管你的第一台设备'),
+                  PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#5b5fc7', mb: 1.5 } }, '在「设备资产 → 注册令牌」生成令牌，客户端安装后即可自动归属到此控制台。'),
+                  PM_H(MaterialUI.Button, { variant: 'contained', size: 'small', onClick: () => { setSection('devices'); setDeviceTab('tokens'); } }, '生成注册令牌')
+                )
+              : null
+          )
+        )
+      );
+    };
+
+    // ---------- 设备资产 ----------
+    const renderDeviceList = () =>
+      PM_H(MaterialUI.Box, null,
+        PM_H(MaterialUI.Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 1.5, sx: { mb: 2 }, alignItems: { sm: 'center' } },
+          PM_H(MaterialUI.TextField, {
+            size: 'small', placeholder: '搜索设备名 / 终端ID / 系统', value: keyword,
+            onChange: (e) => setKeyword(e.target.value), sx: { minWidth: 280 },
+            InputProps: { startAdornment: PM_H(MaterialUI.InputAdornment, { position: 'start' }, pmIcon('search', { sx: { color: '#98a2b3' } })) }
+          }),
+          PM_H(MaterialUI.TextField, { select: true, size: 'small', label: '状态', value: statusFilter, onChange: (e) => setStatusFilter(e.target.value), sx: { width: 130 } },
+            PM_H(MaterialUI.MenuItem, { value: 'all' }, '全部'),
+            PM_H(MaterialUI.MenuItem, { value: 'online' }, '在线'),
+            PM_H(MaterialUI.MenuItem, { value: 'offline' }, '离线')
+          ),
+          PM_H(MaterialUI.Box, { sx: { flex: 1 } }),
+          PM_H(MaterialUI.Button, { variant: 'outlined', startIcon: pmIcon('refresh'), onClick: loadAll, disabled: loading }, '刷新')
+        ),
+        PM_H(MaterialUI.Paper, { sx: Object.assign({ overflow: 'hidden', position: 'relative' }, PM_CARD_SX) },
+          loading ? PM_H(MaterialUI.LinearProgress, null) : null,
+          PM_H(MaterialUI.TableContainer, null,
+            PM_H(MaterialUI.Table, { size: 'small' },
+              PM_H(MaterialUI.TableHead, null,
+                PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                  PM_H(MaterialUI.TableCell, null, '设备'),
+                  PM_H(MaterialUI.TableCell, null, '状态'),
+                  PM_H(MaterialUI.TableCell, null, '归属'),
+                  PM_H(MaterialUI.TableCell, null, '分组'),
+                  PM_H(MaterialUI.TableCell, null, '系统'),
+                  PM_H(MaterialUI.TableCell, null, '版本'),
+                  PM_H(MaterialUI.TableCell, null, '最近在线'),
+                  PM_H(MaterialUI.TableCell, null, '能力 / 标签'),
+                  PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                )
+              ),
+              PM_H(MaterialUI.TableBody, null,
+                visibleDevices.length
+                  ? visibleDevices.map((row) =>
+                      PM_H(MaterialUI.TableRow, { key: row.id, hover: true },
+                        PM_H(MaterialUI.TableCell, null,
+                          PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1.25, alignItems: 'center' },
+                            PM_H(MaterialUI.Avatar, { variant: 'rounded', sx: { width: 34, height: 34, bgcolor: row.status === 'online' ? 'rgba(18,183,106,.12)' : '#f2f4f7', color: row.status === 'online' ? '#12b76a' : '#98a2b3' } }, pmIcon('computer')),
+                            PM_H(MaterialUI.Box, { sx: { minWidth: 0 } },
+                              PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600, color: '#101828' } }, row.alias || row.hostname || row.terminalId),
+                              PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3', fontFamily: 'monospace' } }, row.terminalId)
+                            )
+                          )
+                        ),
+                        PM_H(MaterialUI.TableCell, null, PmStatusChip(row.status)),
+                        PM_H(MaterialUI.TableCell, null, row.ownerUserId || '-'),
+                        PM_H(MaterialUI.TableCell, null, row.groupName ? PM_H(MaterialUI.Chip, { size: 'small', variant: 'outlined', label: row.groupName }) : '-'),
+                        PM_H(MaterialUI.TableCell, null, row.os || '-'),
+                        PM_H(MaterialUI.TableCell, null, row.clientVersion || '-'),
+                        PM_H(MaterialUI.TableCell, null,
+                          PM_H(MaterialUI.Tooltip, { title: pmFormatDate(row.lastSeen) },
+                            PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085' } }, pmTimeAgo(row.lastSeen))
+                          )
+                        ),
+                        PM_H(MaterialUI.TableCell, null,
+                          PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.5, sx: { flexWrap: 'wrap', gap: 0.5 } },
+                            row.unattended ? PM_H(MaterialUI.Chip, { size: 'small', color: 'primary', variant: 'outlined', icon: pmIcon('lock_open'), label: '无人值守' }) : null,
+                            (row.tags || []).slice(0, 3).map((tag) => PM_H(MaterialUI.Chip, { key: tag, size: 'small', label: tag, sx: { bgcolor: '#f2f4f7' } }))
+                          )
+                        ),
+                        PM_H(MaterialUI.TableCell, { align: 'right' },
+                          PM_H(MaterialUI.Button, { size: 'small', onClick: () => openDeviceDetail(row) }, '详情'),
+                          PM_H(MaterialUI.Button, { size: 'small', startIcon: pmIcon('edit'), onClick: () => openEditDevice(row) }, '编辑')
+                        )
+                      )
+                    )
+                  : PM_H(MaterialUI.TableRow, null,
+                      PM_H(MaterialUI.TableCell, { colSpan: 9 },
+                        PM_H(PmEmpty, { icon: 'computer', title: '暂无设备', hint: '生成注册令牌，让客户端在安装后自动归属到此控制台。' })
+                      )
+                    )
               )
             )
           )
         )
-      ),
-      React.createElement(Snackbar, {
-        open: notify.open,
-        autoHideDuration: 3000,
-        onClose: () => setNotify((prev) => ({ ...prev, open: false }))
+      );
+
+    const renderGroups = () =>
+      PM_H(PmPanel, {
+        title: '设备组', subtitle: '按部门 / 项目 / 区域组织设备',
+        action: PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
+          PM_H(MaterialUI.TextField, { size: 'small', placeholder: '新设备组名称', value: groupName, onChange: (e) => setGroupName(e.target.value) }),
+          PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add'), onClick: createGroup }, '创建')
+        ),
+        dense: true
       },
-        React.createElement(Alert, {
-          onClose: () => setNotify((prev) => ({ ...prev, open: false })),
-          severity: notify.severity,
-          sx: { width: '100%' }
-        }, notify.message)
-      )
+        groups.length
+          ? PM_H(MaterialUI.Table, { size: 'small' },
+              PM_H(MaterialUI.TableHead, null,
+                PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                  PM_H(MaterialUI.TableCell, null, '名称'),
+                  PM_H(MaterialUI.TableCell, null, '设备数'),
+                  PM_H(MaterialUI.TableCell, null, '绑定策略')
+                )
+              ),
+              PM_H(MaterialUI.TableBody, null,
+                groups.map((group) =>
+                  PM_H(MaterialUI.TableRow, { key: group.id, hover: true },
+                    PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, group.name)),
+                    PM_H(MaterialUI.TableCell, null, devices.filter((d) => d.groupId === group.id).length),
+                    PM_H(MaterialUI.TableCell, null,
+                      PM_H(MaterialUI.TextField, {
+                        select: true, size: 'small', variant: 'standard', value: group.policyId || '',
+                        onChange: (e) => changeGroupPolicy(group, e.target.value), sx: { minWidth: 150 }
+                      },
+                        PM_H(MaterialUI.MenuItem, { value: '' }, '默认'),
+                        devicePolicies.map((p) => PM_H(MaterialUI.MenuItem, { key: p.id, value: p.id }, p.name))
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          : PM_H(PmEmpty, { icon: 'folder_open', title: '暂无设备组', hint: '创建设备组后，可在编辑设备时把设备归入其中。' })
+      );
+
+    const renderTokens = () =>
+      PM_H(MaterialUI.Stack, { spacing: 2.5 },
+        PM_H(PmPanel, { title: '生成注册令牌', subtitle: '客户端凭令牌自动注册并归属' },
+          PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr) auto' }, alignItems: 'center' } },
+            PM_H(MaterialUI.TextField, { select: true, label: '注册后分组', size: 'small', value: tokenForm.groupId, onChange: (e) => setTokenForm((p) => ({ ...p, groupId: e.target.value })) },
+              PM_H(MaterialUI.MenuItem, { value: '' }, '不指定'),
+              groups.map((group) => PM_H(MaterialUI.MenuItem, { key: group.id, value: group.id }, group.name))
+            ),
+            PM_H(MaterialUI.TextField, { label: '最大使用次数（0=不限）', size: 'small', type: 'number', value: tokenForm.maxUses, onChange: (e) => setTokenForm((p) => ({ ...p, maxUses: e.target.value })) }),
+            PM_H(MaterialUI.TextField, { label: '过期时间', size: 'small', type: 'datetime-local', value: tokenForm.expiresAt, onChange: (e) => setTokenForm((p) => ({ ...p, expiresAt: e.target.value })), InputLabelProps: { shrink: true } }),
+            PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('vpn_key'), onClick: createToken, sx: { height: 40 } }, '生成')
+          )
+        ),
+        PM_H(PmPanel, { title: '已生成的令牌', dense: true },
+          tokens.length
+            ? PM_H(MaterialUI.Table, { size: 'small' },
+                PM_H(MaterialUI.TableHead, null,
+                  PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                    PM_H(MaterialUI.TableCell, null, '令牌'),
+                    PM_H(MaterialUI.TableCell, null, '分组'),
+                    PM_H(MaterialUI.TableCell, null, '使用'),
+                    PM_H(MaterialUI.TableCell, null, '过期'),
+                    PM_H(MaterialUI.TableCell, null, '创建时间'),
+                    PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                  )
+                ),
+                PM_H(MaterialUI.TableBody, null,
+                  tokens.map((token) =>
+                    PM_H(MaterialUI.TableRow, { key: token.id, hover: true },
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Box, { sx: { display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#f2f4f7', borderRadius: 1, px: 1, py: 0.25 } },
+                          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontFamily: 'monospace' } }, token.token),
+                          PM_H(MaterialUI.IconButton, { size: 'small', onClick: () => copyToken(token.token) }, pmIcon('content_copy', { sx: { fontSize: 16 } }))
+                        )
+                      ),
+                      PM_H(MaterialUI.TableCell, null, groups.find((g) => g.id === token.groupId)?.name || '-'),
+                      PM_H(MaterialUI.TableCell, null, (token.usedCount || 0) + ' / ' + (token.maxUses || '不限')),
+                      PM_H(MaterialUI.TableCell, null, token.expiresAt ? pmFormatDate(token.expiresAt) : '不过期'),
+                      PM_H(MaterialUI.TableCell, null, pmFormatDate(token.createdAt)),
+                      PM_H(MaterialUI.TableCell, { align: 'right' },
+                        PM_H(MaterialUI.Button, { size: 'small', color: 'error', onClick: () => revokeToken(token.id) }, '停用')
+                      )
+                    )
+                  )
+                )
+              )
+            : PM_H(PmEmpty, { icon: 'vpn_key', title: '暂无注册令牌', hint: '生成令牌后分发给客户端，即可批量纳管设备。' })
+        )
+      );
+
+    const renderDevices = () =>
+      PM_H(MaterialUI.Stack, { spacing: 2 },
+        PM_H(MaterialUI.Tabs, {
+          value: deviceTab, onChange: (e, v) => setDeviceTab(v),
+          sx: { minHeight: 40, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 600 } }
+        },
+          PM_H(MaterialUI.Tab, { value: 'list', label: '设备列表', icon: pmIcon('list'), iconPosition: 'start' }),
+          PM_H(MaterialUI.Tab, { value: 'groups', label: '设备组', icon: pmIcon('folder'), iconPosition: 'start' }),
+          PM_H(MaterialUI.Tab, { value: 'tokens', label: '注册令牌', icon: pmIcon('vpn_key'), iconPosition: 'start' })
+        ),
+        deviceTab === 'list' ? renderDeviceList() : null,
+        deviceTab === 'groups' ? renderGroups() : null,
+        deviceTab === 'tokens' ? renderTokens() : null
+      );
+
+    // ---------- 会话记录 ----------
+    const renderSessions = () =>
+      PM_H(PmPanel, { title: '会话记录', subtitle: '共 ' + sessions.length + ' 条', dense: true },
+        sessions.length
+          ? PM_H(MaterialUI.TableContainer, null,
+              PM_H(MaterialUI.Table, { size: 'small' },
+                PM_H(MaterialUI.TableHead, null,
+                  PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                    PM_H(MaterialUI.TableCell, null, '目标设备'),
+                    PM_H(MaterialUI.TableCell, null, '发起人'),
+                    PM_H(MaterialUI.TableCell, null, '开始'),
+                    PM_H(MaterialUI.TableCell, null, '时长'),
+                    PM_H(MaterialUI.TableCell, null, '传输'),
+                    PM_H(MaterialUI.TableCell, null, '结果'),
+                    PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                  )
+                ),
+                PM_H(MaterialUI.TableBody, null,
+                  sessions.map((s) =>
+                    PM_H(MaterialUI.TableRow, { key: s.id, hover: true, onClick: () => openSessionDetail(s), sx: { cursor: 'pointer' } },
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Box, null,
+                          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, s.targetName || s.targetTerminal),
+                          PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3', fontFamily: 'monospace' } }, s.targetTerminal)
+                        )
+                      ),
+                      PM_H(MaterialUI.TableCell, null, s.controllerUserId || '-'),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Tooltip, { title: pmFormatDate(s.startAt) }, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085' } }, pmTimeAgo(s.startAt)))),
+                      PM_H(MaterialUI.TableCell, null, pmFormatDuration(s.durationSec)),
+                      PM_H(MaterialUI.TableCell, null,
+                        s.transport
+                          ? PM_H(MaterialUI.Chip, { size: 'small', variant: 'outlined', icon: pmIcon(s.transport === 'relay' ? 'cloud' : 'swap_horiz'), label: s.transport === 'relay' ? '中继' : 'P2P', color: s.transport === 'relay' ? 'warning' : 'success' })
+                          : '-'
+                      ),
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Chip, { size: 'small', color: s.result === 'active' ? 'primary' : s.result === 'failed' ? 'error' : 'default', variant: s.result === 'ended' ? 'outlined' : 'filled', label: s.result === 'active' ? '进行中' : s.result === 'failed' ? '失败' : '已结束' })
+                      ),
+                      PM_H(MaterialUI.TableCell, { align: 'right' },
+                        s.result === 'active'
+                          ? PM_H(MaterialUI.Button, { size: 'small', color: 'error', startIcon: pmIcon('link_off'), onClick: (e) => { e.stopPropagation(); disconnectSession(s); } }, '强制断开')
+                          : null
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          : PM_H(PmEmpty, { icon: 'cast', title: '暂无会话记录', hint: '客户端发起远程控制后，连接的发起、成功、失败与时长会记录在此。' })
+      );
+
+    // ---------- 访问授权 ----------
+    const renderAccess = () =>
+      PM_H(MaterialUI.Stack, { spacing: 2.5 },
+        PM_H(PmPanel, { title: '新建授权', subtitle: '为用户 / 角色授予对设备 / 设备组的访问' },
+          PM_H(MaterialUI.Stack, { spacing: 2 },
+            PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '160px 1fr 160px 1fr' } } },
+              PM_H(MaterialUI.TextField, { select: true, label: '主体类型', size: 'small', value: assignmentForm.subjectType, onChange: (e) => setAssignmentForm((p) => ({ ...p, subjectType: e.target.value, subjectId: '' })) },
+                PM_H(MaterialUI.MenuItem, { value: 'user' }, '用户'),
+                PM_H(MaterialUI.MenuItem, { value: 'member_role' }, '内置角色')
+              ),
+              assignmentForm.subjectType === 'user'
+                ? PM_H(MaterialUI.TextField, { select: true, label: '用户', size: 'small', value: assignmentForm.subjectId, onChange: (e) => setAssignmentForm((p) => ({ ...p, subjectId: e.target.value })) },
+                    users.map((u) => PM_H(MaterialUI.MenuItem, { key: u.id, value: u.id }, (u.label || u.id) + ' / ' + (u.userName || u.id)))
+                  )
+                : PM_H(MaterialUI.TextField, { select: true, label: '角色', size: 'small', value: assignmentForm.subjectId, onChange: (e) => setAssignmentForm((p) => ({ ...p, subjectId: e.target.value })) },
+                    ['owner', 'admin', 'technician', 'auditor', 'member'].map((role) => PM_H(MaterialUI.MenuItem, { key: role, value: role }, role))
+                  ),
+              PM_H(MaterialUI.TextField, { select: true, label: '目标类型', size: 'small', value: assignmentForm.targetType, onChange: (e) => setAssignmentForm((p) => ({ ...p, targetType: e.target.value, targetId: '' })) },
+                PM_H(MaterialUI.MenuItem, { value: 'device' }, '设备'),
+                PM_H(MaterialUI.MenuItem, { value: 'device_group' }, '设备组')
+              ),
+              assignmentForm.targetType === 'device'
+                ? PM_H(MaterialUI.TextField, { select: true, label: '设备', size: 'small', value: assignmentForm.targetId, onChange: (e) => setAssignmentForm((p) => ({ ...p, targetId: e.target.value })) },
+                    devices.map((d) => PM_H(MaterialUI.MenuItem, { key: d.id, value: d.id }, d.alias || d.hostname || d.terminalId))
+                  )
+                : PM_H(MaterialUI.TextField, { select: true, label: '设备组', size: 'small', value: assignmentForm.targetId, onChange: (e) => setAssignmentForm((p) => ({ ...p, targetId: e.target.value })) },
+                    groups.map((g) => PM_H(MaterialUI.MenuItem, { key: g.id, value: g.id }, g.name))
+                  )
+            ),
+            PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr 1fr auto' }, alignItems: 'center' } },
+              PM_H(MaterialUI.TextField, { select: true, label: '权限模板', size: 'small', value: assignmentForm.profileId, onChange: (e) => setAssignmentForm((p) => ({ ...p, profileId: e.target.value })) },
+                PM_H(MaterialUI.MenuItem, { value: '' }, '默认'),
+                profiles.map((profile) => PM_H(MaterialUI.MenuItem, { key: profile.id, value: profile.id }, profile.name))
+              ),
+              PM_H(MaterialUI.TextField, { label: '开始时间', size: 'small', type: 'datetime-local', value: assignmentForm.startDate, onChange: (e) => setAssignmentForm((p) => ({ ...p, startDate: e.target.value })), InputLabelProps: { shrink: true } }),
+              PM_H(MaterialUI.TextField, { label: '结束时间', size: 'small', type: 'datetime-local', value: assignmentForm.endDate, onChange: (e) => setAssignmentForm((p) => ({ ...p, endDate: e.target.value })), InputLabelProps: { shrink: true } }),
+              PM_H(MaterialUI.TextField, { label: '允许 IP/CIDR（逗号分隔）', size: 'small', value: assignmentForm.allowedCidr, onChange: (e) => setAssignmentForm((p) => ({ ...p, allowedCidr: e.target.value })) }),
+              PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('verified_user'), onClick: createAssignment, sx: { height: 40, whiteSpace: 'nowrap' } }, '创建授权')
+            )
+          )
+        ),
+        PM_H(PmPanel, { title: '授权列表', subtitle: '共 ' + assignments.length + ' 条', dense: true },
+          assignments.length
+            ? PM_H(MaterialUI.Table, { size: 'small' },
+                PM_H(MaterialUI.TableHead, null,
+                  PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                    PM_H(MaterialUI.TableCell, null, '主体'),
+                    PM_H(MaterialUI.TableCell, null, '目标'),
+                    PM_H(MaterialUI.TableCell, null, '权限模板'),
+                    PM_H(MaterialUI.TableCell, null, '时间范围'),
+                    PM_H(MaterialUI.TableCell, null, '网络限制'),
+                    PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                  )
+                ),
+                PM_H(MaterialUI.TableBody, null,
+                  assignments.map((a) =>
+                    PM_H(MaterialUI.TableRow, { key: a.id, hover: true },
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Chip, { size: 'small', icon: pmIcon(a.subjectType === 'user' ? 'person' : 'group'), label: a.subjectId, variant: 'outlined' })
+                      ),
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Chip, { size: 'small', icon: pmIcon(a.targetType === 'device' ? 'computer' : 'folder'), label: a.targetName || a.targetId, variant: 'outlined' })
+                      ),
+                      PM_H(MaterialUI.TableCell, null, a.profileName || a.profileId || PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3' } }, '默认')),
+                      PM_H(MaterialUI.TableCell, null,
+                        (a.startDate ? pmFormatDate(a.startDate) : '不限') + ' ~ ' + (a.endDate ? pmFormatDate(a.endDate) : '不限')
+                      ),
+                      PM_H(MaterialUI.TableCell, null, a.allowedCidr || '-'),
+                      PM_H(MaterialUI.TableCell, { align: 'right' },
+                        PM_H(MaterialUI.Button, { size: 'small', color: 'error', onClick: () => revokeAssignment(a.id) }, '撤销')
+                      )
+                    )
+                  )
+                )
+              )
+            : PM_H(PmEmpty, { icon: 'security', title: '暂无授权', hint: '没有授权时，普通用户无法连接任何设备。请先为用户或角色配置访问授权。' })
+        )
+      );
+
+    // ---------- 权限策略 ----------
+    const renderPolicies = () =>
+      PM_H(MaterialUI.Stack, { spacing: 2 },
+        PM_H(MaterialUI.Box, { sx: { display: 'flex', justifyContent: 'flex-end' } },
+          PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add'), onClick: openNewProfile }, '新建模板')
+        ),
+        profiles.length
+          ? PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' } },
+              profiles.map((profile) =>
+                PM_H(MaterialUI.Paper, { key: profile.id, sx: Object.assign({ p: 2.5, display: 'flex', flexDirection: 'column' }, PM_CARD_SX) },
+                  PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1.25, alignItems: 'center', sx: { mb: 1.5 } },
+                    PM_H(MaterialUI.Box, { sx: { width: 40, height: 40, borderRadius: 2, background: PM_GRADS.indigo, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, pmIcon('tune')),
+                    PM_H(MaterialUI.Box, { sx: { minWidth: 0, flex: 1 } },
+                      PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.75, alignItems: 'center' },
+                        PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#101828' } }, profile.name),
+                        profile.builtin ? PM_H(MaterialUI.Chip, { size: 'small', label: '内置', sx: { height: 18, bgcolor: '#eef2ff', color: '#4f46e5' } }) : null
+                      ),
+                      PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, profile.controlInput ? '可控制' : '仅查看')
+                    )
+                  ),
+                  PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 0.75, gridTemplateColumns: '1fr 1fr', mb: 1.5 } },
+                    PM_PROFILE_CAPS.map((cap) =>
+                      PM_H(MaterialUI.Box, { key: cap.key, sx: { display: 'flex', alignItems: 'center', gap: 0.75 } },
+                        pmIcon(profile[cap.key] ? 'check_circle' : 'cancel', { sx: { fontSize: 18, color: profile[cap.key] ? '#12b76a' : '#d0d5dd' } }),
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: profile[cap.key] ? '#344054' : '#98a2b3' } }, cap.label)
+                      )
+                    )
+                  ),
+                  PM_H(MaterialUI.Divider, { sx: { my: 1 } }),
+                  PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.5, sx: { flexWrap: 'wrap', gap: 0.5, mb: 1.5 } },
+                    PM_H(MaterialUI.Chip, { size: 'small', variant: 'outlined', color: profile.requireConfirm ? 'primary' : 'default', icon: pmIcon('fingerprint'), label: profile.requireConfirm ? '需被控确认' : '免确认' }),
+                    PM_H(MaterialUI.Chip, { size: 'small', variant: 'outlined', icon: pmIcon('timer'), label: profile.idleTimeoutSec ? '超时 ' + profile.idleTimeoutSec + 's' : '不超时' })
+                  ),
+                  PM_H(MaterialUI.Box, { sx: { mt: 'auto', display: 'flex', justifyContent: 'flex-end', gap: 0.5 } },
+                    PM_H(MaterialUI.Button, { size: 'small', startIcon: pmIcon('edit'), onClick: () => openEditProfile(profile) }, '编辑'),
+                    profile.builtin ? null : PM_H(MaterialUI.Button, { size: 'small', color: 'error', startIcon: pmIcon('delete_outline'), onClick: () => removeProfile(profile) }, '删除')
+                  )
+                )
+              )
+            )
+          : PM_H(PmPanel, null, PM_H(PmEmpty, { icon: 'tune', title: '暂无权限模板', hint: '权限模板定义一次会话允许的能力（键鼠、文件、剪贴板等），并在授权时绑定。点击右上角“新建模板”。' }))
+      );
+
+    // ---------- 审计日志 ----------
+    const auditColor = (category) => ({
+      login: 'info', device: 'primary', authz: 'warning', session: 'success', policy: 'secondary', profile: 'secondary', admin: 'default'
+    })[category] || 'default';
+    const renderAudit = () =>
+      PM_H(PmPanel, { title: '审计日志', subtitle: '共 ' + auditLogs.length + ' 条', dense: true },
+        auditLogs.length
+          ? PM_H(MaterialUI.TableContainer, null,
+              PM_H(MaterialUI.Table, { size: 'small' },
+                PM_H(MaterialUI.TableHead, null,
+                  PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                    PM_H(MaterialUI.TableCell, null, '时间'),
+                    PM_H(MaterialUI.TableCell, null, '分类'),
+                    PM_H(MaterialUI.TableCell, null, '动作'),
+                    PM_H(MaterialUI.TableCell, null, '操作者'),
+                    PM_H(MaterialUI.TableCell, null, '目标'),
+                    PM_H(MaterialUI.TableCell, null, 'IP')
+                  )
+                ),
+                PM_H(MaterialUI.TableBody, null,
+                  auditLogs.map((row) =>
+                    PM_H(MaterialUI.TableRow, { key: row.id, hover: true },
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085' } }, pmFormatDate(row.createdAt))),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Chip, { size: 'small', color: auditColor(row.category), variant: 'outlined', label: row.category || '-' })),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 500 } }, row.action || '-')),
+                      PM_H(MaterialUI.TableCell, null, row.actorName || row.actorId || '-'),
+                      PM_H(MaterialUI.TableCell, null, row.target || '-'),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontFamily: 'monospace', color: '#667085' } }, row.ip || '-'))
+                    )
+                  )
+                )
+              )
+            )
+          : PM_H(PmEmpty, { icon: 'assignment', title: '暂无审计日志', hint: '登录、设备变更、授权调整、会话等关键操作会记录在此。' })
+      );
+
+    // ---------- 网络与中继 ----------
+    const ROLE_LABELS = { owner: '所有者', admin: '管理员', technician: '技术员', auditor: '审计员', member: '成员' };
+    const renderNetwork = () => {
+      const n = networkOverview || { total: 0, active: 0, p2p: 0, relay: 0, failed: 0, p2pRate: 0, relayRate: 0, failRate: 0, natDistribution: [], failReasons: [] };
+      const natMax = Math.max(1, ...(n.natDistribution || []).map((item) => item.count));
+      return PM_H(MaterialUI.Stack, { spacing: 2.5 },
+        PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' } },
+          PM_H(PmKpiCard, { label: 'P2P 直连率', value: n.p2pRate + '%', hint: 'P2P ' + n.p2p + ' / 中继 ' + n.relay, icon: 'swap_horiz', grad: 'emerald' }),
+          PM_H(PmKpiCard, { label: '中继占比', value: n.relayRate + '%', hint: '走中继的会话占比', icon: 'cloud', grad: 'amber' }),
+          PM_H(PmKpiCard, { label: '会话失败率', value: n.failRate + '%', hint: '失败 ' + n.failed + ' / 总 ' + n.total, icon: 'error_outline', grad: n.failRate > 20 ? 'rose' : 'slate' }),
+          PM_H(PmKpiCard, { label: '总会话数', value: n.total, hint: '进行中 ' + n.active, icon: 'cast_connected', grad: 'indigo' })
+        ),
+        PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } } },
+          PM_H(PmPanel, { title: 'NAT 类型分布', subtitle: '按已纳管设备统计' },
+            (n.natDistribution && n.natDistribution.length)
+              ? PM_H(MaterialUI.Stack, { spacing: 1.25 },
+                  n.natDistribution.map((item) =>
+                    PM_H(MaterialUI.Box, { key: item.type },
+                      PM_H(MaterialUI.Box, { sx: { display: 'flex', justifyContent: 'space-between', mb: 0.5 } },
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#475467' } }, item.type),
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 700, color: '#101828' } }, item.count)
+                      ),
+                      PM_H(MaterialUI.LinearProgress, { variant: 'determinate', value: (item.count / natMax) * 100, sx: { height: 8, borderRadius: 4, bgcolor: '#edeef2', '& .MuiLinearProgress-bar': { background: PM_GRADS.blue } } })
+                    )
+                  )
+                )
+              : PM_H(PmEmpty, { icon: 'settings_ethernet', title: '暂无 NAT 数据', hint: '设备上线并上报 NAT 类型后会出现在这里。' })
+          ),
+          PM_H(PmPanel, { title: '失败原因 Top', subtitle: '会话失败诊断', dense: true },
+            (n.failReasons && n.failReasons.length)
+              ? PM_H(MaterialUI.Table, { size: 'small' },
+                  PM_H(MaterialUI.TableHead, null,
+                    PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                      PM_H(MaterialUI.TableCell, null, '原因'),
+                      PM_H(MaterialUI.TableCell, { align: 'right' }, '次数')
+                    )
+                  ),
+                  PM_H(MaterialUI.TableBody, null,
+                    n.failReasons.map((item, idx) =>
+                      PM_H(MaterialUI.TableRow, { key: idx, hover: true },
+                        PM_H(MaterialUI.TableCell, null, item.reason),
+                        PM_H(MaterialUI.TableCell, { align: 'right' }, item.count)
+                      )
+                    )
+                  )
+                )
+              : PM_H(PmEmpty, { icon: 'check_circle', title: '暂无失败记录', hint: '所有会话均连接成功，或还没有会话数据。' })
+          )
+        )
+      );
+    };
+
+    // ---------- 成员管理 ----------
+    const renderMembers = () =>
+      PM_H(PmPanel, {
+        title: '空间成员', subtitle: '共 ' + members.length + ' 名；角色是「访问授权」中按角色授权的依据',
+        action: PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('person_add'), onClick: () => { setMemberForm({ userId: '', role: 'member' }); setAddingMember(true); } }, '添加成员'),
+        dense: true
+      },
+        members.length
+          ? PM_H(MaterialUI.Table, { size: 'small' },
+              PM_H(MaterialUI.TableHead, null,
+                PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                  PM_H(MaterialUI.TableCell, null, '成员'),
+                  PM_H(MaterialUI.TableCell, null, '账号'),
+                  PM_H(MaterialUI.TableCell, null, '角色'),
+                  PM_H(MaterialUI.TableCell, null, '加入时间'),
+                  PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                )
+              ),
+              PM_H(MaterialUI.TableBody, null,
+                members.map((m) =>
+                  PM_H(MaterialUI.TableRow, { key: m.id, hover: true },
+                    PM_H(MaterialUI.TableCell, null,
+                      PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1.25, alignItems: 'center' },
+                        PM_H(MaterialUI.Avatar, { sx: { width: 32, height: 32, bgcolor: '#6366f1', fontSize: 14 } }, (m.label || 'U').slice(0, 1)),
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, m.label)
+                      )
+                    ),
+                    PM_H(MaterialUI.TableCell, null, m.userName || m.userId),
+                    PM_H(MaterialUI.TableCell, null,
+                      PM_H(MaterialUI.TextField, {
+                        select: true, size: 'small', variant: 'standard', value: m.role,
+                        onChange: (e) => changeMemberRole(m, e.target.value), sx: { minWidth: 110 }
+                      },
+                        ['owner', 'admin', 'technician', 'auditor', 'member'].map((role) =>
+                          PM_H(MaterialUI.MenuItem, { key: role, value: role }, ROLE_LABELS[role] || role))
+                      )
+                    ),
+                    PM_H(MaterialUI.TableCell, null, pmFormatDate(m.createdAt)),
+                    PM_H(MaterialUI.TableCell, { align: 'right' },
+                      PM_H(MaterialUI.Button, { size: 'small', color: 'error', onClick: () => removeMember(m) }, '移除')
+                    )
+                  )
+                )
+              )
+            )
+          : PM_H(PmEmpty, { icon: 'group', title: '暂无成员', hint: '添加成员并赋予角色后，「访问授权」里按角色（如管理员/技术员）的授权才会对这些成员生效。' })
+      );
+
+    // ---------- 设备策略 ----------
+    const policyName = (id) => (devicePolicies.find((p) => p.id === id) || {}).name || '';
+    const renderDevicePolicies = () =>
+      PM_H(MaterialUI.Stack, { spacing: 2 },
+        PM_H(MaterialUI.Box, { sx: { display: 'flex', justifyContent: 'flex-end' } },
+          PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add'), onClick: openNewDevicePolicy }, '新建策略')
+        ),
+        devicePolicies.length
+          ? PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' } },
+              devicePolicies.map((p) => {
+                const s = p.settings || {};
+                const rows = [
+                  ['最大码率', s.maxBitrateKbps ? s.maxBitrateKbps + ' Kbps' : '自动'],
+                  ['最大帧率', s.maxFps ? s.maxFps + ' FPS' : '自动'],
+                  ['传输偏好', PM_TRANSPORT_LABELS[s.preferTransport] || '自动'],
+                  ['自动更新', s.autoUpdate ? '开启' : '关闭'],
+                  ['日志保留', s.logRetentionDays ? s.logRetentionDays + ' 天' : '不限']
+                ];
+                return PM_H(MaterialUI.Paper, { key: p.id, sx: Object.assign({ p: 2.5, display: 'flex', flexDirection: 'column' }, PM_CARD_SX) },
+                  PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1.25, alignItems: 'center', sx: { mb: 1.5 } },
+                    PM_H(MaterialUI.Box, { sx: { width: 40, height: 40, borderRadius: 2, background: PM_GRADS.blue, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, pmIcon('settings')),
+                    PM_H(MaterialUI.Box, { sx: { flex: 1, minWidth: 0 } },
+                      PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.75, alignItems: 'center' },
+                        PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#101828' } }, p.name),
+                        p.builtin ? PM_H(MaterialUI.Chip, { size: 'small', label: '内置', sx: { height: 18, bgcolor: '#eef2ff', color: '#4f46e5' } }) : null
+                      ),
+                      PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, '优先级 ' + (p.priority || 0))
+                    )
+                  ),
+                  PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: 'auto 1fr', rowGap: 0.5, columnGap: 1.5, mb: 1.5 } },
+                    rows.reduce((acc, [k, v]) => acc.concat([
+                      PM_H(MaterialUI.Typography, { key: k + 'k', variant: 'body2', sx: { color: '#98a2b3' } }, k),
+                      PM_H(MaterialUI.Typography, { key: k + 'v', variant: 'body2', sx: { color: '#344054', fontWeight: 500 } }, v)
+                    ]), [])
+                  ),
+                  PM_H(MaterialUI.Box, { sx: { mt: 'auto', display: 'flex', justifyContent: 'flex-end', gap: 0.5 } },
+                    PM_H(MaterialUI.Button, { size: 'small', startIcon: pmIcon('edit'), onClick: () => openEditDevicePolicy(p) }, '编辑'),
+                    p.builtin ? null : PM_H(MaterialUI.Button, { size: 'small', color: 'error', startIcon: pmIcon('delete_outline'), onClick: () => removeDevicePolicy(p) }, '删除')
+                  )
+                );
+              })
+            )
+          : PM_H(PmPanel, null, PM_H(PmEmpty, { icon: 'settings', title: '暂无设备策略', hint: '设备策略定义客户端运行配置（码率/帧率/传输/更新/日志），可在编辑设备或设备组时绑定。' }))
+      );
+
+    // ---------- 部署中心 ----------
+    const renderDeploy = () => {
+      const stable = clientBuilds.find((b) => b.channel === 'stable');
+      const selectedToken = tokens.find((t) => t.id === deployTokenId);
+      const serverUrl = (stable && stable.preset && stable.preset.serverUrl) || (typeof window !== 'undefined' ? window.location.origin : '');
+      const downloadUrl = stable && stable.url ? stable.url : '（请先在下方发布一个稳定渠道版本并填写下载地址）';
+      const snippet =
+        '# 1) 下载并静默安装客户端\n' +
+        (stable && stable.url ? stable.url : '<下载地址>') + ' /S\n\n' +
+        '# 2) 用注册码纳管设备（首启或安装参数预置）\n' +
+        '注册码: ' + (selectedToken ? selectedToken.token : '<在「设备资产 → 注册令牌」生成>') + '\n' +
+        '服务器: ' + serverUrl + '\n' +
+        '注册接口: ' + serverUrl + '/api/devices/enroll';
+      return PM_H(MaterialUI.Stack, { spacing: 2.5 },
+        PM_H(PmPanel, { title: '安装与纳管指引', subtitle: '选择注册码，复制安装与纳管命令给目标设备' },
+          PM_H(MaterialUI.Stack, { spacing: 1.5 },
+            PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } } },
+              PM_H(MaterialUI.TextField, { select: true, size: 'small', label: '注册码', value: deployTokenId, onChange: (e) => setDeployTokenId(e.target.value) },
+                PM_H(MaterialUI.MenuItem, { value: '' }, '（未选择）'),
+                tokens.map((t) => PM_H(MaterialUI.MenuItem, { key: t.id, value: t.id }, t.token.slice(0, 12) + '… · ' + (t.groupId ? (groups.find((g) => g.id === t.groupId) || {}).name || '分组' : '不分组')))
+              ),
+              PM_H(MaterialUI.TextField, { size: 'small', label: '当前稳定版下载地址', value: downloadUrl, InputProps: { readOnly: true } })
+            ),
+            PM_H(MaterialUI.Box, { sx: { position: 'relative', bgcolor: '#0f172a', color: '#e2e8f0', borderRadius: 2, p: 2, pr: 6, fontFamily: 'monospace', fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-all' } },
+              snippet,
+              PM_H(MaterialUI.IconButton, { size: 'small', onClick: () => copyText(snippet), sx: { position: 'absolute', top: 8, right: 8, color: '#94a3b8' } }, pmIcon('content_copy', { sx: { fontSize: 18 } }))
+            )
+          )
+        ),
+        PM_H(PmPanel, {
+          title: '客户端版本', subtitle: '共 ' + clientBuilds.length + ' 个版本',
+          action: PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add'), onClick: openNewBuild }, '发布新版本'),
+          dense: true
+        },
+          clientBuilds.length
+            ? PM_H(MaterialUI.Table, { size: 'small' },
+                PM_H(MaterialUI.TableHead, null,
+                  PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                    PM_H(MaterialUI.TableCell, null, '版本'),
+                    PM_H(MaterialUI.TableCell, null, '渠道'),
+                    PM_H(MaterialUI.TableCell, null, '下载地址'),
+                    PM_H(MaterialUI.TableCell, null, '说明'),
+                    PM_H(MaterialUI.TableCell, null, '发布时间'),
+                    PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                  )
+                ),
+                PM_H(MaterialUI.TableBody, null,
+                  clientBuilds.map((b) =>
+                    PM_H(MaterialUI.TableRow, { key: b.id, hover: true },
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, b.version)),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Chip, { size: 'small', color: PM_CHANNEL_COLORS[b.channel] || 'default', variant: 'outlined', label: PM_CHANNEL_LABELS[b.channel] || b.channel })),
+                      PM_H(MaterialUI.TableCell, null,
+                        b.url
+                          ? PM_H(MaterialUI.Box, { sx: { display: 'inline-flex', alignItems: 'center', gap: 0.5, maxWidth: 280 } },
+                              PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#3b82f6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, b.url),
+                              PM_H(MaterialUI.IconButton, { size: 'small', onClick: () => copyText(b.url) }, pmIcon('content_copy', { sx: { fontSize: 15 } }))
+                            )
+                          : '-'
+                      ),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, b.notes || '-')),
+                      PM_H(MaterialUI.TableCell, null, pmFormatDate(b.createdAt)),
+                      PM_H(MaterialUI.TableCell, { align: 'right' },
+                        PM_H(MaterialUI.Button, { size: 'small', startIcon: pmIcon('edit'), onClick: () => openEditBuild(b) }, '编辑'),
+                        PM_H(MaterialUI.Button, { size: 'small', color: 'error', onClick: () => removeBuild(b) }, '删除')
+                      )
+                    )
+                  )
+                )
+              )
+            : PM_H(PmEmpty, { icon: 'cloud_download', title: '暂无客户端版本', hint: '点击右上角「发布新版本」登记客户端安装包的版本、渠道与下载地址。' })
+        )
+      );
+    };
+
+    // ---------- 支持工单 ----------
+    const renderTickets = () =>
+      PM_H(MaterialUI.Stack, { spacing: 2 },
+        PM_H(MaterialUI.Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 1.5, alignItems: { sm: 'center' } },
+          PM_H(MaterialUI.TextField, { select: true, size: 'small', label: '状态', value: ticketStatusFilter, onChange: (e) => setTicketStatusFilter(e.target.value), sx: { width: 150 } },
+            PM_H(MaterialUI.MenuItem, { value: '' }, '全部'),
+            ['open', 'in_progress', 'resolved', 'closed'].map((st) => PM_H(MaterialUI.MenuItem, { key: st, value: st }, PM_TICKET_STATUS[st]))
+          ),
+          PM_H(MaterialUI.Box, { sx: { flex: 1 } }),
+          PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add'), onClick: () => { setTicketForm({ title: '', description: '', priority: 'normal', deviceId: '' }); setAddingTicket(true); } }, '新建工单')
+        ),
+        PM_H(MaterialUI.Paper, { sx: Object.assign({ overflow: 'hidden' }, PM_CARD_SX) },
+          tickets.length
+            ? PM_H(MaterialUI.TableContainer, null,
+                PM_H(MaterialUI.Table, { size: 'small' },
+                  PM_H(MaterialUI.TableHead, null,
+                    PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                      PM_H(MaterialUI.TableCell, null, '标题'),
+                      PM_H(MaterialUI.TableCell, null, '报修人'),
+                      PM_H(MaterialUI.TableCell, null, '处理人'),
+                      PM_H(MaterialUI.TableCell, null, '优先级'),
+                      PM_H(MaterialUI.TableCell, null, '状态'),
+                      PM_H(MaterialUI.TableCell, null, '更新')
+                    )
+                  ),
+                  PM_H(MaterialUI.TableBody, null,
+                    tickets.map((t) =>
+                      PM_H(MaterialUI.TableRow, { key: t.id, hover: true, onClick: () => openTicket(t), sx: { cursor: 'pointer' } },
+                        PM_H(MaterialUI.TableCell, null,
+                          PM_H(MaterialUI.Box, null,
+                            PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, t.title),
+                            t.deviceName ? PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, '设备：' + t.deviceName) : null
+                          )
+                        ),
+                        PM_H(MaterialUI.TableCell, null, t.requesterName || t.requesterId || '-'),
+                        PM_H(MaterialUI.TableCell, null, t.assigneeName || PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3' } }, '未指派')),
+                        PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Chip, { size: 'small', color: PM_TICKET_PRIORITY_COLORS[t.priority] || 'default', variant: 'outlined', label: PM_TICKET_PRIORITY[t.priority] || t.priority })),
+                        PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Chip, { size: 'small', color: PM_TICKET_STATUS_COLORS[t.status] || 'default', variant: t.status === 'closed' ? 'outlined' : 'filled', label: PM_TICKET_STATUS[t.status] || t.status })),
+                        PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085' } }, pmTimeAgo(t.updatedAt || t.createdAt)))
+                      )
+                    )
+                  )
+                )
+              )
+            : PM_H(PmEmpty, { icon: 'confirmation_number', title: '暂无工单', hint: '点击右上角「新建工单」提交一个远程支持请求，技术员可接单处理。' })
+        )
+      );
+
+    const activeSection = PM_SECTIONS.find((s) => s.key === section) || PM_SECTIONS[0];
+    const sectionContent = section === 'overview' ? renderOverview()
+      : section === 'devices' ? renderDevices()
+      : section === 'sessions' ? renderSessions()
+      : section === 'network' ? renderNetwork()
+      : section === 'access' ? renderAccess()
+      : section === 'members' ? renderMembers()
+      : section === 'policies' ? renderPolicies()
+      : section === 'devicePolicies' ? renderDevicePolicies()
+      : section === 'deploy' ? renderDeploy()
+      : section === 'tickets' ? renderTickets()
+      : section === 'audit' ? renderAudit()
+      : null;
+
+    const contentColumn = PM_H(MaterialUI.Box, { sx: { flex: 1, minWidth: 0 } },
+        PM_H(MaterialUI.Box, { sx: { mb: 2.5 } },
+          PM_H(MaterialUI.Typography, { sx: { fontSize: 22, fontWeight: 800, color: '#101828' } }, activeSection.title),
+          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mt: 0.25 } }, activeSection.subtitle)
+        ),
+        error ? PM_H(MaterialUI.Alert, { severity: 'error', sx: { mb: 2, borderRadius: 2 } }, error) : null,
+        sectionContent,
+        PM_H(MaterialUI.Dialog, { open: !!editingDevice, onClose: () => setEditingDevice(null), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+          PM_H(MaterialUI.DialogTitle, null, '编辑设备'),
+          PM_H(MaterialUI.DialogContent, null,
+            PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+              PM_H(MaterialUI.TextField, { label: '别名', value: deviceForm.alias, onChange: (e) => setDeviceForm((p) => ({ ...p, alias: e.target.value })), fullWidth: true }),
+              PM_H(MaterialUI.TextField, { select: true, label: '设备组', value: deviceForm.groupId, onChange: (e) => setDeviceForm((p) => ({ ...p, groupId: e.target.value })), fullWidth: true },
+                PM_H(MaterialUI.MenuItem, { value: '' }, '不指定'),
+                groups.map((group) => PM_H(MaterialUI.MenuItem, { key: group.id, value: group.id }, group.name))
+              ),
+              PM_H(MaterialUI.TextField, { select: true, label: '设备策略', helperText: '不指定则继承设备组 / 默认策略', value: deviceForm.policyId, onChange: (e) => setDeviceForm((p) => ({ ...p, policyId: e.target.value })), fullWidth: true },
+                PM_H(MaterialUI.MenuItem, { value: '' }, '继承（设备组/默认）'),
+                devicePolicies.map((p) => PM_H(MaterialUI.MenuItem, { key: p.id, value: p.id }, p.name))
+              ),
+              PM_H(MaterialUI.TextField, { label: '标签（逗号分隔）', value: deviceForm.tags, onChange: (e) => setDeviceForm((p) => ({ ...p, tags: e.target.value })), fullWidth: true }),
+              PM_H(MaterialUI.FormControlLabel, { control: PM_H(MaterialUI.Switch, { checked: deviceForm.unattended, onChange: (e) => setDeviceForm((p) => ({ ...p, unattended: e.target.checked })) }), label: '允许无人值守' }),
+              PM_H(MaterialUI.FormControlLabel, { control: PM_H(MaterialUI.Switch, { checked: deviceForm.enabled, onChange: (e) => setDeviceForm((p) => ({ ...p, enabled: e.target.checked })) }), label: '启用设备' })
+            )
+          ),
+          PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+            PM_H(MaterialUI.Button, { onClick: () => setEditingDevice(null) }, '取消'),
+            PM_H(MaterialUI.Button, { variant: 'contained', onClick: saveDevice }, '保存')
+          )
+        ),
+        PM_H(MaterialUI.Dialog, { open: !!editingProfile, onClose: () => setEditingProfile(null), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+          PM_H(MaterialUI.DialogTitle, null, editingProfile && editingProfile.mode === 'edit' ? '编辑权限模板' : '新建权限模板'),
+          PM_H(MaterialUI.DialogContent, null,
+            PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+              PM_H(MaterialUI.TextField, { label: '模板名称', value: profileForm.name, onChange: (e) => setProfileForm((p) => ({ ...p, name: e.target.value })), fullWidth: true }),
+              PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, '允许的能力'),
+              PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 1 } },
+                PM_PROFILE_CAPS.map((cap) =>
+                  PM_H(MaterialUI.FormControlLabel, {
+                    key: cap.key,
+                    control: PM_H(MaterialUI.Switch, { size: 'small', checked: !!profileForm[cap.key], onChange: (e) => setProfileForm((p) => ({ ...p, [cap.key]: e.target.checked })) }),
+                    label: cap.label
+                  })
+                )
+              ),
+              PM_H(MaterialUI.Divider, null),
+              PM_H(MaterialUI.FormControlLabel, { control: PM_H(MaterialUI.Switch, { checked: !!profileForm.requireConfirm, onChange: (e) => setProfileForm((p) => ({ ...p, requireConfirm: e.target.checked })) }), label: '需要被控端确认' }),
+              PM_H(MaterialUI.TextField, { label: '空闲超时自动断开（秒，0=不超时）', type: 'number', value: profileForm.idleTimeoutSec, onChange: (e) => setProfileForm((p) => ({ ...p, idleTimeoutSec: e.target.value })), fullWidth: true })
+            )
+          ),
+          PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+            PM_H(MaterialUI.Button, { onClick: () => setEditingProfile(null) }, '取消'),
+            PM_H(MaterialUI.Button, { variant: 'contained', onClick: saveProfile }, '保存')
+          )
+        ),
+        PM_H(MaterialUI.Dialog, { open: addingMember, onClose: () => setAddingMember(false), maxWidth: 'xs', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+          PM_H(MaterialUI.DialogTitle, null, '添加成员'),
+          PM_H(MaterialUI.DialogContent, null,
+            PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+              PM_H(MaterialUI.TextField, { select: true, label: '用户', value: memberForm.userId, onChange: (e) => setMemberForm((p) => ({ ...p, userId: e.target.value })), fullWidth: true },
+                users.map((u) => PM_H(MaterialUI.MenuItem, { key: u.id, value: u.id }, (u.label || u.id) + ' / ' + (u.userName || u.id)))
+              ),
+              PM_H(MaterialUI.TextField, { select: true, label: '角色', value: memberForm.role, onChange: (e) => setMemberForm((p) => ({ ...p, role: e.target.value })), fullWidth: true },
+                ['owner', 'admin', 'technician', 'auditor', 'member'].map((role) =>
+                  PM_H(MaterialUI.MenuItem, { key: role, value: role }, (ROLE_LABELS[role] || role)))
+              )
+            )
+          ),
+          PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+            PM_H(MaterialUI.Button, { onClick: () => setAddingMember(false) }, '取消'),
+            PM_H(MaterialUI.Button, { variant: 'contained', onClick: submitMember }, '添加')
+          )
+        ),
+        PM_H(MaterialUI.Dialog, { open: !!editingDevicePolicy, onClose: () => setEditingDevicePolicy(null), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+          PM_H(MaterialUI.DialogTitle, null, editingDevicePolicy && editingDevicePolicy.mode === 'edit' ? '编辑设备策略' : '新建设备策略'),
+          PM_H(MaterialUI.DialogContent, null,
+            PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+              PM_H(MaterialUI.TextField, { label: '策略名称', value: devicePolicyForm.name, onChange: (e) => setDevicePolicyForm((p) => ({ ...p, name: e.target.value })), fullWidth: true }),
+              PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 } },
+                PM_H(MaterialUI.TextField, { label: '最大码率 Kbps（0=自动）', type: 'number', value: devicePolicyForm.maxBitrateKbps, onChange: (e) => setDevicePolicyForm((p) => ({ ...p, maxBitrateKbps: e.target.value })) }),
+                PM_H(MaterialUI.TextField, { label: '最大帧率 FPS（0=自动）', type: 'number', value: devicePolicyForm.maxFps, onChange: (e) => setDevicePolicyForm((p) => ({ ...p, maxFps: e.target.value })) }),
+                PM_H(MaterialUI.TextField, { select: true, label: '传输偏好', value: devicePolicyForm.preferTransport, onChange: (e) => setDevicePolicyForm((p) => ({ ...p, preferTransport: e.target.value })) },
+                  ['auto', 'p2p', 'relay'].map((t) => PM_H(MaterialUI.MenuItem, { key: t, value: t }, PM_TRANSPORT_LABELS[t]))
+                ),
+                PM_H(MaterialUI.TextField, { label: '日志保留天数（0=不限）', type: 'number', value: devicePolicyForm.logRetentionDays, onChange: (e) => setDevicePolicyForm((p) => ({ ...p, logRetentionDays: e.target.value })) }),
+                PM_H(MaterialUI.TextField, { label: '优先级', type: 'number', value: devicePolicyForm.priority, onChange: (e) => setDevicePolicyForm((p) => ({ ...p, priority: e.target.value })) })
+              ),
+              PM_H(MaterialUI.FormControlLabel, { control: PM_H(MaterialUI.Switch, { checked: !!devicePolicyForm.autoUpdate, onChange: (e) => setDevicePolicyForm((p) => ({ ...p, autoUpdate: e.target.checked })) }), label: '允许客户端自动更新' })
+            )
+          ),
+          PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+            PM_H(MaterialUI.Button, { onClick: () => setEditingDevicePolicy(null) }, '取消'),
+            PM_H(MaterialUI.Button, { variant: 'contained', onClick: saveDevicePolicy }, '保存')
+          )
+        ),
+        PM_H(MaterialUI.Dialog, { open: !!editingBuild, onClose: () => setEditingBuild(null), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+          PM_H(MaterialUI.DialogTitle, null, editingBuild && editingBuild.mode === 'edit' ? '编辑版本' : '发布新版本'),
+          PM_H(MaterialUI.DialogContent, null,
+            PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+              PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 } },
+                PM_H(MaterialUI.TextField, { label: '版本号（如 1.2.0）', value: buildForm.version, onChange: (e) => setBuildForm((p) => ({ ...p, version: e.target.value })) }),
+                PM_H(MaterialUI.TextField, { select: true, label: '渠道', value: buildForm.channel, onChange: (e) => setBuildForm((p) => ({ ...p, channel: e.target.value })) },
+                  ['stable', 'beta', 'gray'].map((ch) => PM_H(MaterialUI.MenuItem, { key: ch, value: ch }, PM_CHANNEL_LABELS[ch]))
+                )
+              ),
+              PM_H(MaterialUI.TextField, { label: '下载地址 URL', value: buildForm.url, onChange: (e) => setBuildForm((p) => ({ ...p, url: e.target.value })), fullWidth: true }),
+              PM_H(MaterialUI.TextField, { label: '更新说明', value: buildForm.notes, onChange: (e) => setBuildForm((p) => ({ ...p, notes: e.target.value })), fullWidth: true, multiline: true, minRows: 2 }),
+              PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, '预置项（写入自定义安装包，便于批量部署）'),
+              PM_H(MaterialUI.TextField, { label: '预置服务器地址', value: buildForm.presetServerUrl, onChange: (e) => setBuildForm((p) => ({ ...p, presetServerUrl: e.target.value })), fullWidth: true, placeholder: typeof window !== 'undefined' ? window.location.origin : '' }),
+              PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 } },
+                PM_H(MaterialUI.TextField, { select: true, label: '预置设备组', value: buildForm.presetGroupId, onChange: (e) => setBuildForm((p) => ({ ...p, presetGroupId: e.target.value })) },
+                  PM_H(MaterialUI.MenuItem, { value: '' }, '不指定'),
+                  groups.map((g) => PM_H(MaterialUI.MenuItem, { key: g.id, value: g.id }, g.name))
+                ),
+                PM_H(MaterialUI.TextField, { select: true, label: '预置设备策略', value: buildForm.presetPolicyId, onChange: (e) => setBuildForm((p) => ({ ...p, presetPolicyId: e.target.value })) },
+                  PM_H(MaterialUI.MenuItem, { value: '' }, '不指定'),
+                  devicePolicies.map((p) => PM_H(MaterialUI.MenuItem, { key: p.id, value: p.id }, p.name))
+                )
+              )
+            )
+          ),
+          PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+            PM_H(MaterialUI.Button, { onClick: () => setEditingBuild(null) }, '取消'),
+            PM_H(MaterialUI.Button, { variant: 'contained', onClick: saveBuild }, '保存')
+          )
+        ),
+        PM_H(MaterialUI.Drawer, { anchor: 'right', open: !!deviceDetail, onClose: () => setDeviceDetail(null), PaperProps: { sx: { width: { xs: '100%', sm: 460 }, p: 3 } } },
+          deviceDetail ? (function () {
+            const d = deviceDetail.device || {};
+            const infoRows = [
+              ['终端 ID', d.terminalId], ['主机名', d.hostname], ['归属用户', d.ownerUserId],
+              ['设备组', d.groupName || d.groupId], ['系统', (d.os || '') + (d.osVersion ? ' ' + d.osVersion : '')],
+              ['客户端版本', d.clientVersion], ['最近 IP', d.lastIp], ['NAT 类型', d.natType],
+              ['最近在线', d.lastSeen ? pmFormatDate(d.lastSeen) : '-'], ['纳管时间', d.enrolledAt ? pmFormatDate(d.enrolledAt) : '-']
+            ];
+            return PM_H(MaterialUI.Box, null,
+              PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1.5, alignItems: 'center', sx: { mb: 2 } },
+                PM_H(MaterialUI.Avatar, { variant: 'rounded', sx: { width: 44, height: 44, bgcolor: d.status === 'online' ? 'rgba(18,183,106,.12)' : '#f2f4f7', color: d.status === 'online' ? '#12b76a' : '#98a2b3' } }, pmIcon('computer')),
+                PM_H(MaterialUI.Box, { sx: { flex: 1, minWidth: 0 } },
+                  PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#101828' } }, d.alias || d.hostname || d.terminalId),
+                  PmStatusChip(d.status)
+                ),
+                PM_H(MaterialUI.IconButton, { size: 'small', onClick: () => setDeviceDetail(null) }, pmIcon('close'))
+              ),
+              PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: '92px 1fr', rowGap: 1, columnGap: 1.5, mb: 2 } },
+                infoRows.reduce((acc, [k, v]) => acc.concat([
+                  PM_H(MaterialUI.Typography, { key: k + 'k', variant: 'body2', sx: { color: '#98a2b3' } }, k),
+                  PM_H(MaterialUI.Typography, { key: k + 'v', variant: 'body2', sx: { color: '#344054', wordBreak: 'break-all' } }, v || '-')
+                ]), [])
+              ),
+              (d.tags && d.tags.length) ? PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.5, sx: { flexWrap: 'wrap', gap: 0.5, mb: 2 } }, d.tags.map((t) => PM_H(MaterialUI.Chip, { key: t, size: 'small', label: t, sx: { bgcolor: '#f2f4f7' } }))) : null,
+              PM_H(MaterialUI.Divider, { sx: { mb: 1.5 } }),
+              PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, mb: 1 } }, '最近会话'),
+              (deviceDetail.sessions && deviceDetail.sessions.length)
+                ? PM_H(MaterialUI.Stack, { spacing: 0.75, sx: { mb: 2 } },
+                    deviceDetail.sessions.map((s) =>
+                      PM_H(MaterialUI.Box, { key: s.id, sx: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, borderRadius: 1.5, bgcolor: '#fafbfc', cursor: 'pointer' }, onClick: () => openSessionDetail(s) },
+                        PM_H(MaterialUI.Box, null,
+                          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, s.controllerUserId || '-'),
+                          PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, pmTimeAgo(s.startAt) + ' · ' + pmFormatDuration(s.durationSec))
+                        ),
+                        PM_H(MaterialUI.Chip, { size: 'small', color: s.result === 'active' ? 'primary' : s.result === 'failed' ? 'error' : 'default', variant: s.result === 'ended' ? 'outlined' : 'filled', label: s.result === 'active' ? '进行中' : s.result === 'failed' ? '失败' : '已结束' })
+                      )
+                    )
+                  )
+                : PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mb: 2 } }, deviceDetail.loading ? '加载中…' : '暂无会话'),
+              PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, mb: 1 } }, '相关授权'),
+              (deviceDetail.assignments && deviceDetail.assignments.length)
+                ? PM_H(MaterialUI.Stack, { spacing: 0.5, sx: { mb: 2 } }, deviceDetail.assignments.map((a) => PM_H(MaterialUI.Chip, { key: a.id, size: 'small', variant: 'outlined', label: a.subjectType + ':' + a.subjectId + (a.profileName ? ' · ' + a.profileName : '') })))
+                : PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mb: 2 } }, '无直接授权（仅所有者可连）'),
+              PM_H(MaterialUI.Divider, { sx: { mb: 1.5 } }),
+              PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1, justifyContent: 'flex-end' },
+                PM_H(MaterialUI.Button, { startIcon: pmIcon('edit'), onClick: () => { openEditDevice(d); setDeviceDetail(null); } }, '编辑'),
+                PM_H(MaterialUI.Button, { color: 'error', startIcon: pmIcon('delete_outline'), onClick: () => removeDevice(d) }, '删除设备')
+              )
+            );
+          })() : null
+        ),
+        PM_H(MaterialUI.Drawer, { anchor: 'right', open: !!sessionDetail, onClose: () => setSessionDetail(null), PaperProps: { sx: { width: { xs: '100%', sm: 420 }, p: 3 } } },
+          sessionDetail ? (function () {
+            const s = sessionDetail.session || {};
+            return PM_H(MaterialUI.Box, null,
+              PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1.5, alignItems: 'center', sx: { mb: 2 } },
+                PM_H(MaterialUI.Box, { sx: { flex: 1, minWidth: 0 } },
+                  PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#101828' } }, '会话详情'),
+                  PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, (s.targetName || s.targetTerminal) + ' ← ' + (s.controllerUserId || '-'))
+                ),
+                PM_H(MaterialUI.IconButton, { size: 'small', onClick: () => setSessionDetail(null) }, pmIcon('close'))
+              ),
+              PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.5, sx: { flexWrap: 'wrap', gap: 0.5, mb: 2 } },
+                PM_H(MaterialUI.Chip, { size: 'small', variant: 'outlined', label: '时长 ' + pmFormatDuration(s.durationSec) }),
+                s.transport ? PM_H(MaterialUI.Chip, { size: 'small', variant: 'outlined', label: s.transport === 'relay' ? '中继' : 'P2P' }) : null,
+                PM_H(MaterialUI.Chip, { size: 'small', color: s.result === 'active' ? 'primary' : s.result === 'failed' ? 'error' : 'default', variant: 'outlined', label: s.result === 'active' ? '进行中' : s.result === 'failed' ? '失败' : '已结束' })
+              ),
+              s.failReason ? PM_H(MaterialUI.Alert, { severity: 'error', sx: { mb: 2, borderRadius: 2 } }, s.failReason) : null,
+              s.result === 'active'
+                ? PM_H(MaterialUI.Button, { variant: 'outlined', color: 'error', fullWidth: true, startIcon: pmIcon('link_off'), onClick: () => disconnectSession(s), sx: { mb: 2 } }, '强制断开会话')
+                : null,
+              PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, mb: 1.5 } }, '事件时间线'),
+              sessionDetail.loading
+                ? PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3' } }, '加载中…')
+                : (sessionDetail.events && sessionDetail.events.length)
+                  ? PM_H(MaterialUI.Stack, { spacing: 0 }, sessionDetail.events.map((ev, idx) => {
+                      const meta = pmEventMeta(ev.type);
+                      const last = idx === sessionDetail.events.length - 1;
+                      return PM_H(MaterialUI.Box, { key: ev.id, sx: { display: 'flex', gap: 1.5 } },
+                        PM_H(MaterialUI.Box, { sx: { display: 'flex', flexDirection: 'column', alignItems: 'center' } },
+                          PM_H(MaterialUI.Box, { sx: { width: 28, height: 28, borderRadius: '50%', bgcolor: meta.color + '22', color: meta.color, display: 'flex', alignItems: 'center', justifyContent: 'center' } }, pmIcon(meta.icon, { sx: { fontSize: 16 } })),
+                          last ? null : PM_H(MaterialUI.Box, { sx: { flex: 1, width: 2, bgcolor: '#eef0f4', my: 0.5, minHeight: 18 } })
+                        ),
+                        PM_H(MaterialUI.Box, { sx: { pb: last ? 0 : 1.5 } },
+                          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600, color: '#344054' } }, meta.label),
+                          PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, pmFormatDate(ev.createdAt))
+                        )
+                      );
+                    }))
+                  : PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3' } }, '暂无事件记录')
+            );
+          })() : null
+        ),
+        PM_H(MaterialUI.Dialog, { open: addingTicket, onClose: () => setAddingTicket(false), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+          PM_H(MaterialUI.DialogTitle, null, '新建工单'),
+          PM_H(MaterialUI.DialogContent, null,
+            PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+              PM_H(MaterialUI.TextField, { label: '标题', value: ticketForm.title, onChange: (e) => setTicketForm((p) => ({ ...p, title: e.target.value })), fullWidth: true }),
+              PM_H(MaterialUI.TextField, { label: '问题描述', value: ticketForm.description, onChange: (e) => setTicketForm((p) => ({ ...p, description: e.target.value })), fullWidth: true, multiline: true, minRows: 3 }),
+              PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 } },
+                PM_H(MaterialUI.TextField, { select: true, label: '优先级', value: ticketForm.priority, onChange: (e) => setTicketForm((p) => ({ ...p, priority: e.target.value })) },
+                  ['low', 'normal', 'high', 'urgent'].map((pr) => PM_H(MaterialUI.MenuItem, { key: pr, value: pr }, PM_TICKET_PRIORITY[pr]))
+                ),
+                PM_H(MaterialUI.TextField, { select: true, label: '关联设备（可选）', value: ticketForm.deviceId, onChange: (e) => setTicketForm((p) => ({ ...p, deviceId: e.target.value })) },
+                  PM_H(MaterialUI.MenuItem, { value: '' }, '不关联'),
+                  devices.map((d) => PM_H(MaterialUI.MenuItem, { key: d.id, value: d.id }, d.alias || d.hostname || d.terminalId))
+                )
+              )
+            )
+          ),
+          PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+            PM_H(MaterialUI.Button, { onClick: () => setAddingTicket(false) }, '取消'),
+            PM_H(MaterialUI.Button, { variant: 'contained', onClick: submitTicket }, '创建')
+          )
+        ),
+        PM_H(MaterialUI.Drawer, { anchor: 'right', open: !!ticketDetail, onClose: () => setTicketDetail(null), PaperProps: { sx: { width: { xs: '100%', sm: 480 }, p: 3 } } },
+          ticketDetail ? (function () {
+            const t = ticketDetail;
+            return PM_H(MaterialUI.Box, { sx: { display: 'flex', flexDirection: 'column', height: '100%' } },
+              PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1, alignItems: 'flex-start', sx: { mb: 2 } },
+                PM_H(MaterialUI.Box, { sx: { flex: 1, minWidth: 0 } },
+                  PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#101828' } }, t.title),
+                  PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, '报修：' + (t.requesterName || t.requesterId || '-') + ' · ' + pmFormatDate(t.createdAt))
+                ),
+                PM_H(MaterialUI.IconButton, { size: 'small', onClick: () => setTicketDetail(null) }, pmIcon('close'))
+              ),
+              PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, mb: 2 } },
+                PM_H(MaterialUI.TextField, { select: true, size: 'small', label: '状态', value: t.status, onChange: (e) => patchTicket(t.id, { status: e.target.value }) },
+                  ['open', 'in_progress', 'resolved', 'closed'].map((st) => PM_H(MaterialUI.MenuItem, { key: st, value: st }, PM_TICKET_STATUS[st]))
+                ),
+                PM_H(MaterialUI.TextField, { select: true, size: 'small', label: '优先级', value: t.priority, onChange: (e) => patchTicket(t.id, { priority: e.target.value }) },
+                  ['low', 'normal', 'high', 'urgent'].map((pr) => PM_H(MaterialUI.MenuItem, { key: pr, value: pr }, PM_TICKET_PRIORITY[pr]))
+                ),
+                PM_H(MaterialUI.TextField, { select: true, size: 'small', label: '处理人', value: t.assigneeId || '', onChange: (e) => patchTicket(t.id, { assigneeId: e.target.value }), sx: { gridColumn: '1 / span 2' } },
+                  PM_H(MaterialUI.MenuItem, { value: '' }, '未指派'),
+                  members.map((m) => PM_H(MaterialUI.MenuItem, { key: m.id, value: m.userId }, (m.label || m.userId) + '（' + (({ owner: '所有者', admin: '管理员', technician: '技术员', auditor: '审计员', member: '成员' })[m.role] || m.role) + '）'))
+                )
+              ),
+              t.deviceName ? PM_H(MaterialUI.Chip, { size: 'small', variant: 'outlined', icon: pmIcon('computer'), label: '关联设备：' + t.deviceName, sx: { mb: 2, alignSelf: 'flex-start' } }) : null,
+              t.description ? PM_H(MaterialUI.Box, { sx: { bgcolor: '#fafbfc', borderRadius: 2, p: 1.5, mb: 2 } }, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#344054', whiteSpace: 'pre-wrap' } }, t.description)) : null,
+              PM_H(MaterialUI.Divider, { sx: { mb: 1.5 } }),
+              PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, mb: 1 } }, '沟通记录'),
+              PM_H(MaterialUI.Box, { sx: { flex: 1, overflowY: 'auto', mb: 1.5 } },
+                (t.comments && t.comments.length)
+                  ? PM_H(MaterialUI.Stack, { spacing: 1.25 }, t.comments.map((c) =>
+                      PM_H(MaterialUI.Box, { key: c.id, sx: { bgcolor: '#f6f7fb', borderRadius: 2, p: 1.25 } },
+                        PM_H(MaterialUI.Stack, { direction: 'row', justifyContent: 'space-between', sx: { mb: 0.5 } },
+                          PM_H(MaterialUI.Typography, { variant: 'caption', sx: { fontWeight: 700, color: '#475467' } }, c.authorName || c.authorId || '系统'),
+                          PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, pmTimeAgo(c.createdAt))
+                        ),
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#344054', whiteSpace: 'pre-wrap' } }, c.body)
+                      )
+                    ))
+                  : PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3' } }, t.loading ? '加载中…' : '暂无沟通记录')
+              ),
+              PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1, alignItems: 'flex-end' },
+                PM_H(MaterialUI.TextField, { size: 'small', fullWidth: true, placeholder: '添加沟通记录…', value: ticketComment, onChange: (e) => setTicketComment(e.target.value), multiline: true, maxRows: 4, onKeyDown: (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitTicketComment(); } }),
+                PM_H(MaterialUI.Button, { variant: 'contained', onClick: submitTicketComment }, '发送')
+              )
+            );
+          })() : null
+        ),
+        PM_H(MaterialUI.Snackbar, { open: notify.open, autoHideDuration: 3000, onClose: () => setNotify((p) => ({ ...p, open: false })), anchorOrigin: { vertical: 'bottom', horizontal: 'center' } },
+          PM_H(MaterialUI.Alert, { severity: notify.severity, onClose: () => setNotify((p) => ({ ...p, open: false })), variant: 'filled', sx: { width: '100%' } }, notify.message)
+        )
     );
+
+    if (embedded) return contentColumn;
+    return PM_H(MaterialUI.Box, { sx: { display: 'flex', gap: 2.5, alignItems: 'flex-start' } }, renderSidebar(), contentColumn);
   };

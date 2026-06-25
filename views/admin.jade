@@ -440,8 +440,11 @@ html(lang="zh-CN")
         const navTree = data.nav || [];
         const [mobileOpen, setMobileOpen] = useState(false);
         const [collapsed, setCollapsed] = useState(false);
-        const [activeView, setActiveView] = useState({ type: 'dashboard', node: null });
-        const [activeNavId, setActiveNavId] = useState(null);
+        const consoleHasAccess = (function findPeer(nodes) {
+          return (nodes || []).some((node) => isPeerManageNode(node) || findPeer(node.children || []));
+        })(navTree);
+        const [activeView, setActiveView] = useState(consoleHasAccess ? { type: 'console', section: 'overview' } : { type: 'dashboard', node: null });
+        const [activeNavId, setActiveNavId] = useState(consoleHasAccess ? 'console:overview' : null);
 
         const toggleDrawer = () => setMobileOpen((prev) => !prev);
         const toggleCollapse = () => setCollapsed((prev) => !prev);
@@ -487,7 +490,8 @@ html(lang="zh-CN")
           } else if (isOnlineManageNode(node)) {
             setActiveView({ type: 'online-manage', node });
           } else if (isPeerManageNode(node)) {
-            setActiveView({ type: 'peer-manage', node });
+            setActiveView({ type: 'console', section: 'overview' });
+            setActiveNavId('console:overview');
           } else {
             setActiveView({ type: 'dashboard', node });
           }
@@ -536,8 +540,8 @@ html(lang="zh-CN")
           if (activeView.type === 'online-manage') {
             return React.createElement(OnlineManagePage, null);
           }
-          if (activeView.type === 'peer-manage') {
-            return React.createElement(PeerManagePage, null);
+          if (activeView.type === 'console') {
+            return React.createElement(PeerManagePage, { section: activeView.section || 'overview' });
           }
           if (activeView.type === 'sequence-admin') {
             return React.createElement(SequenceAdminPage, null);
@@ -569,41 +573,71 @@ html(lang="zh-CN")
           return React.createElement(DashboardOverview, { user, activeNode: activeView.node });
         };
 
+        const handleConsoleSelect = (key) => {
+          setActiveView({ type: 'console', section: key });
+          setActiveNavId('console:' + key);
+          if (mobileOpen) setMobileOpen(false);
+        };
+        const stripPeerNodes = (nodes) => (nodes || [])
+          .filter((node) => !isPeerManageNode(node))
+          .map((node) => Object.assign({}, node, { children: stripPeerNodes(node.children || []) }));
+        const legacyNav = stripPeerNodes(navTree);
+        const consoleSections = (typeof PM_SECTIONS !== 'undefined' ? PM_SECTIONS : []);
+
         const drawer = React.createElement(Box, {
-          sx: {
-            p: 2,
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1
-          }
+          sx: { p: 1.5, height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5 }
         },
           React.createElement(Box, {
-            sx: {
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: collapsed ? 'center' : 'space-between'
-            }
+            sx: { display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', px: 0.5, py: 1 }
           },
-            !collapsed ? React.createElement(Typography, { variant: 'h6', fontWeight: 600 }, '功能导航') : null,
+            !collapsed
+              ? React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', gap: 1.25 } },
+                  React.createElement(Box, { sx: { width: 38, height: 38, borderRadius: 2, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px rgba(99,102,241,.3)' } },
+                    React.createElement(Icon, { fontSize: 'small' }, 'device_hub')
+                  ),
+                  React.createElement(Box, null,
+                    React.createElement(Typography, { sx: { fontWeight: 800, color: '#101828', lineHeight: 1.1 } }, 'Poleis'),
+                    React.createElement(Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, '远程控制台')
+                  )
+                )
+              : null,
             React.createElement(Tooltip, { title: collapsed ? '展开导航' : '折叠导航' },
               React.createElement(IconButton, { size: 'small', onClick: toggleCollapse },
                 React.createElement(MenuIcon, null)
               )
             )
           ),
-          !collapsed
-            ? React.createElement(Box, { sx: { flexGrow: 1, overflowY: 'auto', mt: 1 } },
-                React.createElement(NavigationTree, {
-                  nodes: navTree,
-                  onSelect: handleNavSelect,
-                  activeNodeId: activeNavId
-                })
-              )
-            : React.createElement(Box, { sx: { flexGrow: 1 } })
+          React.createElement(Box, { sx: { flexGrow: 1, overflowY: 'auto', mt: 0.5 } },
+            (!collapsed && consoleHasAccess)
+              ? React.createElement(Box, { sx: { mb: 1 } },
+                  React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '控制台'),
+                  React.createElement(List, { disablePadding: true, sx: { mt: 0.5 } },
+                    consoleSections.map((item) => {
+                      const sel = activeNavId === ('console:' + item.key);
+                      return React.createElement(ListItemButton, {
+                        key: item.key,
+                        selected: sel,
+                        onClick: () => handleConsoleSelect(item.key),
+                        sx: { borderRadius: 2, mb: 0.5, px: 1.5, py: 1, color: sel ? '#312e81' : '#475467', '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' }, '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' } }
+                      },
+                        React.createElement(ListItemIcon, { sx: { minWidth: 34, color: sel ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, item.icon)),
+                        React.createElement(ListItemText, { primary: item.label, primaryTypographyProps: { fontSize: 14, fontWeight: sel ? 700 : 500 } })
+                      );
+                    })
+                  )
+                )
+              : null,
+            (!collapsed && consoleHasAccess && legacyNav.length) ? React.createElement(Divider, { sx: { my: 1 } }) : null,
+            !collapsed
+              ? React.createElement(Box, null,
+                  legacyNav.length ? React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '系统管理') : null,
+                  React.createElement(NavigationTree, { nodes: legacyNav, onSelect: handleNavSelect, activeNodeId: activeNavId })
+                )
+              : React.createElement(Box, { sx: { flexGrow: 1 } })
+          )
         );
 
-        return React.createElement(Box, { sx: { display: 'flex', minHeight: '100vh', backgroundColor: '#f4f6f8' } },
+        return React.createElement(Box, { sx: { display: 'flex', minHeight: '100vh', backgroundColor: '#f6f7fb' } },
           React.createElement(CssBaseline, null),
           React.createElement(AppBar, {
             position: 'fixed',
@@ -644,8 +678,8 @@ html(lang="zh-CN")
               ? '权限项管理'
               : activeView.type === 'online-manage'
               ? '在线管理'
-              : activeView.type === 'peer-manage'
-              ? '终端管理'
+              : activeView.type === 'console'
+              ? 'Poleis 控制台'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
               : activeView.type === 'table-field-admin'
@@ -701,7 +735,7 @@ html(lang="zh-CN")
               '& .MuiDrawer-paper': {
                 boxSizing: 'border-box',
                 width: navWidth,
-                borderRight: '1px solid rgba(0,0,0,0.08)',
+                borderRight: '1px solid #eef0f4',
                 backgroundColor: '#fff',
                 color: '#1f2933'
               }
@@ -721,6 +755,56 @@ html(lang="zh-CN")
         );
       };
 
+      // 全局主题：把所有「系统管理」旧页面统一到 Poleis 控制台的观感
+      // （卡片圆角+柔和边框、表头浅灰、按钮无大写圆角、靛蓝主色等）。
+      // 控制台页面用 sx 写死的样式会自然覆盖主题、保持原样。
+      const poleisTheme = MaterialUI.createTheme({
+        palette: {
+          primary: { main: '#6366f1', dark: '#4f46e5', light: '#818cf8' },
+          secondary: { main: '#8b5cf6' },
+          success: { main: '#12b76a' },
+          warning: { main: '#f59e0b' },
+          error: { main: '#f04438' },
+          info: { main: '#0ea5e9' },
+          background: { default: '#f6f7fb', paper: '#ffffff' },
+          text: { primary: '#101828', secondary: '#667085' },
+          divider: '#eef0f4'
+        },
+        typography: {
+          fontFamily: "'Roboto', sans-serif",
+          h4: { fontWeight: 800 },
+          h5: { fontWeight: 700 },
+          h6: { fontWeight: 700 },
+          button: { textTransform: 'none', fontWeight: 600 }
+        },
+        components: {
+          MuiButton: {
+            defaultProps: { disableElevation: true },
+            styleOverrides: { root: { borderRadius: 8 } }
+          },
+          // 只覆盖默认内容卡片（elevation=1）；Drawer/AppBar/Dialog/Menu 等
+          // 用其它 elevation，不受影响，保持原有形态与投影。
+          MuiPaper: {
+            styleOverrides: {
+              elevation1: {
+                borderRadius: 12,
+                border: '1px solid #eef0f4',
+                boxShadow: '0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06)'
+              }
+            }
+          },
+          MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 8 } } },
+          MuiChip: { styleOverrides: { root: { borderRadius: 8 } } },
+          MuiTableCell: {
+            styleOverrides: {
+              root: { borderColor: '#f0f1f4' },
+              head: { backgroundColor: '#fafbfc', color: '#667085', fontWeight: 600 }
+            }
+          },
+          MuiTooltip: { styleOverrides: { tooltip: { borderRadius: 6, fontSize: 12 } } }
+        }
+      });
+
       const root = createRoot(document.getElementById('root'));
-      root.render(React.createElement(AdminApp));
+      root.render(React.createElement(MaterialUI.ThemeProvider, { theme: poleisTheme }, React.createElement(AdminApp)));
 
