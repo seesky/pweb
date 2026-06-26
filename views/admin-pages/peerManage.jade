@@ -1401,7 +1401,7 @@ script.
       const quota = (used, max) => max > 0 ? (used + ' / ' + max) : (used + ' / 不限');
       const statusLabel = ({ active: '正常', pending: '待激活', suspended: '已停用' })[t.status] || (t.status || '');
       return PM_H(MaterialUI.Stack, { spacing: 2 },
-        PM_H(PmPanel, { title: '企业信息', subtitle: '工作区基本信息（配额由平台管理员调整）', dense: true },
+        PM_H(PmPanel, { title: '企业信息', subtitle: '工作区基本信息（配额由平台管理员调整）' },
           PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 2 } },
             PM_H(MaterialUI.Box, null,
               PM_H(MaterialUI.Typography, { variant: 'caption', color: 'text.secondary' }, '类型'),
@@ -1421,7 +1421,7 @@ script.
             PM_H(MaterialUI.Button, { variant: 'contained', disabled: !canEdit || !tenantNameDraft.trim() || tenantNameDraft.trim() === (t.name || ''), onClick: saveTenantName }, '保存名称')
           )
         ),
-        PM_H(PmPanel, { title: '成员', subtitle: '按邮箱邀请成员加入本企业空间', dense: true,
+        PM_H(PmPanel, { title: '成员', subtitle: '按邮箱邀请成员加入本企业空间',
           action: canEdit ? PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('person_add'), onClick: () => { setMemberForm({ email: '', role: 'member' }); setInviteResult(null); setAddingMember(true); } }, '邀请成员') : null },
           PM_H(MaterialUI.Typography, { variant: 'body2', color: 'text.secondary', sx: { mb: 1 } }, '当前共 ' + members.length + ' 名成员。角色与移除请前往「成员管理」。'),
           PM_H(MaterialUI.Button, { variant: 'text', startIcon: pmIcon('group'), onClick: () => setSection('members') }, '前往成员管理')

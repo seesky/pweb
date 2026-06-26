@@ -505,7 +505,7 @@ class PlatformService {
          u.USERNAME AS OWNERNAME, u.EMAIL AS OWNEREMAIL
        FROM poleis_tenant t
        LEFT JOIN piuser u ON u.ID = t.OWNERUSERID
-       WHERE t.DELETEMARK = 0
+       WHERE t.DELETEMARK = 0 AND t.EDITION = 'enterprise' AND t.ID NOT LIKE 'u:%'
        ORDER BY (t.STATUS = 'pending') DESC, t.CREATEON DESC
        LIMIT 500`
     );
@@ -734,7 +734,9 @@ class PlatformService {
     if (!terminalId) return null;
     await this.ensureSchema();
     const now = new Date();
-    const hostname = normalizeNullable(deviceInfo.hostname || deviceInfo.hostName || deviceInfo.name);
+    // 客户端握手把主机名放在 deviceInfo.ua（qt: QSysInfo::machineHostName / 服务: getHostName）。
+    // 兼容显式 hostname 字段，回退到 ua，使设备列表显示主机名而非 terminalId。
+    const hostname = normalizeNullable(deviceInfo.hostname || deviceInfo.hostName || deviceInfo.name || deviceInfo.ua);
     const clientVersion = normalizeNullable(deviceInfo.clientVersion || deviceInfo.version);
     const osVersion = normalizeNullable(deviceInfo.osVersion);
     const natType = normalizeNullable(deviceInfo.natType);
@@ -765,10 +767,19 @@ class PlatformService {
       return this.getDeviceById(id);
     }
 
+    // 个人空间登录即认领该机（见下方说明）。布尔由 this.tenantId 决定，非用户输入。
+    const claim = String(this.tenantId || '').startsWith('u:') ? '1=1' : '1=0';
     await this.prisma.$executeRawUnsafe(
+      // 归属规则：
+      //  - 个人空间登录(this.tenantId = u:<userId>)：即「认领」该机——TENANTID/OWNERUSERID
+      //    无条件跟随当前登录用户。个人空间不可能有真·纳管设备，故即使历史脏数据误置了
+      //    ENROLLEDAT 也强制改写（修复换账号登录后旧账号仍绑定的问题）。
+      //  - 企业连接(this.tenantId = 企业UUID / 设备token)：仅未纳管(ENROLLEDAT IS NULL)时
+      //    跟随；已 enroll 的设备租户/归属由 enroll 钉死，连接不改。
+      // claim 为服务端自算布尔(非用户输入)，直接拼入 SQL 安全。
       `UPDATE poleis_device
-          SET TENANTID = CASE WHEN ENROLLEDAT IS NULL THEN ? ELSE TENANTID END,
-              OWNERUSERID = COALESCE(OWNERUSERID, ?),
+          SET TENANTID = CASE WHEN (ENROLLEDAT IS NULL OR ${claim}) THEN ? ELSE TENANTID END,
+              OWNERUSERID = CASE WHEN (ENROLLEDAT IS NULL OR ${claim}) THEN ? ELSE COALESCE(OWNERUSERID, ?) END,
               HOSTNAME = COALESCE(?, HOSTNAME),
               OS = COALESCE(?, OS),
               OSVERSION = COALESCE(?, OSVERSION),
@@ -780,6 +791,7 @@ class PlatformService {
               MODIFIEDON = ?
         WHERE TERMINALID = ?`,
       this.tenantId,
+      normalizeNullable(userId),
       normalizeNullable(userId),
       hostname,
       normalizeNullable(os || deviceInfo.os),
@@ -2144,6 +2156,13 @@ class PlatformService {
     if (!userId) {
       const error = new Error('missing userId');
       error.code = 'INVALID_REQUEST';
+      throw error;
+    }
+    // 个人空间(u:<ownerId>)只能有其本人一个成员，禁止把别的账号加进来——
+    // 否则该账号会把这台个人空间当成自己的可访问 workspace（归属/可见性错乱）。
+    if (String(this.tenantId).startsWith('u:') && this.tenantId !== ('u:' + userId)) {
+      const error = new Error('cannot add other users to a personal workspace');
+      error.code = 'PERSONAL_WORKSPACE';
       throw error;
     }
     const role = ALLOWED_MEMBER_ROLES.includes(payload.role) ? payload.role : 'member';

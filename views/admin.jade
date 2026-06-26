@@ -16,6 +16,7 @@ html(lang="zh-CN")
       window.__APP_DATA__ = {
         user: !{JSON.stringify(user || {})},
         nav: !{navData || '[]'},
+        appMode: !{JSON.stringify(appMode || 'customer')},
         tenantContext: !{JSON.stringify(tenantContext || {})},
         tenant: !{JSON.stringify((tenantContext && tenantContext.tenant) || null)},
         tenants: !{JSON.stringify((tenantContext && tenantContext.tenants) || [])},
@@ -456,8 +457,10 @@ html(lang="zh-CN")
         const consoleHasAccess = true;
         // 平台超级管理员：跨租户管理所有企业（仅 Administrator / IsAdministrator）。
         const isPlatformAdmin = !!(user && (user.Id === 'Administrator' || user.IsAdministrator));
-        const [activeView, setActiveView] = useState(consoleHasAccess ? { type: 'console', section: 'overview' } : { type: 'dashboard', node: null });
-        const [activeNavId, setActiveNavId] = useState(consoleHasAccess ? 'console:overview' : null);
+        // 应用模式：customer=客户产品(控制台)；ops=运营后台(平台管理+系统管理，仅超管，由服务端 /admin/ops 守卫)。
+        const isOps = (data.appMode || 'customer') === 'ops';
+        const [activeView, setActiveView] = useState(isOps ? { type: 'platform-admin' } : { type: 'console', section: 'overview' });
+        const [activeNavId, setActiveNavId] = useState(isOps ? 'platform-admin' : 'console:overview');
 
         const toggleDrawer = () => setMobileOpen((prev) => !prev);
         const toggleCollapse = () => setCollapsed((prev) => !prev);
@@ -650,7 +653,8 @@ html(lang="zh-CN")
             )
           ),
           React.createElement(Box, { sx: { flexGrow: 1, overflowY: 'auto', mt: 0.5 } },
-            (!collapsed && isPlatformAdmin)
+            // 运营后台：平台管理（仅 ops + 超管）
+            (!collapsed && isOps && isPlatformAdmin)
               ? React.createElement(Box, { sx: { mb: 1 } },
                   React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '平台'),
                   React.createElement(List, { disablePadding: true, sx: { mt: 0.5 } },
@@ -665,8 +669,16 @@ html(lang="zh-CN")
                   )
                 )
               : null,
-            (!collapsed && isPlatformAdmin && consoleHasAccess) ? React.createElement(Divider, { sx: { my: 1 } }) : null,
-            (!collapsed && consoleHasAccess)
+            (!collapsed && isOps && isPlatformAdmin && legacyNav.length) ? React.createElement(Divider, { sx: { my: 1 } }) : null,
+            // 运营后台：系统管理（仅 ops）
+            (!collapsed && isOps)
+              ? React.createElement(Box, null,
+                  legacyNav.length ? React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '系统管理') : null,
+                  React.createElement(NavigationTree, { nodes: legacyNav, onSelect: handleNavSelect, activeNodeId: activeNavId })
+                )
+              : null,
+            // 客户产品：控制台（仅 customer）
+            (!collapsed && !isOps && consoleHasAccess)
               ? React.createElement(Box, { sx: { mb: 1 } },
                   React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '控制台'),
                   React.createElement(List, { disablePadding: true, sx: { mt: 0.5 } },
@@ -685,13 +697,26 @@ html(lang="zh-CN")
                   )
                 )
               : null,
-            (!collapsed && consoleHasAccess && legacyNav.length) ? React.createElement(Divider, { sx: { my: 1 } }) : null,
-            !collapsed
-              ? React.createElement(Box, null,
-                  legacyNav.length ? React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '系统管理') : null,
-                  React.createElement(NavigationTree, { nodes: legacyNav, onSelect: handleNavSelect, activeNodeId: activeNavId })
+            // 跨页入口：客户端→运营后台（仅超管）；运营后台→返回控制台
+            (!collapsed && !isOps && isPlatformAdmin)
+              ? React.createElement(Box, { sx: { mt: 1 } },
+                  React.createElement(Divider, { sx: { mb: 1 } }),
+                  React.createElement(ListItemButton, { onClick: () => { window.location.href = '/admin/ops'; }, sx: { borderRadius: 2, px: 1.5, py: 1, color: '#475467' } },
+                    React.createElement(ListItemIcon, { sx: { minWidth: 34, color: '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'admin_panel_settings')),
+                    React.createElement(ListItemText, { primary: '运营后台', primaryTypographyProps: { fontSize: 14 } })
+                  )
                 )
-              : React.createElement(Box, { sx: { flexGrow: 1 } })
+              : null,
+            (!collapsed && isOps)
+              ? React.createElement(Box, { sx: { mt: 1 } },
+                  React.createElement(Divider, { sx: { mb: 1 } }),
+                  React.createElement(ListItemButton, { onClick: () => { window.location.href = '/admin'; }, sx: { borderRadius: 2, px: 1.5, py: 1, color: '#475467' } },
+                    React.createElement(ListItemIcon, { sx: { minWidth: 34, color: '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'arrow_back')),
+                    React.createElement(ListItemText, { primary: '返回控制台', primaryTypographyProps: { fontSize: 14 } })
+                  )
+                )
+              : null,
+            collapsed ? React.createElement(Box, { sx: { flexGrow: 1 } }) : null
           )
         );
 

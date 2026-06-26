@@ -9,6 +9,8 @@ script.
     const [error, setError] = useState('');
     const [editing, setEditing] = useState(null); // tenant | null
     const [form, setForm] = useState({ name: '', edition: 'enterprise', maxMembers: 0, maxDevices: 0 });
+    const [creating, setCreating] = useState(false);
+    const [createForm, setCreateForm] = useState({ name: '', ownerEmail: '', maxMembers: 0, maxDevices: 0 });
     const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
     const toast = (severity, message) => setNotify({ open: true, severity, message });
 
@@ -52,12 +54,26 @@ script.
       try {
         const resp = await fetch(`/platform-admin/tenants/${editing.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: form.name, edition: form.edition, maxMembers: Number(form.maxMembers || 0), maxDevices: Number(form.maxDevices || 0) })
+          body: JSON.stringify({ name: form.name, maxMembers: Number(form.maxMembers || 0), maxDevices: Number(form.maxDevices || 0) })
         });
         const json = await resp.json();
         if (!resp.ok) throw new Error(json.message || '保存失败');
         toast('success', '企业信息已保存'); setEditing(null); await loadAll();
       } catch (err) { toast('error', err.message || '保存失败'); }
+    };
+
+    const submitCreate = async () => {
+      if (!createForm.name.trim() || !createForm.ownerEmail.trim()) { toast('warning', '企业名称与负责人邮箱必填'); return; }
+      try {
+        const resp = await fetch('/platform-admin/tenants', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: createForm.name.trim(), ownerEmail: createForm.ownerEmail.trim(), maxMembers: Number(createForm.maxMembers || 0), maxDevices: Number(createForm.maxDevices || 0) })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '创建失败');
+        toast('success', '企业已创建；负责人重新登录后右上角即可切换到企业空间');
+        setCreating(false); setCreateForm({ name: '', ownerEmail: '', maxMembers: 0, maxDevices: 0 }); await loadAll();
+      } catch (err) { toast('error', err.message || '创建失败'); }
     };
 
     const statusActions = (t) => {
@@ -81,7 +97,8 @@ script.
         PM_H(PmKpiCard, { label: '活跃企业', value: stats.active, icon: 'verified', grad: 'emerald' }),
         PM_H(PmKpiCard, { label: '已停用', value: stats.suspended, icon: 'block', grad: stats.suspended ? 'rose' : 'slate' })
       ),
-      PM_H(PmPanel, { title: '企业列表', subtitle: '共 ' + tenants.length + ' 家', dense: true },
+      PM_H(PmPanel, { title: '企业列表', subtitle: '共 ' + tenants.length + ' 家', dense: true,
+        action: PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add_business'), onClick: () => { setCreateForm({ name: '', ownerEmail: '', maxMembers: 0, maxDevices: 0 }); setCreating(true); } }, '新建企业') },
         tenants.length
           ? PM_H(MaterialUI.TableContainer, null,
               PM_H(MaterialUI.Table, { size: 'small' },
@@ -128,17 +145,13 @@ script.
               )
             )
           : (loading ? PM_H(MaterialUI.Box, { sx: { p: 3, textAlign: 'center' } }, PM_H(MaterialUI.CircularProgress, { size: 24 }))
-                     : PM_H(PmEmpty, { icon: 'business', title: '暂无企业', hint: '企业通过“申请企业账号”注册并完成邮箱验证后会出现在这里。' }))
+                     : PM_H(PmEmpty, { icon: 'business', title: '暂无企业', hint: '点击右上角“新建企业”指派一个负责人，或让企业通过“申请企业账号”自助注册。' }))
       ),
       PM_H(MaterialUI.Dialog, { open: !!editing, onClose: () => setEditing(null), maxWidth: 'xs', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
         PM_H(MaterialUI.DialogTitle, null, '企业配额与版本'),
         PM_H(MaterialUI.DialogContent, null,
           PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
             PM_H(MaterialUI.TextField, { label: '企业名称', value: form.name, onChange: (e) => setForm((p) => ({ ...p, name: e.target.value })), fullWidth: true }),
-            PM_H(MaterialUI.TextField, { select: true, label: '版本', value: form.edition, onChange: (e) => setForm((p) => ({ ...p, edition: e.target.value })), fullWidth: true },
-              PM_H(MaterialUI.MenuItem, { value: 'enterprise' }, '企业版'),
-              PM_H(MaterialUI.MenuItem, { value: 'personal' }, '个人版')
-            ),
             PM_H(MaterialUI.TextField, { label: '成员上限（0=不限）', type: 'number', value: form.maxMembers, onChange: (e) => setForm((p) => ({ ...p, maxMembers: e.target.value })), fullWidth: true }),
             PM_H(MaterialUI.TextField, { label: '设备上限（0=不限）', type: 'number', value: form.maxDevices, onChange: (e) => setForm((p) => ({ ...p, maxDevices: e.target.value })), fullWidth: true })
           )
@@ -146,6 +159,22 @@ script.
         PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
           PM_H(MaterialUI.Button, { onClick: () => setEditing(null) }, '取消'),
           PM_H(MaterialUI.Button, { variant: 'contained', onClick: saveQuota }, '保存')
+        )
+      ),
+      PM_H(MaterialUI.Dialog, { open: creating, onClose: () => setCreating(false), maxWidth: 'xs', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+        PM_H(MaterialUI.DialogTitle, null, '新建企业'),
+        PM_H(MaterialUI.DialogContent, null,
+          PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+            PM_H(MaterialUI.Typography, { variant: 'body2', color: 'text.secondary' }, '创建一个企业空间，并把一个已注册账号设为负责人。该账号登录后即可在右上角切换到企业空间、邀请成员、纳管设备。'),
+            PM_H(MaterialUI.TextField, { label: '企业名称', value: createForm.name, onChange: (e) => setCreateForm((p) => ({ ...p, name: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '负责人邮箱（已注册账号）', type: 'email', placeholder: 'owner@company.com', value: createForm.ownerEmail, onChange: (e) => setCreateForm((p) => ({ ...p, ownerEmail: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '成员上限（0=不限）', type: 'number', value: createForm.maxMembers, onChange: (e) => setCreateForm((p) => ({ ...p, maxMembers: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '设备上限（0=不限）', type: 'number', value: createForm.maxDevices, onChange: (e) => setCreateForm((p) => ({ ...p, maxDevices: e.target.value })), fullWidth: true })
+          )
+        ),
+        PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+          PM_H(MaterialUI.Button, { onClick: () => setCreating(false) }, '取消'),
+          PM_H(MaterialUI.Button, { variant: 'contained', onClick: submitCreate }, '创建')
         )
       ),
       PM_H(MaterialUI.Snackbar, { open: notify.open, autoHideDuration: 3000, onClose: () => setNotify((p) => ({ ...p, open: false })), anchorOrigin: { vertical: 'bottom', horizontal: 'center' } },

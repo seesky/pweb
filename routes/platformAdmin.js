@@ -18,6 +18,7 @@ const ensureAuthenticated = (req, res, next) => {
 // 平台超管接口：跨租户，不经 resolveTenant（控制器内做超管校验）。
 router.use('/platform-admin', ensureAuthenticated);
 router.get('/platform-admin/tenants', controller.tenants);
+router.post('/platform-admin/tenants', controller.createTenant);
 router.patch('/platform-admin/tenants/:id', controller.updateTenant);
 router.post('/platform-admin/tenants/:id/status', controller.setStatus);
 

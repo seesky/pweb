@@ -47,43 +47,53 @@ const buildNavTree = (modules = []) => {
   return roots;
 };
 
-exports.dashboard = async (req, res) => {
+const isSuperAdmin = (u) => !!(u && (u.Id === 'Administrator' || u.IsAdministrator));
+
+// 共享外壳：appMode='customer'（Poleis 控制台，面向个人/企业用户）
+//           appMode='ops'（运营后台：平台管理 + 系统管理，仅平台超管）
+async function renderAdminShell(req, res, appMode) {
   const current = CommonUtils.getCurrent(res, req);
   if (!current) {
     return res.redirect('/login');
   }
 
+  // 系统管理（pi RBAC）导航仅运营后台需要；客户产品不加载。
   let navData = [];
-  try {
-    const modules = current?.IsAdministrator
-      ? await moduleService.getDT()
-      : await moduleService.getDTByUser(current?.Id);
-    navData = buildNavTree(modules || []);
-  } catch (error) {
-    console.error('[AdminController.dashboard] failed to load modules', error);
-    navData = [
-      {
-        id: 'dashboard',
-        title: '仪表盘',
-        code: 'dashboard',
-        icon: 'dashboard',
-        path: '/admin/overview',
-        children: []
-      }
-    ];
+  if (appMode === 'ops') {
+    try {
+      const modules = current?.IsAdministrator
+        ? await moduleService.getDT()
+        : await moduleService.getDTByUser(current?.Id);
+      navData = buildNavTree(modules || []);
+    } catch (error) {
+      console.error('[AdminController] failed to load modules', error);
+      navData = [];
+    }
   }
 
   let tenantContext = {};
   try {
     tenantContext = await resolveTenantContext(req, current) || {};
   } catch (error) {
-    console.error('[AdminController.dashboard] failed to resolve tenant context', error);
+    console.error('[AdminController] failed to resolve tenant context', error);
   }
 
   res.render('admin', {
-    title: '管理后台',
+    title: appMode === 'ops' ? '运营后台' : '管理后台',
     user: UserInfo.objToJson(current),
     navData: JSON.stringify(navData),
-    tenantContext
+    tenantContext,
+    appMode
   });
+}
+
+// 客户产品：Poleis 控制台。个人/企业用户登录后只见这里。
+exports.dashboard = (req, res) => renderAdminShell(req, res, 'customer');
+
+// 运营后台：平台管理 + 系统管理。仅平台超级管理员可进，否则回客户控制台。
+exports.systemConsole = (req, res) => {
+  const current = CommonUtils.getCurrent(res, req);
+  if (!current) return res.redirect('/login');
+  if (!isSuperAdmin(current)) return res.redirect('/admin');
+  return renderAdminShell(req, res, 'ops');
 };
