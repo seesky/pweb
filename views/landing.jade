@@ -173,7 +173,7 @@ html(lang="zh-CN")
         const navItems = [
           { label: '功能特性', href: '#features' },
           { label: '系统架构', href: '#architecture' },
-          { label: '数据统计', href: '#stats' },
+          { label: '应用场景', href: '#usecases' },
           { label: '关于我们', href: '#about' }
         ];
 
@@ -339,7 +339,7 @@ html(lang="zh-CN")
                 React.createElement(Fade, { in: loaded, timeout: 800 },
                   React.createElement(Box, null,
                     React.createElement(Chip, {
-                      label: '远程控制管理平台',
+                      label: '高性能远程桌面软件',
                       sx: {
                         mb: 3,
                         bgcolor: 'rgba(255,255,255,0.15)',
@@ -356,8 +356,8 @@ html(lang="zh-CN")
                         lineHeight: 1.2,
                         mb: 3
                       }
-                    }, '高效安全的', React.createElement('br', null),
-                      React.createElement('span', { style: { color: '#a5b4fc' } }, '远程控制解决方案')
+                    }, '低延迟远程桌面，', React.createElement('br', null),
+                      React.createElement('span', { style: { color: '#a5b4fc' } }, '随时随地控制你的电脑')
                     ),
                     React.createElement(Typography, {
                       variant: 'h6',
@@ -368,7 +368,7 @@ html(lang="zh-CN")
                         mb: 4,
                         lineHeight: 1.7
                       }
-                    }, 'Poleis 提供企业级远程控制管理能力，支持多终端协同、实时监控、安全认证，让远程管理更简单高效。'),
+                    }, 'Poleis 是一款高性能远程桌面软件。基于硬件编码加速与智能 P2P 穿透技术，让你在任何地方都能获得如本地般的流畅操控体验。'),
                     React.createElement(Stack, {
                       direction: { xs: 'column', sm: 'row' },
                       spacing: 2,
@@ -431,33 +431,32 @@ html(lang="zh-CN")
                         bgcolor: 'rgba(0,0,0,0.3)',
                         borderRadius: 2,
                         p: 2,
-                        mb: 2,
-                        fontFamily: 'monospace',
-                        fontSize: '0.85rem',
-                        color: '#a5b4fc'
+                        mb: 2
                       }
                     },
-                      React.createElement(Typography, { variant: 'caption', color: 'rgba(255,255,255,0.6)' }, 'System Status'),
-                      React.createElement(Box, { sx: { mt: 1 } },
-                        React.createElement(Typography, { variant: 'body2', color: '#4ade80' }, '> Agent Online: 128'),
-                        React.createElement(Typography, { variant: 'body2', color: '#4ade80' }, '> Client Connected: 89'),
-                        React.createElement(Typography, { variant: 'body2', color: '#60a5fa' }, '> Bandwidth: 1.2 GB/s'),
-                        React.createElement(Typography, { variant: 'body2', color: '#fbbf24' }, '> Latency: 12ms')
+                      React.createElement(Typography, { variant: 'caption', color: 'rgba(255,255,255,0.6)' }, '核心技术'),
+                      React.createElement(Box, { sx: { mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 1 } },
+                        React.createElement(Chip, { label: 'H.264 / H.265', size: 'small', sx: { bgcolor: 'rgba(74,222,128,0.2)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' } }),
+                        React.createElement(Chip, { label: 'NVENC / AMF 硬件编码', size: 'small', sx: { bgcolor: 'rgba(96,165,250,0.2)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' } }),
+                        React.createElement(Chip, { label: 'QUIC 加密传输', size: 'small', sx: { bgcolor: 'rgba(251,191,36,0.2)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' } }),
+                        React.createElement(Chip, { label: 'P2P 智能穿透', size: 'small', sx: { bgcolor: 'rgba(167,139,250,0.2)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' } }),
+                        React.createElement(Chip, { label: '60FPS+ 高帧率', size: 'small', sx: { bgcolor: 'rgba(244,114,182,0.2)', color: '#f472b6', border: '1px solid rgba(244,114,182,0.3)' } }),
+                        React.createElement(Chip, { label: '4:4:4 真彩色', size: 'small', sx: { bgcolor: 'rgba(52,211,153,0.2)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' } })
                       )
                     ),
                     React.createElement(Stack, { direction: 'row', spacing: 1, justifyContent: 'center' },
                       React.createElement(Chip, {
-                        label: 'Web Console',
+                        label: 'Windows 控制端',
                         size: 'small',
                         sx: { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff' }
                       }),
                       React.createElement(Chip, {
-                        label: 'Agent',
+                        label: 'Windows 被控端',
                         size: 'small',
                         sx: { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff' }
                       }),
                       React.createElement(Chip, {
-                        label: 'Client',
+                        label: 'Web 管理后台',
                         size: 'small',
                         sx: { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff' }
                       })
@@ -474,34 +473,34 @@ html(lang="zh-CN")
       const FeaturesSection = () => {
         const features = [
           {
-            icon: 'devices',
-            title: '多端协同',
-            description: '支持 Web、Agent、Client 三端协同工作，实现跨平台远程管理，随时随地掌控全局。'
+            icon: 'bolt',
+            title: '超低延迟远程桌面',
+            description: 'NVENC/AMF 硬件编码加速，H.264/H.265 视频压缩，支持 60FPS+ 高帧率与 4:4:4 真彩色，操控响应如本地般流畅。'
           },
           {
-            icon: 'security',
-            title: '安全认证',
-            description: '采用 JWT + 双因素认证（2FA）机制，支持角色权限管理，确保系统访问安全可控。'
+            icon: 'language',
+            title: '智能 P2P 穿透',
+            description: '多 STUN 服务器 NAT 类型检测 + 多策略端口预测打洞，QUIC 加密传输，复杂网络环境下自动中继保底。'
           },
           {
-            icon: 'speed',
-            title: '实时通信',
-            description: '基于 Socket.io 实现实时双向通信，毫秒级消息推送，让远程操作如本地般流畅。'
+            icon: 'screenshot_monitor',
+            title: '多显示器支持',
+            description: '每显示器独立视频流通道，按需切换或合屏显示，支持虚拟显示器适配无头主机，动态分辨率跟随。'
           },
           {
-            icon: 'dashboard',
-            title: '统一管理',
-            description: '集成用户、角色、权限、日志等完整管理功能，一站式后台解决方案。'
+            icon: 'support_agent',
+            title: '远程协助',
+            description: '伙伴 ID + 6 位密码一键连接，无需注册账号即可接受或提供临时技术支持，类似 TeamViewer 使用体验。'
           },
           {
-            icon: 'storage',
-            title: '数据驱动',
-            description: 'MySQL + Redis 双数据库架构，支持高性能数据存储与缓存，保障系统稳定性。'
+            icon: 'drive_folder_upload',
+            title: '文件传输与剪贴板',
+            description: '拖拽传文件、剪贴板双向同步（文本/图片/文件），高效便捷，让远程工作协作无缝衔接。'
           },
           {
-            icon: 'extension',
-            title: '模块化设计',
-            description: '灵活的模块化架构，支持功能扩展与定制，满足不同业务场景需求。'
+            icon: 'sports_esports',
+            title: '外设支持',
+            description: '游戏手柄远程操控（SDL2 采集 + ViGEm 虚拟手柄），支持 Xbox/PS/Switch Pro 控制器，含体感与震动反馈。'
           }
         ];
 
@@ -524,7 +523,7 @@ html(lang="zh-CN")
                 variant: 'h6',
                 color: 'text.secondary',
                 sx: { mt: 2, maxWidth: 600, mx: 'auto', fontWeight: 400 }
-              }, 'Poleis 提供完整的远程控制管理能力，助力企业数字化转型')
+              }, 'Poleis 提供完整的远程控制能力，覆盖从远程办公到 IT 运维的全场景需求')
             ),
             React.createElement(Grid, { container: true, spacing: 3 },
               features.map((feature, index) =>
@@ -545,9 +544,9 @@ html(lang="zh-CN")
       // 系统架构区域
       const ArchitectureSection = () => {
         const components = [
-          { name: 'Web Console', desc: '管理后台', color: '#3040d6', icon: 'web' },
-          { name: 'Agent', desc: '被控端代理', color: '#7c3aed', icon: 'memory' },
-          { name: 'Client', desc: '控制端客户端', color: '#059669', icon: 'computer' }
+          { name: '控制端 (Client)', desc: 'Qt 6 桌面应用，D3D11 零拷贝渲染，SDL2 输入采集，低延迟解码回放', color: '#3040d6', icon: 'computer' },
+          { name: '信令服务 (Server)', desc: 'Socket.io 实时信令调度，UDP 中继服务保底，企业设备管理与审计', color: '#7c3aed', icon: 'cloud' },
+          { name: '被控端 (Agent)', desc: 'DXGI 桌面采集，NVENC/AMF 硬件编码，ViGEm 外设注入，Windows 服务运行', color: '#059669', icon: 'memory' }
         ];
 
         return React.createElement(Box, {
@@ -569,7 +568,7 @@ html(lang="zh-CN")
                 variant: 'h6',
                 color: 'text.secondary',
                 sx: { mt: 2, maxWidth: 600, mx: 'auto', fontWeight: 400 }
-              }, '三端协同，构建完整的远程控制生态系统')
+              }, '控制端与被控端通过信令服务建立 P2P 直连，硬件编码后经 QUIC 通道实时传输')
             ),
             React.createElement(Box, {
               sx: {
@@ -649,7 +648,7 @@ html(lang="zh-CN")
                 useFlexGap: true,
                 sx: { mt: 2 }
               },
-                ['Node.js', 'Express', 'React', 'Material UI', 'Socket.io', 'MySQL', 'Redis', 'Prisma'].map((tech) =>
+                ['C++17', 'Qt 6', 'QUIC', 'NVENC', 'DXGI', 'Node.js', 'Socket.io', 'React', 'MySQL', 'Redis'].map((tech) =>
                   React.createElement(Chip, {
                     key: tech,
                     label: tech,
@@ -663,36 +662,89 @@ html(lang="zh-CN")
         );
       };
 
-      // 数据统计区域
-      const StatsSection = () => {
-        const stats = [
-          { value: 99.9, suffix: '%', label: '系统可用性' },
-          { value: 50, suffix: 'ms', label: '平均响应时间' },
-          { value: 10000, suffix: '+', label: '并发连接支持' },
-          { value: 24, suffix: '/7', label: '全天候服务' }
+      // 应用场景区域
+      const UseCasesSection = () => {
+        const useCases = [
+          {
+            icon: 'home_office',
+            title: '远程办公',
+            description: '随时随地访问办公室电脑，低延迟高清画质，支持多显示器与文件传输，工作效率不打折。'
+          },
+          {
+            icon: 'build',
+            title: 'IT 运维',
+            description: '批量管理企业设备资产，远程故障排查与系统维护，无需亲临现场即可完成日常运维。'
+          },
+          {
+            icon: 'stadia_controller',
+            title: '远程游戏',
+            description: '低延迟游戏串流，支持手柄与键鼠，在外也能畅玩家中高配电脑上的 3A 大作。'
+          },
+          {
+            icon: 'contact_support',
+            title: '临时协助',
+            description: '伙伴 ID + 密码快速连接，无需注册安装，适合帮朋友或家人解决电脑问题。'
+          }
         ];
 
         return React.createElement(Box, {
-          id: 'stats',
+          id: 'usecases',
           sx: {
             py: { xs: 8, md: 12 },
             background: 'linear-gradient(135deg, #1a237e 0%, #3040d6 100%)'
           }
         },
           React.createElement(Container, { maxWidth: 'lg' },
-            React.createElement(Grid, { container: true, spacing: 4, justifyContent: 'center' },
-              stats.map((stat, index) =>
-                React.createElement(Grid, { item: true, xs: 6, md: 3, key: index },
-                  React.createElement(Box, { sx: { textAlign: 'center', color: '#fff' } },
-                    React.createElement(Typography, {
-                      variant: 'h2',
-                      fontWeight: 700,
-                      sx: { color: '#fff', fontSize: { xs: '2rem', md: '3rem' } }
-                    }, stat.value + stat.suffix),
-                    React.createElement(Typography, {
-                      variant: 'body1',
-                      sx: { color: 'rgba(255,255,255,0.7)', mt: 1 }
-                    }, stat.label)
+            React.createElement(Box, { sx: { textAlign: 'center', mb: 8 } },
+              React.createElement(Typography, {
+                variant: 'overline',
+                sx: { color: 'rgba(255,255,255,0.6)', fontWeight: 600, letterSpacing: 2 }
+              }, 'USE CASES'),
+              React.createElement(Typography, {
+                variant: 'h2',
+                sx: { mt: 1, color: '#fff' }
+              }, '应用场景'),
+              React.createElement(Typography, {
+                variant: 'h6',
+                sx: { mt: 2, maxWidth: 600, mx: 'auto', fontWeight: 400, color: 'rgba(255,255,255,0.7)' }
+              }, '覆盖个人到企业的完整远程控制需求')
+            ),
+            React.createElement(Grid, { container: true, spacing: 3, justifyContent: 'center' },
+              useCases.map((uc, index) =>
+                React.createElement(Grid, { item: true, xs: 12, sm: 6, md: 3, key: index },
+                  React.createElement(Grow, { in: true, timeout: 600 + index * 150 },
+                    React.createElement(Paper, {
+                      elevation: 0,
+                      sx: {
+                        height: '100%',
+                        p: 3,
+                        borderRadius: 3,
+                        textAlign: 'center',
+                        bgcolor: 'rgba(255,255,255,0.08)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          bgcolor: 'rgba(255,255,255,0.15)',
+                          transform: 'translateY(-4px)'
+                        }
+                      }
+                    },
+                      React.createElement(Icon, {
+                        sx: { fontSize: 48, color: '#a5b4fc', mb: 2 }
+                      }, uc.icon),
+                      React.createElement(Typography, {
+                        variant: 'h6',
+                        fontWeight: 600,
+                        color: '#fff',
+                        gutterBottom: true
+                      }, uc.title),
+                      React.createElement(Typography, {
+                        variant: 'body2',
+                        color: 'rgba(255,255,255,0.7)',
+                        lineHeight: 1.7
+                      }, uc.description)
+                    )
                   )
                 )
               )
@@ -722,7 +774,7 @@ html(lang="zh-CN")
                 variant: 'h6',
                 color: 'text.secondary',
                 sx: { mt: 3, fontWeight: 400, lineHeight: 1.8 }
-              }, 'Poleis 是一款专为企业和个人设计的远程控制管理平台。我们致力于提供安全、高效、易用的远程管理解决方案，让技术服务于每个人的需求。'),
+              }, 'Poleis 是一款面向企业与个人的高性能远程桌面软件。采用硬件编码加速、QUIC 加密传输与智能 NAT 穿透技术，致力于提供安全、流畅、易用的远程控制体验。支持远程办公、IT 运维、远程游戏等多种应用场景。'),
               React.createElement(Box, { sx: { mt: 4 } },
                 React.createElement(Button, {
                   variant: 'contained',
@@ -754,7 +806,7 @@ html(lang="zh-CN")
               spacing: 2
             },
               React.createElement(Typography, { variant: 'body2' },
-                '\u00A9 2024 Poleis. All rights reserved.'
+                '\u00A9 2026 Poleis. All rights reserved.'
               ),
               React.createElement(Stack, { direction: 'row', spacing: 3 },
                 React.createElement(Typography, {
@@ -784,7 +836,7 @@ html(lang="zh-CN")
             React.createElement(HeroSection, null),
             React.createElement(FeaturesSection, null),
             React.createElement(ArchitectureSection, null),
-            React.createElement(StatsSection, null),
+            React.createElement(UseCasesSection, null),
             React.createElement(AboutSection, null),
             React.createElement(Footer, null)
           )
