@@ -451,6 +451,11 @@ html(lang="zh-CN")
         const currentTenant = data.tenant || {};
         const currentFeatures = data.features || {};
         const isPersonalWorkspace = currentTenant.type === 'personal';
+        // 企业空间内：owner/admin 为租户管理员，拥有全部控制台功能；
+        // 普通成员(member/technician/auditor)只能看到读/自助区块。
+        // 个人空间本人 = 管理员（恒真），便于下面统一判定。
+        const isTenantAdmin = isPersonalWorkspace
+          || (currentTenant.role === 'owner' || currentTenant.role === 'admin');
         const [mobileOpen, setMobileOpen] = useState(false);
         const [collapsed, setCollapsed] = useState(false);
         // 统一 SaaS 平台：控制台即产品本体，所有登录用户都有工作区，始终可见。
@@ -624,10 +629,17 @@ html(lang="zh-CN")
           .filter((node) => !isPeerManageNode(node))
           .map((node) => Object.assign({}, node, { children: stripPeerNodes(node.children || []) }));
         const legacyNav = stripPeerNodes(navTree);
-        // 个人版只暴露精简的控制台分区（我的设备 / 会话 / 总览）；企业/单租户用全集。
+        // 侧栏控制台区块：按用户在当前 workspace 内的角色过滤。
+        // 个人空间 = 本人始终是管理员，可看到个人版全部（PERSONAL_SECTION_KEYS）。
+        // 企业空间 = owner/admin 看全部；普通成员仅看 总览/设备/会话/工单（读+自助）。
         const PERSONAL_SECTION_KEYS = ['overview', 'devices', 'sessions'];
+        const ENTERPRISE_MEMBER_SECTION_KEYS = ['overview', 'devices', 'sessions', 'tickets'];
         const consoleSections = (typeof PM_SECTIONS !== 'undefined' ? PM_SECTIONS : [])
-          .filter((s) => !isPersonalWorkspace || PERSONAL_SECTION_KEYS.includes(s.key));
+          .filter((s) => {
+            if (isPersonalWorkspace) return PERSONAL_SECTION_KEYS.includes(s.key);
+            if (isTenantAdmin) return true;
+            return ENTERPRISE_MEMBER_SECTION_KEYS.includes(s.key);
+          });
 
         const drawer = React.createElement(Box, {
           sx: { p: 1.5, height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5 }

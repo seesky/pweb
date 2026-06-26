@@ -142,12 +142,17 @@ script.
     const currentTenant = data.tenant || {};
     const currentFeatures = data.features || {};
     const isPersonalMode = currentTenant.type === 'personal';
-    const hasDeviceGroups = currentFeatures.deviceGroups !== false && !isPersonalMode;
-    const hasEnrollmentTokens = currentFeatures.enrollmentTokens !== false && !isPersonalMode;
-    const hasAssignments = currentFeatures.assignments !== false && !isPersonalMode;
-    const visibleSections = isPersonalMode
-      ? PM_SECTIONS.filter((item) => ['overview', 'devices', 'sessions'].includes(item.key))
-      : PM_SECTIONS;
+    const isTenantAdmin = isPersonalMode ||
+      (currentTenant.role === 'owner' || currentTenant.role === 'admin');
+    const hasDeviceGroups = currentFeatures.deviceGroups !== false && !isPersonalMode && isTenantAdmin;
+    const hasEnrollmentTokens = currentFeatures.enrollmentTokens !== false && !isPersonalMode && isTenantAdmin;
+    const hasAssignments = currentFeatures.assignments !== false && !isPersonalMode && isTenantAdmin;
+    // 控制台区块可见性：后端 ensureAdmin 已防写，前端侧栏/数据加载亦按角色裁剪。
+    const visibleSections = PM_SECTIONS.filter((item) => {
+      if (isPersonalMode) return ['overview', 'devices', 'sessions'].includes(item.key);
+      if (isTenantAdmin) return true;
+      return ['overview', 'devices', 'sessions', 'tickets'].includes(item.key);
+    });
     const embeddedSection = props && props.section;
     const embedded = !!embeddedSection;
 
@@ -208,21 +213,20 @@ script.
       try {
         const params = new URLSearchParams();
         if (keyword) params.set('keyword', keyword);
+        const noop = (data) => Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true, data }) });
         const resps = await Promise.all([
           fetch(`/management-platform/devices?${params.toString()}`),
-          fetch('/management-platform/device-groups'),
-          isPersonalMode
-            ? Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true, data: [] }) })
-            : fetch('/management-platform/enrollment-tokens'),
+          hasDeviceGroups ? fetch('/management-platform/device-groups') : noop([]),
+          hasEnrollmentTokens ? fetch('/management-platform/enrollment-tokens') : noop([]),
           fetch('/management-platform/sessions'),
-          fetch('/management-platform/permission-profiles'),
-          fetch('/management-platform/assignments'),
-          fetch('/management-platform/users'),
-          fetch('/management-platform/audit-logs'),
-          fetch('/management-platform/members'),
-          fetch('/management-platform/network-overview'),
-          fetch('/management-platform/device-policies'),
-          fetch('/management-platform/client-builds'),
+          isTenantAdmin ? fetch('/management-platform/permission-profiles') : noop([]),
+          hasAssignments ? fetch('/management-platform/assignments') : noop([]),
+          isTenantAdmin ? fetch('/management-platform/users') : noop([]),
+          isTenantAdmin ? fetch('/management-platform/audit-logs') : noop([]),
+          isTenantAdmin ? fetch('/management-platform/members') : noop([]),
+          isTenantAdmin ? fetch('/management-platform/network-overview') : noop(null),
+          isTenantAdmin ? fetch('/management-platform/device-policies') : noop([]),
+          isTenantAdmin ? fetch('/management-platform/client-builds') : noop([]),
           fetch(`/management-platform/tickets${ticketStatusFilter ? '?status=' + ticketStatusFilter : ''}`)
         ]);
         if (resps.some((resp) => resp.status === 401)) { window.location.href = '/login'; return; }
