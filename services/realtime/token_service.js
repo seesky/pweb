@@ -24,6 +24,21 @@ class SocketTokenService {
     return jwt.sign(payload, this.secret, { expiresIn: expiresInSeconds });
   }
 
+  // 设备身份 token：企业版被控主机 enroll 后用它连信令，无需任何用户登录。
+  // payload.kind='device' 区别于用户 token；绑定设备所属企业租户。
+  issueDeviceToken(deviceId, terminalId, tenantId, expiresInSeconds = 60 * 60 * 24 * 3650) {
+    if (!deviceId || !terminalId) {
+      throw new Error('deviceId and terminalId are required to issue device token');
+    }
+    const payload = {
+      kind: 'device',
+      did: deviceId,
+      tid: terminalId,
+      tenant: tenantId || null
+    };
+    return jwt.sign(payload, this.secret, { expiresIn: expiresInSeconds });
+  }
+
   verify(token) {
     try {
       return jwt.verify(token, this.secret);

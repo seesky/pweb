@@ -1,0 +1,107 @@
+doctype html
+html(lang="zh-CN")
+  head
+    meta(charset="utf-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1")
+    title= title || '申请企业账号'
+    link(rel="preconnect" href="https://fonts.googleapis.com")
+    link(rel="preconnect" href="https://fonts.gstatic.com" crossorigin="")
+    link(href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet")
+    style.
+      html, body { height: 100%; margin: 0; font-family: 'Roboto','Noto Sans SC',sans-serif; background: linear-gradient(135deg,#f6f8ff,#eef2ff); }
+      #root { width: 100%; height: 100%; }
+  body
+    div#root
+    script(src="https://unpkg.com/react@18/umd/react.development.js" crossorigin)
+    script(src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@mui/material@5.15.14/umd/material-ui.development.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/react@11.11.4/dist/emotion-react.umd.min.js" crossorigin)
+    script(src="https://cdn.jsdelivr.net/npm/@emotion/styled@11.11.0/dist/emotion-styled.umd.min.js" crossorigin)
+    script.
+      const { useState } = React;
+      const { createRoot } = ReactDOM;
+      const {
+        ThemeProvider, createTheme, CssBaseline, Box, Paper, Typography,
+        TextField, Button, Stack, Alert, CircularProgress, Link
+      } = MaterialUI;
+
+      const theme = createTheme({
+        palette: { mode: 'light', primary: { main: '#6366f1' }, background: { default: '#eef1f8' } },
+        typography: { fontFamily: "'Roboto','Noto Sans SC',sans-serif" },
+        shape: { borderRadius: 14 }
+      });
+
+      const RegisterApp = () => {
+        const [form, setForm] = useState({ companyName: '', username: '', email: '', password: '', confirm: '' });
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState('');
+        const [done, setDone] = useState(null); // { message, verifyUrl }
+        const set = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
+
+        const submit = async (event) => {
+          event.preventDefault();
+          setError('');
+          if (!form.companyName || !form.username || !form.email || !form.password) {
+            setError('请填写所有必填项'); return;
+          }
+          if (form.password !== form.confirm) { setError('两次输入的密码不一致'); return; }
+          setLoading(true);
+          try {
+            const resp = await fetch('/saas/register', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                companyName: form.companyName, username: form.username,
+                email: form.email, password: form.password
+              })
+            });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.message || '申请失败');
+            setDone({ message: result.message || '企业账号已创建，请前往邮箱完成验证', verifyUrl: result.verifyUrl });
+          } catch (err) {
+            setError(err.message || '申请失败，请稍后重试');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        return React.createElement(ThemeProvider, { theme },
+          React.createElement(CssBaseline, null),
+          React.createElement(Box, { sx: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 } },
+            React.createElement(Paper, { elevation: 0, sx: { width: '100%', maxWidth: 440, p: 4, borderRadius: 3, border: '1px solid #eef0f4', boxShadow: '0 10px 40px rgba(16,24,40,.08)' } },
+              React.createElement(Stack, { direction: 'row', spacing: 1.25, alignItems: 'center', sx: { mb: 1 } },
+                React.createElement(Box, { sx: { width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 } }, 'P'),
+                React.createElement(Typography, { variant: 'h5', sx: { fontWeight: 800, color: '#101828' } }, '申请企业账号')
+              ),
+              React.createElement(Typography, { variant: 'body2', sx: { color: '#667085', mb: 3 } }, '创建您的企业空间，邮箱验证后即可使用 Poleis 远程控制管理平台。'),
+              done
+                ? React.createElement(Stack, { spacing: 2 },
+                    React.createElement(Alert, { severity: 'success' }, done.message),
+                    done.verifyUrl
+                      ? React.createElement(Alert, { severity: 'info' },
+                          React.createElement(Box, null,
+                            React.createElement(Typography, { variant: 'body2', sx: { mb: 0.5 } }, '开发环境未配置邮件服务，请直接点击以下链接完成验证：'),
+                            React.createElement(Link, { href: done.verifyUrl, sx: { wordBreak: 'break-all' } }, done.verifyUrl)
+                          )
+                        )
+                      : null,
+                    React.createElement(Button, { variant: 'contained', href: '/login', fullWidth: true }, '前往登录')
+                  )
+                : React.createElement(Stack, { spacing: 2, component: 'form', onSubmit: submit },
+                    error ? React.createElement(Alert, { severity: 'error' }, error) : null,
+                    React.createElement(TextField, { label: '企业名称', value: form.companyName, onChange: set('companyName'), fullWidth: true, required: true }),
+                    React.createElement(TextField, { label: '管理员登录名', value: form.username, onChange: set('username'), fullWidth: true, required: true }),
+                    React.createElement(TextField, { label: '管理员邮箱', type: 'email', value: form.email, onChange: set('email'), fullWidth: true, required: true }),
+                    React.createElement(TextField, { label: '密码', type: 'password', value: form.password, onChange: set('password'), fullWidth: true, required: true }),
+                    React.createElement(TextField, { label: '确认密码', type: 'password', value: form.confirm, onChange: set('confirm'), fullWidth: true, required: true }),
+                    React.createElement(Button, { type: 'submit', variant: 'contained', size: 'large', disabled: loading, fullWidth: true },
+                      loading ? React.createElement(CircularProgress, { size: 20, color: 'inherit' }) : '创建企业账号'),
+                    React.createElement(Box, { sx: { textAlign: 'center' } },
+                      React.createElement(Link, { href: '/login', variant: 'body2' }, '已有账号？返回登录')
+                    )
+                  )
+            )
+          )
+        );
+      };
+
+      createRoot(document.getElementById('root')).render(React.createElement(RegisterApp));

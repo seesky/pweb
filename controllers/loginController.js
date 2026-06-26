@@ -13,7 +13,8 @@ exports.index = (req, res) => {
   if (CommonUtils.getCurrent(res, req)) {
     return res.redirect(SUCCESS_REDIRECT);
   }
-  res.render('login', { title: '后台登录' });
+  // 统一 SaaS 平台：登录页始终展示「申请企业账号」入口。
+  res.render('login', { title: '后台登录', saasMode: true });
 };
 
 exports.checkLogin = async (req, res) => {

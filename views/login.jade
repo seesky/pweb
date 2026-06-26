@@ -12,6 +12,8 @@ html(lang="zh-CN")
       #root { width: 100%; height: 100%; }
   body
     div#root
+    script.
+      window.__SAAS_MODE__ = !{JSON.stringify(!!saasMode)};
     script(src="https://unpkg.com/react@18/umd/react.development.js" crossorigin)
     script(src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin)
     script(src="https://cdn.jsdelivr.net/npm/@mui/material@5.15.14/umd/material-ui.development.js" crossorigin)
@@ -309,7 +311,10 @@ html(lang="zh-CN")
               React.createElement(Stack, { direction: 'row', justifyContent: 'space-between', spacing: 1 },
                 React.createElement(Button, { variant: 'text', size: 'small', onClick: () => setMode('register') }, '没有账号？去注册'),
                 React.createElement(Button, { variant: 'text', size: 'small', onClick: handleForgot }, '忘记密码 / 2FA')
-              )
+              ),
+              (typeof window !== 'undefined' && window.__SAAS_MODE__)
+                ? React.createElement(Button, { variant: 'outlined', size: 'small', href: '/saas/register', fullWidth: true }, '申请企业账号')
+                : null
             )
           : React.createElement(Stack, { spacing: 2, component: 'form', onSubmit: handleRegister },
               React.createElement(TextField, {

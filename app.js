@@ -31,6 +31,8 @@ var messageAdminRouter = require('./routes/messageAdmin');
 var socketRouter = require('./routes/socket');
 var realtimeAdminRouter = require('./routes/realtimeAdmin');
 var managementPlatformRouter = require('./routes/managementPlatform');
+var saasOnboardingRouter = require('./routes/saasOnboarding');
+var platformAdminRouter = require('./routes/platformAdmin');
 
 var app = express();
 
@@ -81,6 +83,9 @@ app.use('/message-admin', messageAdminRouter);
 app.use('/socket', socketRouter);
 app.use('/realtime-admin', realtimeAdminRouter);
 app.use('/', managementPlatformRouter);
+// 企业注册/邮箱验证 + 平台超管控制台（统一 SaaS 平台，始终加载）。
+app.use('/', saasOnboardingRouter);
+app.use('/', platformAdminRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

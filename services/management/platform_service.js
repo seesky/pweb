@@ -91,20 +91,34 @@ const readJsonColumn = (value, fallback = null) => {
   }
 };
 
+// 建表只需一次，跨所有（含 forTenant 派生的）实例共享。
+let SCHEMA_READY = null;
+// 已确保存在（建好+seed）的个人租户，避免每次请求重复 seed。
+const ENSURED_PERSONAL_TENANTS = new Set();
+
 class PlatformService {
   constructor(client = prisma) {
     this.prisma = client;
-    this.schemaReady = null;
+    // 当前实例绑定的租户。默认 = DEFAULT_TENANT_ID（单租户/兼容）；
+    // 多租户下由 forTenant(tenantId) 派生按租户隔离的实例。
+    this.tenantId = DEFAULT_TENANT_ID;
+  }
+
+  // 返回一个绑定到指定租户的轻量实例（复用同一 prisma 与建表状态）。
+  forTenant(tenantId) {
+    const scoped = new PlatformService(this.prisma);
+    scoped.tenantId = tenantId || DEFAULT_TENANT_ID;
+    return scoped;
   }
 
   async ensureSchema() {
-    if (!this.schemaReady) {
-      this.schemaReady = this.createSchema().catch((error) => {
-        this.schemaReady = null;
+    if (!SCHEMA_READY) {
+      SCHEMA_READY = this.createSchema().catch((error) => {
+        SCHEMA_READY = null;
         throw error;
       });
     }
-    return this.schemaReady;
+    return SCHEMA_READY;
   }
 
   async createSchema() {
@@ -113,6 +127,8 @@ class PlatformService {
         ID varchar(40) NOT NULL PRIMARY KEY,
         NAME varchar(200) NOT NULL,
         EDITION varchar(20) NOT NULL DEFAULT 'personal',
+        STATUS varchar(20) NOT NULL DEFAULT 'active',
+        OWNERUSERID varchar(40) NULL,
         MAX_MEMBERS int NOT NULL DEFAULT 0,
         MAX_DEVICES int NOT NULL DEFAULT 0,
         BRANDING json NULL,
@@ -385,18 +401,40 @@ class PlatformService {
     for (const sql of statements) {
       await this.prisma.$executeRawUnsafe(sql);
     }
+    // 幂等迁移：给已存在的 poleis_tenant 补 SaaS 所需列（重复列报错忽略）。
+    const migrations = [
+      `ALTER TABLE poleis_tenant ADD COLUMN STATUS varchar(20) NOT NULL DEFAULT 'active'`,
+      `ALTER TABLE poleis_tenant ADD COLUMN OWNERUSERID varchar(40) NULL`
+    ];
+    for (const sql of migrations) {
+      try {
+        await this.prisma.$executeRawUnsafe(sql);
+      } catch (e) {
+        // 列已存在 (MySQL 1060) 等 -> 忽略
+      }
+    }
     await this.seedDefaults();
   }
 
   async seedDefaults() {
+    // 默认租户（single/personal 退化时使用），状态 active。
     await this.prisma.$executeRawUnsafe(
-      `INSERT IGNORE INTO poleis_tenant (ID, NAME, EDITION, CREATEON)
-       VALUES (?, ?, ?, NOW())`,
+      `INSERT IGNORE INTO poleis_tenant (ID, NAME, EDITION, STATUS, CREATEON)
+       VALUES (?, ?, ?, 'active', NOW())`,
       DEFAULT_TENANT_ID,
       DEFAULT_TENANT_NAME,
       DEFAULT_EDITION
     );
+    await this.seedTenantDefaults(DEFAULT_TENANT_ID);
+  }
 
+  // 为某个租户预置内置权限模板 + 默认设备策略。新建租户时调用。
+  // 内置记录 ID 按租户命名空间，默认租户沿用历史 ID（避免与既有数据重复）。
+  async seedTenantDefaults(tenantId) {
+    // 注意：不要在此调用 ensureSchema()。本方法会被 createSchema()→seedDefaults()
+    // 在 ensureSchema 的 promise 尚未 resolve 时调用，自等会死锁。
+    // 外部调用方（ensurePersonalTenant / createTenant 等）已各自先 ensureSchema。
+    const px = (tenantId === DEFAULT_TENANT_ID) ? '' : (tenantId + ':');
     const profiles = [
       ['builtin-view-only', 'Read-only audit', 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
       ['builtin-personal', 'Personal remote access', 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
@@ -410,36 +448,262 @@ class PlatformService {
           MULTI_MONITOR, GAMEPAD, REMOTE_REBOOT, PRIVACY_SCREEN, RECORD_SESSION,
           REQUIRE_CONFIRM, IDLE_TIMEOUT_SEC, CREATEON)
          VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        p[0],
-        DEFAULT_TENANT_ID,
-        p[1],
-        p[2],
-        p[3],
-        p[4],
-        p[5],
-        p[6],
-        p[7],
-        p[8],
-        p[9],
-        p[10],
-        p[11],
-        p[12]
+        px + p[0], tenantId, p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12]
       );
     }
-
     await this.prisma.$executeRawUnsafe(
       `INSERT IGNORE INTO poleis_device_policy (ID, TENANTID, NAME, ISBUILTIN, PRIORITY, SETTINGS, CREATEON)
        VALUES (?, ?, ?, 1, 0, ?, NOW())`,
-      'builtin-default-policy',
-      DEFAULT_TENANT_ID,
-      '默认策略',
-      JSON.stringify(DEFAULT_POLICY_SETTINGS)
+      px + 'builtin-default-policy', tenantId, '默认策略', JSON.stringify(DEFAULT_POLICY_SETTINGS)
     );
+  }
+
+  // ---------- 租户（SaaS） ----------
+  formatTenant(row) {
+    return {
+      id: row.ID,
+      name: row.NAME,
+      edition: row.EDITION,
+      status: row.STATUS || 'active',
+      ownerUserId: row.OWNERUSERID || '',
+      maxMembers: row.MAX_MEMBERS || 0,
+      maxDevices: row.MAX_DEVICES || 0,
+      createdAt: row.CREATEON
+    };
+  }
+
+  async getTenant(tenantId) {
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT * FROM poleis_tenant WHERE ID = ? AND DELETEMARK = 0 LIMIT 1`, tenantId
+    );
+    return rows[0] ? this.formatTenant(rows[0]) : null;
+  }
+
+  // 创建企业租户（SaaS 注册）。status 默认 pending（待邮箱验证激活）。
+  async createTenant({ name, edition = 'enterprise', ownerUserId = null, status = 'pending', maxMembers = 0, maxDevices = 0 }) {
+    await this.ensureSchema();
+    const id = randomUUID();
+    await this.prisma.$executeRawUnsafe(
+      `INSERT INTO poleis_tenant (ID, NAME, EDITION, STATUS, OWNERUSERID, MAX_MEMBERS, MAX_DEVICES, CREATEON)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      id, String(name || '').trim() || '企业', edition, status,
+      normalizeNullable(ownerUserId), Number(maxMembers || 0), Number(maxDevices || 0)
+    );
+    return this.getTenant(id);
+  }
+
+  // 平台超管：跨租户列出所有企业（含用量统计）。全局，不按 this.tenantId。
+  async listTenants() {
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT t.*,
+         (SELECT COUNT(*) FROM poleis_member m WHERE m.TENANTID = t.ID AND m.DELETEMARK = 0) AS MEMBERCOUNT,
+         (SELECT COUNT(*) FROM poleis_device d WHERE d.TENANTID = t.ID AND d.DELETEMARK = 0) AS DEVICECOUNT,
+         (SELECT COUNT(*) FROM poleis_device d WHERE d.TENANTID = t.ID AND d.DELETEMARK = 0 AND d.STATUS = 'online') AS ONLINECOUNT,
+         (SELECT COUNT(*) FROM poleis_session s WHERE s.TENANTID = t.ID AND s.DELETEMARK = 0) AS SESSIONCOUNT,
+         u.USERNAME AS OWNERNAME, u.EMAIL AS OWNEREMAIL
+       FROM poleis_tenant t
+       LEFT JOIN piuser u ON u.ID = t.OWNERUSERID
+       WHERE t.DELETEMARK = 0
+       ORDER BY (t.STATUS = 'pending') DESC, t.CREATEON DESC
+       LIMIT 500`
+    );
+    return rows.map((r) => ({
+      ...this.formatTenant(r),
+      ownerName: r.OWNERNAME || '',
+      ownerEmail: r.OWNEREMAIL || '',
+      memberCount: Number(r.MEMBERCOUNT || 0),
+      deviceCount: Number(r.DEVICECOUNT || 0),
+      onlineCount: Number(r.ONLINECOUNT || 0),
+      sessionCount: Number(r.SESSIONCOUNT || 0)
+    }));
+  }
+
+  // 平台超管：修改租户名称/版本/配额。全局。
+  async updateTenant(tenantId, payload = {}) {
+    await this.ensureSchema();
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE poleis_tenant
+          SET NAME = COALESCE(?, NAME),
+              EDITION = COALESCE(?, EDITION),
+              MAX_MEMBERS = COALESCE(?, MAX_MEMBERS),
+              MAX_DEVICES = COALESCE(?, MAX_DEVICES),
+              MODIFIEDON = NOW()
+        WHERE ID = ?`,
+      payload.name !== undefined ? String(payload.name).trim() : null,
+      payload.edition !== undefined ? String(payload.edition) : null,
+      payload.maxMembers !== undefined ? Number(payload.maxMembers) : null,
+      payload.maxDevices !== undefined ? Number(payload.maxDevices) : null,
+      tenantId
+    );
+    return this.getTenant(tenantId);
+  }
+
+  async setTenantStatus(tenantId, status) {
+    await this.ensureSchema();
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE poleis_tenant SET STATUS = ?, MODIFIEDON = NOW() WHERE ID = ?`,
+      status, tenantId
+    );
+    return this.getTenant(tenantId);
+  }
+
+  async countMembers(tenantId) {
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS c FROM poleis_member WHERE TENANTID = ? AND DELETEMARK = 0`, tenantId
+    );
+    return Number(rows[0]?.c || 0);
+  }
+
+  async countDevices(tenantId) {
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS c FROM poleis_device WHERE TENANTID = ? AND DELETEMARK = 0`, tenantId
+    );
+    return Number(rows[0]?.c || 0);
   }
 
   async getTenantId() {
     await this.ensureSchema();
-    return DEFAULT_TENANT_ID;
+    return this.tenantId;
+  }
+
+  // 个人版：每个账号一个独立空间（tenantId = u:<userId>），首次访问惰性创建并 seed。
+  async ensurePersonalTenant(userId, userName) {
+    if (!userId) return null;
+    const tid = 'u:' + userId;
+    if (ENSURED_PERSONAL_TENANTS.has(tid)) return tid;
+    await this.ensureSchema();
+    await this.prisma.$executeRawUnsafe(
+      `INSERT IGNORE INTO poleis_tenant (ID, NAME, EDITION, STATUS, OWNERUSERID, CREATEON)
+       VALUES (?, ?, 'personal', 'active', ?, NOW())`,
+      tid, (userName ? `${userName} 的空间` : '个人空间'), userId
+    );
+    // 自愈：个人空间(u:*)的 EDITION 必须为 personal，纠正历史漂移。
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE poleis_tenant SET EDITION = 'personal'
+        WHERE ID = ? AND EDITION <> 'personal'`,
+      tid
+    );
+    await this.seedTenantDefaults(tid);
+    await this.prisma.$executeRawUnsafe(
+      `INSERT IGNORE INTO poleis_member (ID, TENANTID, USERID, ROLE, CREATEON)
+       VALUES (?, ?, ?, 'owner', NOW())`,
+      randomUUID(), tid, userId
+    );
+    ENSURED_PERSONAL_TENANTS.add(tid);
+    return tid;
+  }
+
+  // 全局查询用户在某租户内的成员角色（用于租户管理员判定）。
+  async getMemberRole(tenantId, userId) {
+    if (!tenantId || !userId) return null;
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT ROLE FROM poleis_member
+        WHERE TENANTID = ? AND USERID = ? AND ENABLED = 1 AND DELETEMARK = 0 LIMIT 1`,
+      tenantId, userId
+    );
+    return rows[0]?.ROLE || null;
+  }
+
+  // 全局（跨租户）解析用户所属租户：用于多租户登录后确定 req.tenantId。
+  // 一个账号只属于一个企业（取最近一条有效成员记录）。
+  async getTenantForUser(userId) {
+    if (!userId) return null;
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT TENANTID FROM poleis_member
+        WHERE USERID = ? AND ENABLED = 1 AND DELETEMARK = 0
+        ORDER BY CREATEON ASC LIMIT 1`,
+      userId
+    );
+    return rows[0]?.TENANTID || null;
+  }
+
+  async listTenantsForUser(userId) {
+    if (!userId) return [];
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT t.*, m.ROLE AS MEMBERROLE
+         FROM poleis_member m
+         JOIN poleis_tenant t ON t.ID = m.TENANTID
+        WHERE m.USERID = ?
+          AND m.ENABLED = 1
+          AND m.DELETEMARK = 0
+          AND t.DELETEMARK = 0
+        ORDER BY (t.EDITION = 'personal') DESC, t.CREATEON ASC`,
+      userId
+    );
+    return rows.map((row) => ({
+      ...this.formatTenant(row),
+      role: row.MEMBERROLE || ''
+    }));
+  }
+
+  // 控制端发现：列出某用户在其所有 workspace 内「可连接」的设备。
+  // = 个人空间自有(owner) 设备 ∪ 各企业内被授权(assignment：user/member_role,
+  //   含设备组展开,含时间窗) 的设备。每条带 workspace 标签 + 在线状态 + terminalId。
+  // 这是 isAuthorized 的「列举」反向版，给 GUI 控制端按 workspace 分组展示。
+  async listAccessibleDevices(userId) {
+    if (!userId) return [];
+    await this.ensureSchema();
+    const tenants = await this.listTenantsForUser(userId);
+    const out = [];
+    const seen = new Set();
+    for (const t of tenants) {
+      const isPersonal = String(t.id).startsWith('u:');
+      const rows = await this.prisma.$queryRawUnsafe(
+        `SELECT d.*, CASE WHEN d.OWNERUSERID = ? THEN 'owner' ELSE 'assignment' END AS ACCESSREASON
+           FROM poleis_device d
+          WHERE d.TENANTID = ? AND d.DELETEMARK = 0 AND d.ENABLED = 1
+            AND (
+              d.OWNERUSERID = ?
+              OR EXISTS (
+                SELECT 1 FROM poleis_device_assignment a
+                 WHERE a.TENANTID = d.TENANTID AND a.ENABLED = 1 AND a.DELETEMARK = 0
+                   AND (
+                     (a.SUBJECTTYPE = 'user' AND a.SUBJECTID = ?)
+                     OR (a.SUBJECTTYPE = 'member_role' AND a.SUBJECTID IN (
+                           SELECT ROLE FROM poleis_member
+                            WHERE TENANTID = a.TENANTID AND USERID = ? AND ENABLED = 1 AND DELETEMARK = 0))
+                   )
+                   AND (
+                     (a.TARGETTYPE = 'device' AND a.TARGETID = d.ID)
+                     OR (a.TARGETTYPE = 'device_group' AND a.TARGETID = d.GROUPID)
+                   )
+                   AND (a.STARTDATE IS NULL OR a.STARTDATE <= NOW())
+                   AND (a.ENDDATE IS NULL OR a.ENDDATE >= NOW())
+              )
+            )
+          ORDER BY (d.STATUS = 'online') DESC, d.LASTSEEN DESC
+          LIMIT 500`,
+        userId, t.id, userId, userId, userId
+      );
+      for (const r of rows) {
+        if (seen.has(r.ID)) continue; // 同设备只出现一次（个人优先于企业）
+        seen.add(r.ID);
+        out.push({
+          id: r.ID,
+          terminalId: r.TERMINALID,
+          alias: r.ALIAS || '',
+          hostname: r.HOSTNAME || '',
+          name: r.ALIAS || r.HOSTNAME || r.TERMINALID,
+          os: r.OS || '',
+          status: r.STATUS || 'offline',
+          online: r.STATUS === 'online',
+          lastSeen: r.LASTSEEN,
+          ownerUserId: r.OWNERUSERID || '',
+          tenantId: t.id,
+          workspaceName: t.name || (isPersonal ? '个人空间' : '企业空间'),
+          workspaceType: isPersonal ? 'personal' : 'enterprise',
+          accessReason: r.ACCESSREASON
+        });
+      }
+    }
+    return out;
   }
 
   formatDevice(row) {
@@ -477,13 +741,15 @@ class PlatformService {
     const existing = await this.getDeviceByTerminal(terminalId);
     if (!existing) {
       const id = randomUUID();
+      // 自动 presence 创建的设备 ENROLLEDAT=NULL（未纳管）；正式 enroll 才置时间。
+      // 以此区分「未纳管设备(租户可随登录用户变)」与「已纳管设备(租户钉死)」。
       await this.prisma.$executeRawUnsafe(
         `INSERT INTO poleis_device
          (ID, TENANTID, TERMINALID, OWNERUSERID, HOSTNAME, OS, OSVERSION, CLIENTVERSION,
           LASTIP, NATTYPE, STATUS, LASTSEEN, ENROLLEDAT, CREATEON, CREATEUSERID)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW(), ?)`,
         id,
-        DEFAULT_TENANT_ID,
+        this.tenantId,
         terminalId,
         normalizeNullable(userId),
         hostname,
@@ -494,7 +760,6 @@ class PlatformService {
         natType,
         status,
         now,
-        now,
         normalizeNullable(userId)
       );
       return this.getDeviceById(id);
@@ -502,7 +767,8 @@ class PlatformService {
 
     await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_device
-          SET OWNERUSERID = COALESCE(OWNERUSERID, ?),
+          SET TENANTID = CASE WHEN ENROLLEDAT IS NULL THEN ? ELSE TENANTID END,
+              OWNERUSERID = COALESCE(OWNERUSERID, ?),
               HOSTNAME = COALESCE(?, HOSTNAME),
               OS = COALESCE(?, OS),
               OSVERSION = COALESCE(?, OSVERSION),
@@ -513,6 +779,7 @@ class PlatformService {
               LASTSEEN = ?,
               MODIFIEDON = ?
         WHERE TERMINALID = ?`,
+      this.tenantId,
       normalizeNullable(userId),
       hostname,
       normalizeNullable(os || deviceInfo.os),
@@ -559,7 +826,7 @@ class PlatformService {
 
   async listDevices(filters = {}) {
     await this.ensureSchema();
-    const params = [DEFAULT_TENANT_ID];
+    const params = [this.tenantId];
     let where = `d.TENANTID = ? AND d.DELETEMARK = 0`;
     if (filters.status) {
       where += ` AND d.STATUS = ?`;
@@ -604,7 +871,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return this.getDeviceById(id);
   }
@@ -620,7 +887,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
   }
 
@@ -658,7 +925,7 @@ class PlatformService {
       `SELECT * FROM poleis_device_group
         WHERE TENANTID = ? AND DELETEMARK = 0
         ORDER BY CREATEON ASC`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return rows.map((row) => ({
       id: row.ID,
@@ -678,7 +945,7 @@ class PlatformService {
        (ID, TENANTID, PARENTID, NAME, POLICYID, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       normalizeNullable(payload.parentId),
       String(payload.name || '').trim(),
       normalizeNullable(payload.policyId),
@@ -697,7 +964,7 @@ class PlatformService {
        (ID, TENANTID, TOKEN, OWNERUSERID, GROUPID, POLICYID, MAXUSES, EXPIRESAT, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       token,
       normalizeNullable(payload.ownerUserId || user.Id),
       normalizeNullable(payload.groupId),
@@ -726,7 +993,7 @@ class PlatformService {
         WHERE TENANTID = ? AND DELETEMARK = 0
         ORDER BY CREATEON DESC
         LIMIT 100`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return rows.map((row) => this.formatEnrollmentToken(row));
   }
@@ -741,7 +1008,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
   }
 
@@ -792,6 +1059,20 @@ class PlatformService {
       throw error;
     }
 
+    // 设备配额：新设备纳管不得超过令牌所属租户的 MAX_DEVICES（0=不限）。重复纳管不计。
+    const existingDevice = await this.getDeviceByTerminal(terminalId);
+    if (!existingDevice && record.TENANTID) {
+      const tenant = await this.getTenant(record.TENANTID);
+      if (tenant && tenant.maxDevices > 0) {
+        const count = await this.countDevices(record.TENANTID);
+        if (count >= tenant.maxDevices) {
+          const error = new Error('device quota exceeded');
+          error.code = 'QUOTA_EXCEEDED';
+          throw error;
+        }
+      }
+    }
+
     await this.upsertDeviceFromPresence({
       userId: record.OWNERUSERID,
       terminalId,
@@ -829,7 +1110,7 @@ class PlatformService {
       `SELECT * FROM poleis_permission_profile
         WHERE TENANTID = ? AND DELETEMARK = 0
         ORDER BY ISBUILTIN DESC, NAME ASC`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return rows.map((row) => ({
       id: row.ID,
@@ -893,7 +1174,7 @@ class PlatformService {
         REQUIRE_CONFIRM, IDLE_TIMEOUT_SEC, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       name,
       ...this.profileCapabilityArgs(payload),
       normalizeNullable(user.Id),
@@ -923,7 +1204,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return this.getProfileById(id);
   }
@@ -933,7 +1214,7 @@ class PlatformService {
     const rows = await this.prisma.$queryRawUnsafe(
       `SELECT ISBUILTIN FROM poleis_permission_profile WHERE ID = ? AND TENANTID = ? AND DELETEMARK = 0 LIMIT 1`,
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     if (!rows.length) return;
     if (rows[0].ISBUILTIN === 1) {
@@ -949,7 +1230,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
   }
 
@@ -970,7 +1251,7 @@ class PlatformService {
       `SELECT * FROM poleis_device_policy
         WHERE TENANTID = ? AND DELETEMARK = 0
         ORDER BY ISBUILTIN DESC, PRIORITY DESC, NAME ASC`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return rows.map((row) => this.formatPolicy(row));
   }
@@ -994,7 +1275,7 @@ class PlatformService {
       `INSERT INTO poleis_device_policy (ID, TENANTID, NAME, ISBUILTIN, PRIORITY, SETTINGS, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, 0, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       name,
       Number(payload.priority || 0),
       JSON.stringify(normalizePolicySettings(payload.settings || payload)),
@@ -1023,7 +1304,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return this.getPolicyById(id);
   }
@@ -1033,7 +1314,7 @@ class PlatformService {
     const rows = await this.prisma.$queryRawUnsafe(
       `SELECT ISBUILTIN FROM poleis_device_policy WHERE ID = ? AND TENANTID = ? AND DELETEMARK = 0 LIMIT 1`,
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     if (!rows.length) return;
     if (rows[0].ISBUILTIN === 1) {
@@ -1044,11 +1325,11 @@ class PlatformService {
     // 解绑引用了该策略的设备 / 设备组，避免悬挂引用。
     await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_device SET POLICYID = NULL WHERE TENANTID = ? AND POLICYID = ?`,
-      DEFAULT_TENANT_ID, id
+      this.tenantId, id
     );
     await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_device_group SET POLICYID = NULL WHERE TENANTID = ? AND POLICYID = ?`,
-      DEFAULT_TENANT_ID, id
+      this.tenantId, id
     );
     await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_device_policy
@@ -1058,7 +1339,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
   }
 
@@ -1091,7 +1372,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return (await this.listGroups()).find((group) => group.id === id);
   }
@@ -1116,7 +1397,7 @@ class PlatformService {
         WHERE TENANTID = ? AND DELETEMARK = 0
         ORDER BY CREATEON DESC
         LIMIT 200`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return rows.map((row) => this.formatClientBuild(row));
   }
@@ -1140,7 +1421,7 @@ class PlatformService {
       `INSERT INTO poleis_client_build (ID, TENANTID, VERSION, CHANNEL, URL, NOTES, PRESET, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       version,
       channel,
       normalizeNullable(payload.url),
@@ -1175,7 +1456,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return this.getClientBuild(id);
   }
@@ -1190,7 +1471,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
   }
 
@@ -1217,7 +1498,7 @@ class PlatformService {
 
   async listTickets(filters = {}) {
     await this.ensureSchema();
-    const params = [DEFAULT_TENANT_ID];
+    const params = [this.tenantId];
     let where = `t.TENANTID = ? AND t.DELETEMARK = 0`;
     if (filters.status) { where += ` AND t.STATUS = ?`; params.push(filters.status); }
     if (filters.keyword) {
@@ -1244,7 +1525,7 @@ class PlatformService {
          FROM poleis_ticket t
          LEFT JOIN poleis_device d ON d.ID = t.DEVICEID
         WHERE t.ID = ? AND t.TENANTID = ? AND t.DELETEMARK = 0 LIMIT 1`,
-      id, DEFAULT_TENANT_ID
+      id, this.tenantId
     );
     if (!rows[0]) return null;
     const ticket = this.formatTicket({ ...rows[0], DEVICENAME: rows[0].DEVICEALIAS || rows[0].DEVICEHOSTNAME || '' });
@@ -1273,7 +1554,7 @@ class PlatformService {
        (ID, TENANTID, TITLE, DESCRIPTION, REQUESTERID, REQUESTERNAME, STATUS, PRIORITY, DEVICEID, SESSIONID, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       title,
       normalizeNullable(payload.description),
       normalizeNullable(payload.requesterId || user.Id),
@@ -1325,7 +1606,7 @@ class PlatformService {
         normalizeNullable(user.Id),
         normalizeNullable(user.RealName),
         id,
-        DEFAULT_TENANT_ID
+        this.tenantId
       ]
     );
     return this.getTicket(id);
@@ -1347,25 +1628,29 @@ class PlatformService {
     // 添加评论也顺手刷新工单更新时间
     await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_ticket SET MODIFIEDON = NOW() WHERE ID = ? AND TENANTID = ?`,
-      id, DEFAULT_TENANT_ID
+      id, this.tenantId
     );
     return this.getTicket(id);
   }
 
+  // 列出「本租户成员」对应的账号（授权主体选择器用）。
+  // 必须按 this.tenantId 经 poleis_member 限定——否则会跨租户泄露全平台账号。
   async listUsers(filters = {}) {
     await this.ensureSchema();
-    const params = [];
-    let where = `DELETEMARK = 0 AND ENABLED = 1`;
+    const params = [this.tenantId];
+    let where = `m.TENANTID = ? AND m.ENABLED = 1 AND m.DELETEMARK = 0
+                 AND u.DELETEMARK = 0`;
     if (filters.keyword) {
       const like = `%${filters.keyword}%`;
-      where += ` AND (ID LIKE ? OR USERNAME LIKE ? OR REALNAME LIKE ? OR CODE LIKE ?)`;
-      params.push(like, like, like, like);
+      where += ` AND (u.ID LIKE ? OR u.USERNAME LIKE ? OR u.REALNAME LIKE ? OR u.CODE LIKE ? OR u.EMAIL LIKE ?)`;
+      params.push(like, like, like, like, like);
     }
     const rows = await this.prisma.$queryRawUnsafe(
-      `SELECT ID, USERNAME, REALNAME, CODE, EMAIL
-         FROM piuser
+      `SELECT u.ID, u.USERNAME, u.REALNAME, u.CODE, u.EMAIL
+         FROM poleis_member m
+         JOIN piuser u ON u.ID = m.USERID
         WHERE ${where}
-        ORDER BY SORTCODE ASC, USERNAME ASC
+        ORDER BY u.SORTCODE ASC, u.USERNAME ASC
         LIMIT 200`,
       ...params
     );
@@ -1379,6 +1664,40 @@ class PlatformService {
     }));
   }
 
+  // 一个账号只属于一个企业：返回该用户已加入的「其它企业 workspace」ID（若有）。
+  // 个人空间(EDITION=personal)不计入。用于成员邀请前的归属冲突校验。
+  async getUserOtherEnterpriseTenantId(userId, exceptTenantId) {
+    if (!userId) return null;
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT t.ID, t.NAME FROM poleis_member m
+         JOIN poleis_tenant t ON t.ID = m.TENANTID
+        WHERE m.USERID = ? AND m.ENABLED = 1 AND m.DELETEMARK = 0
+          AND t.DELETEMARK = 0 AND t.EDITION = 'enterprise'
+          AND t.ID NOT LIKE 'u:%'
+          AND t.ID <> ?
+        LIMIT 1`,
+      userId, exceptTenantId || ''
+    );
+    return rows[0] ? { id: rows[0].ID, name: rows[0].NAME } : null;
+  }
+
+  // 企业空间用量（配额展示）。
+  async getTenantUsage(tenantId) {
+    await this.ensureSchema();
+    const tenant = await this.getTenant(tenantId);
+    const [members, devices] = await Promise.all([
+      this.countMembers(tenantId),
+      this.countDevices(tenantId)
+    ]);
+    return {
+      members,
+      devices,
+      maxMembers: tenant ? tenant.maxMembers : 0,
+      maxDevices: tenant ? tenant.maxDevices : 0
+    };
+  }
+
   async listAssignments() {
     await this.ensureSchema();
     const rows = await this.prisma.$queryRawUnsafe(
@@ -1390,7 +1709,7 @@ class PlatformService {
         WHERE a.TENANTID = ? AND a.DELETEMARK = 0
         ORDER BY a.CREATEON DESC
         LIMIT 200`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return rows.map((row) => ({
       id: row.ID,
@@ -1417,7 +1736,7 @@ class PlatformService {
         STARTDATE, ENDDATE, ALLOWEDCIDR, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       normalizeNullable(payload.subjectType) || 'user',
       normalizeNullable(payload.subjectId),
       normalizeNullable(payload.targetType) || 'device',
@@ -1442,7 +1761,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
   }
 
@@ -1452,8 +1771,11 @@ class PlatformService {
     if (!device || !device.enabled) {
       return { allowed: false, reason: 'DEVICE_NOT_REGISTERED' };
     }
+    // 信令路径无登录态：以「设备所属租户」为准（而非本实例默认租户）。
+    const tid = device.tenantId || this.tenantId;
+    const tsvc = this.forTenant(tid);
     if (device.ownerUserId && controllerUserId && device.ownerUserId === controllerUserId) {
-      const ownerPolicy = await this.resolveDevicePolicy(device);
+      const ownerPolicy = await tsvc.resolveDevicePolicy(device);
       return { allowed: true, device, reason: 'OWNER', profileId: null, profile: OWNER_PROFILE, policy: ownerPolicy };
     }
 
@@ -1480,9 +1802,9 @@ class PlatformService {
           AND (ENDDATE IS NULL OR ENDDATE >= ?)
         ORDER BY (TARGETTYPE = 'device') DESC
         LIMIT 1`,
-      DEFAULT_TENANT_ID,
+      tid,
       controllerUserId || '',
-      DEFAULT_TENANT_ID,
+      tid,
       controllerUserId || '',
       device.id,
       device.groupId || '',
@@ -1499,8 +1821,8 @@ class PlatformService {
     if (allowedCidr && ip && !allowedCidr.split(',').map((v) => v.trim()).includes(ip)) {
       return { allowed: false, reason: 'IP_NOT_ALLOWED', device };
     }
-    const profile = await this.resolveProfile(rows[0].PROFILEID);
-    const policy = await this.resolveDevicePolicy(device);
+    const profile = await tsvc.resolveProfile(rows[0].PROFILEID);
+    const policy = await tsvc.resolveDevicePolicy(device);
     return {
       allowed: true,
       device,
@@ -1523,7 +1845,7 @@ class PlatformService {
         PROFILEID, STARTAT, TRANSPORT, RESULT, CREATEON, CREATEUSERID)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      device.tenantId || this.tenantId,
       normalizeNullable(controllerUserId) || '',
       normalizeNullable(controllerTerminal),
       device.id,
@@ -1539,10 +1861,10 @@ class PlatformService {
 
   async getSession(id) {
     await this.ensureSchema();
+    // 会话 ID 全局唯一；信令侧强制断开走默认单例，按 ID 全局查询即可。
     const rows = await this.prisma.$queryRawUnsafe(
-      `SELECT * FROM poleis_session WHERE ID = ? AND TENANTID = ? LIMIT 1`,
-      id,
-      DEFAULT_TENANT_ID
+      `SELECT * FROM poleis_session WHERE ID = ? LIMIT 1`,
+      id
     );
     if (!rows[0]) return null;
     const r = rows[0];
@@ -1584,19 +1906,59 @@ class PlatformService {
     );
   }
 
+  async addSessionEventOnce(sessionId, type, payload = {}) {
+    if (!sessionId || !type) return false;
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT ID FROM poleis_session_event WHERE SESSIONID = ? AND TYPE = ? LIMIT 1`,
+      sessionId,
+      type
+    );
+    if (rows.length) return false;
+    await this.addSessionEvent(sessionId, type, payload);
+    return true;
+  }
+
+  async addSessionEventToActiveBetween(terminalA, terminalB, type, payload = {}) {
+    if (!terminalA || !terminalB || !type) return [];
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT ID FROM poleis_session
+        WHERE RESULT = 'active'
+          AND DELETEMARK = 0
+          AND (
+            (CONTROLLERTERMINAL = ? AND TARGETTERMINAL = ?)
+            OR
+            (CONTROLLERTERMINAL = ? AND TARGETTERMINAL = ?)
+          )
+        ORDER BY STARTAT DESC`,
+      terminalA,
+      terminalB,
+      terminalB,
+      terminalA
+    );
+    const touched = [];
+    for (const row of rows) {
+      await this.addSessionEventOnce(row.ID, type, payload);
+      touched.push(row.ID);
+    }
+    return touched;
+  }
+
   async completeSession(sessionId, result, extra = {}) {
     if (!sessionId) return;
     await this.ensureSchema();
     const rows = await this.prisma.$queryRawUnsafe(
-      `SELECT STARTAT FROM poleis_session WHERE ID = ? LIMIT 1`,
+      `SELECT STARTAT, RESULT FROM poleis_session WHERE ID = ? LIMIT 1`,
       sessionId
     );
+    if (!rows[0] || rows[0].RESULT !== 'active') return;
     const start = rows[0]?.STARTAT ? new Date(rows[0].STARTAT).getTime() : Date.now();
     const end = new Date();
-    await this.prisma.$executeRawUnsafe(
+    const updated = await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_session
           SET ENDAT = ?, DURATIONSEC = ?, RESULT = ?, FAILREASON = ?, TRANSPORT = COALESCE(?, TRANSPORT), MODIFIEDON = ?
-        WHERE ID = ?`,
+        WHERE ID = ? AND RESULT = 'active'`,
       end,
       Math.max(0, Math.floor((end.getTime() - start) / 1000)),
       result,
@@ -1605,12 +1967,59 @@ class PlatformService {
       end,
       sessionId
     );
+    if (!updated) return;
     await this.addSessionEvent(sessionId, result === 'failed' ? 'failed' : 'disconnect', extra);
+  }
+
+  async completeActiveSessionsBetween(terminalA, terminalB, result = 'ended', extra = {}) {
+    if (!terminalA || !terminalB) return [];
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT ID FROM poleis_session
+        WHERE RESULT = 'active'
+          AND DELETEMARK = 0
+          AND (
+            (CONTROLLERTERMINAL = ? AND TARGETTERMINAL = ?)
+            OR
+            (CONTROLLERTERMINAL = ? AND TARGETTERMINAL = ?)
+          )
+        ORDER BY STARTAT DESC`,
+      terminalA,
+      terminalB,
+      terminalB,
+      terminalA
+    );
+    const completed = [];
+    for (const row of rows) {
+      await this.completeSession(row.ID, result, extra);
+      completed.push(row.ID);
+    }
+    return completed;
+  }
+
+  async completeActiveSessionsForTerminal(terminalId, result = 'ended', extra = {}) {
+    if (!terminalId) return [];
+    await this.ensureSchema();
+    const rows = await this.prisma.$queryRawUnsafe(
+      `SELECT ID FROM poleis_session
+        WHERE RESULT = 'active'
+          AND DELETEMARK = 0
+          AND (CONTROLLERTERMINAL = ? OR TARGETTERMINAL = ?)
+        ORDER BY STARTAT DESC`,
+      terminalId,
+      terminalId
+    );
+    const completed = [];
+    for (const row of rows) {
+      await this.completeSession(row.ID, result, extra);
+      completed.push(row.ID);
+    }
+    return completed;
   }
 
   async listSessions(filters = {}) {
     await this.ensureSchema();
-    const params = [DEFAULT_TENANT_ID];
+    const params = [this.tenantId];
     let where = `s.TENANTID = ? AND s.DELETEMARK = 0`;
     if (filters.result) {
       where += ` AND s.RESULT = ?`;
@@ -1649,7 +2058,7 @@ class PlatformService {
 
   async listAuditLogs(filters = {}) {
     await this.ensureSchema();
-    const params = [DEFAULT_TENANT_ID];
+    const params = [this.tenantId];
     let where = `TENANTID = ?`;
     if (filters.category) {
       where += ` AND CATEGORY = ?`;
@@ -1688,7 +2097,7 @@ class PlatformService {
        (ID, TENANTID, ACTORID, ACTORNAME, CATEGORY, ACTION, TARGET, IP, DETAIL, CREATEON)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       randomUUID(),
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       normalizeNullable(event.actorId || event.userId),
       normalizeNullable(event.actorName || event.userName),
       normalizeNullable(event.category) || 'admin',
@@ -1709,7 +2118,7 @@ class PlatformService {
         WHERE m.TENANTID = ? AND m.DELETEMARK = 0
         ORDER BY m.CREATEON ASC
         LIMIT 500`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return rows.map((row) => ({
       id: row.ID,
@@ -1740,7 +2149,7 @@ class PlatformService {
     const role = ALLOWED_MEMBER_ROLES.includes(payload.role) ? payload.role : 'member';
     const existing = await this.prisma.$queryRawUnsafe(
       `SELECT ID FROM poleis_member WHERE TENANTID = ? AND USERID = ? LIMIT 1`,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       userId
     );
     if (existing.length) {
@@ -1757,12 +2166,22 @@ class PlatformService {
       );
       return this.getMemberById(existing[0].ID);
     }
+    // 配额校验：新增成员不得超过租户 MAX_MEMBERS（0=不限）。
+    const tenant = await this.getTenant(this.tenantId);
+    if (tenant && tenant.maxMembers > 0) {
+      const count = await this.countMembers(this.tenantId);
+      if (count >= tenant.maxMembers) {
+        const error = new Error('member quota exceeded');
+        error.code = 'QUOTA_EXCEEDED';
+        throw error;
+      }
+    }
     const id = randomUUID();
     await this.prisma.$executeRawUnsafe(
       `INSERT INTO poleis_member (ID, TENANTID, USERID, ROLE, CREATEON, CREATEUSERID, CREATEBY)
        VALUES (?, ?, ?, ?, NOW(), ?, ?)`,
       id,
-      DEFAULT_TENANT_ID,
+      this.tenantId,
       userId,
       role,
       normalizeNullable(user.Id),
@@ -1786,7 +2205,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     return this.getMemberById(id);
   }
@@ -1801,7 +2220,7 @@ class PlatformService {
       normalizeNullable(user.Id),
       normalizeNullable(user.RealName),
       id,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
   }
 
@@ -1818,7 +2237,7 @@ class PlatformService {
           SUM(CASE WHEN RESULT = 'active' THEN 1 ELSE 0 END) AS active
          FROM poleis_session
         WHERE TENANTID = ? AND DELETEMARK = 0`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     const agg = aggRows[0] || {};
     const natRows = await this.prisma.$queryRawUnsafe(
@@ -1828,7 +2247,7 @@ class PlatformService {
         GROUP BY COALESCE(NULLIF(NATTYPE, ''), '未知')
         ORDER BY cnt DESC
         LIMIT 12`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     const failRows = await this.prisma.$queryRawUnsafe(
       `SELECT COALESCE(NULLIF(FAILREASON, ''), '未知') AS reason, COUNT(*) AS cnt
@@ -1837,7 +2256,7 @@ class PlatformService {
         GROUP BY COALESCE(NULLIF(FAILREASON, ''), '未知')
         ORDER BY cnt DESC
         LIMIT 8`,
-      DEFAULT_TENANT_ID
+      this.tenantId
     );
     const total = num(agg.total);
     const p2p = num(agg.p2p);

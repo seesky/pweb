@@ -7,6 +7,7 @@ const { PresenceService } = require('./presence_service');
 const { AuditService } = require('./audit_service');
 const { AssistanceService } = require('./assistance_service');
 const { platformService } = require('../management/platform_service');
+const { resolveTenantId } = require('../management/tenant_context');
 const socketControl = require('./socket_control');
 
 const SOCKET_EVENTS = {
@@ -14,6 +15,7 @@ const SOCKET_EVENTS = {
   HEARTBEAT: 'heartbeat',
   LIST_MY: 'list_my_endpoints',
   LIST_USER: 'list_user_endpoints',
+  LIST_ACCESSIBLE: 'list_accessible_devices',
   SEND_USER: 'send_to_user',
   SEND_TERMINAL: 'send_to_terminal',
   MESSAGE: 'message',
@@ -88,12 +90,64 @@ const buildSocketServer = (httpServer, options = {}) => {
   const natSessions = new Map(); // sessionId -> { clientTerminalId, agentTerminalId, createdAt, state }
   const platformSessionIndex = new Map(); // signaling session/pair -> poleis_session.ID
   const relayPairTokens = new Map(); // sorted "termA|termB" -> { token, createdAt }
+
+  const forgetPlatformSession = (sessionId) => {
+    if (!sessionId) return;
+    for (const [key, value] of platformSessionIndex.entries()) {
+      if (value === sessionId) platformSessionIndex.delete(key);
+    }
+  };
+
+  const completePlatformSessionsForPair = async (terminalA, terminalB, extra = {}) => {
+    if (!terminalA || !terminalB) return [];
+    const pairA = `${terminalA}|${terminalB}`;
+    const pairB = `${terminalB}|${terminalA}`;
+    const sessionIds = new Set([
+      platformSessionIndex.get(pairA),
+      platformSessionIndex.get(pairB)
+    ].filter(Boolean));
+    const completed = [];
+    for (const sessionId of sessionIds) {
+      await platformService.completeSession(sessionId, 'ended', extra);
+      completed.push(sessionId);
+      forgetPlatformSession(sessionId);
+    }
+    platformSessionIndex.delete(pairA);
+    platformSessionIndex.delete(pairB);
+    const fallbackCompleted = await platformService.completeActiveSessionsBetween(
+      terminalA,
+      terminalB,
+      'ended',
+      extra
+    );
+    for (const sessionId of fallbackCompleted) {
+      forgetPlatformSession(sessionId);
+      completed.push(sessionId);
+    }
+    return completed;
+  };
+
+  const closeNatSession = (sessionId) => {
+    if (!sessionId) return null;
+    const session = natSessions.get(sessionId);
+    if (session && relay && session.relayToken) relay.revokeSession(session.relayToken);
+    natSessions.delete(sessionId);
+    return session || null;
+  };
+
   setInterval(() => {
     const cutoff = Date.now() - 2 * 60 * 1000;
     for (const [sessionId, session] of natSessions.entries()) {
       if (!session.createdAt || session.createdAt < cutoff) {
-        if (relay && session.relayToken) relay.revokeSession(session.relayToken);
-        natSessions.delete(sessionId);
+        const platformSessionId = platformSessionIndex.get(sessionId);
+        const isConnected = session.state === 'POLEIS_NAT_CONNECTED' || session.state === 'connected';
+        if (platformSessionId && !isConnected) {
+          platformService.completeSession(platformSessionId, 'failed', {
+            failReason: 'nat session timeout'
+          }).catch((err) => console.error('[socket.io] failed to timeout nat session:', err));
+          forgetPlatformSession(platformSessionId);
+        }
+        closeNatSession(sessionId);
       }
     }
   }, 60 * 1000).unref();
@@ -134,9 +188,7 @@ const buildSocketServer = (httpServer, options = {}) => {
     await serverEmitToTerminal(session.controllerTerminal, msg);
     await platformService.completeSession(sessionId, 'ended', { failReason: '管理员强制断开' })
       .catch((err) => console.error('[socket.io] force-disconnect complete failed:', err));
-    for (const [key, value] of platformSessionIndex.entries()) {
-      if (value === sessionId) platformSessionIndex.delete(key);
-    }
+    forgetPlatformSession(sessionId);
     return { ok: true };
   });
 
@@ -145,13 +197,25 @@ const buildSocketServer = (httpServer, options = {}) => {
     const deviceInfo = socket.handshake.auth?.deviceInfo || {};
     const terminalIdFromClient = socket.handshake.auth?.terminalId || socket.handshake.query?.terminalId;
     const payload = tokenService.verify(token);
-    if (!payload?.uid) {
+    if (!payload) {
       return next(new Error('unauthorized'));
     }
-    const terminalId = terminalIdFromClient || payload.tid || randomUUID();
-    socket.data.userId = payload.uid;
-    socket.data.terminalId = terminalId;
     socket.data.deviceInfo = deviceInfo;
+    if (payload.kind === 'device') {
+      // 企业版被控主机：设备身份 token，无需用户登录。终端/租户以 token 为准。
+      if (!payload.did || !payload.tid) return next(new Error('unauthorized'));
+      socket.data.isDevice = true;
+      socket.data.deviceId = payload.did;
+      socket.data.deviceTenantId = payload.tenant || null;
+      socket.data.terminalId = payload.tid;
+      socket.data.userId = 'device:' + payload.did; // 合成 id，仅用于路由/索引
+      return next();
+    }
+    if (!payload.uid) {
+      return next(new Error('unauthorized'));
+    }
+    socket.data.userId = payload.uid;
+    socket.data.terminalId = terminalIdFromClient || payload.tid || randomUUID();
     return next();
   });
 
@@ -172,14 +236,31 @@ const buildSocketServer = (httpServer, options = {}) => {
       os,
       loginAt: Date.now()
     });
-    platformService.upsertDeviceFromPresence({
-      userId,
-      terminalId,
-      ip,
-      os,
-      deviceInfo: socket.data.deviceInfo,
-      status: 'online'
-    }).catch((err) => console.error('[socket.io] device presence upsert failed:', err));
+    // 设备落到正确租户：
+    //  - 设备 token（企业被控主机）：用 token 内的企业租户（已 enroll，租户钉死）。
+    //  - 用户 token：连接用户所属租户（个人=u:<userId> / 单租户=default / 企业成员=企业）。
+    // 解析一次，online/heartbeat 复用。saas 下账号未加入任何企业则跳过纳管。
+    let deviceTenantId = null;
+    if (socket.data.isDevice) {
+      deviceTenantId = socket.data.deviceTenantId;
+    } else {
+      try {
+        deviceTenantId = await resolveTenantId({ Id: userId });
+      } catch (err) {
+        console.error('[socket.io] resolve device tenant failed:', err);
+      }
+    }
+    const devicePlatform = deviceTenantId ? platformService.forTenant(deviceTenantId) : null;
+    if (devicePlatform) {
+      devicePlatform.upsertDeviceFromPresence({
+        userId,
+        terminalId,
+        ip,
+        os,
+        deviceInfo: socket.data.deviceInfo,
+        status: 'online'
+      }).catch((err) => console.error('[socket.io] device presence upsert failed:', err));
+    }
     const onlinePayload = { terminalId, userId, ip, ua, os, lastSeen: Date.now() };
     io.to(userRoom).emit(SOCKET_EVENTS.ENDPOINT_ONLINE, onlinePayload);
     audit.log({ action: 'connect', userId, ip, description: `terminal:${terminalId}` });
@@ -190,19 +271,34 @@ const buildSocketServer = (httpServer, options = {}) => {
 
     socket.on(SOCKET_EVENTS.HEARTBEAT, async () => {
       await presence.updateLastSeen(terminalId, socket.id);
-      platformService.upsertDeviceFromPresence({
-        userId,
-        terminalId,
-        ip,
-        os,
-        deviceInfo: socket.data.deviceInfo,
-        status: 'online'
-      }).catch((err) => console.error('[socket.io] device heartbeat upsert failed:', err));
+      if (devicePlatform) {
+        devicePlatform.upsertDeviceFromPresence({
+          userId,
+          terminalId,
+          ip,
+          os,
+          deviceInfo: socket.data.deviceInfo,
+          status: 'online'
+        }).catch((err) => console.error('[socket.io] device heartbeat upsert failed:', err));
+      }
     });
 
     socket.on(SOCKET_EVENTS.LIST_MY, async (cb = () => {}) => {
       const endpoints = await presence.getEndpointsByUser(userId);
       cb({ success: true, data: endpoints });
+    });
+
+    // 控制端发现：当前用户在各 workspace 内可连接的设备（个人自有 + 企业被授权）。
+    // 设备身份(被控端)不需要此列表。
+    socket.on(SOCKET_EVENTS.LIST_ACCESSIBLE, async (cb = () => {}) => {
+      if (socket.data.isDevice) { cb({ success: false, message: 'device endpoint' }); return; }
+      try {
+        const data = await platformService.listAccessibleDevices(userId);
+        cb({ success: true, data });
+      } catch (err) {
+        console.error('[socket.io] list_accessible_devices failed:', err);
+        cb({ success: false, message: 'failed to list accessible devices' });
+      }
     });
 
     socket.on(SOCKET_EVENTS.LIST_USER, async (payload, cb = () => {}) => {
@@ -641,8 +737,14 @@ const buildSocketServer = (httpServer, options = {}) => {
           await platformService.completeSession(platformSessionId, 'failed', {
             failReason: payload?.error?.message || payload?.error || 'nat failed'
           }).catch((err) => console.error('[socket.io] failed to complete failed session:', err));
-          platformSessionIndex.delete(sessionId);
+          forgetPlatformSession(platformSessionId);
+          closeNatSession(sessionId);
         }
+      } else if (eventType === 'POLEIS_NAT_FAILED') {
+        await platformService.completeActiveSessionsBetween(terminalId, targetTerminalId, 'failed', {
+          failReason: payload?.error?.message || payload?.error || 'nat failed'
+        }).catch((err) => console.error('[socket.io] failed to fallback-complete failed nat session:', err));
+        closeNatSession(sessionId);
       }
       audit.log({ action: eventType.toLowerCase(), userId, description: `session:${sessionId} to:${targetTerminalId}` });
       cb({ success: sent });
@@ -674,14 +776,33 @@ const buildSocketServer = (httpServer, options = {}) => {
         type: 'POLEIS_CONNECTED',
         fromTerminalId: terminalId
       });
-      const connectedPlatformSessionId =
+      let connectedPlatformSessionId =
         platformSessionIndex.get(`${terminalId}|${targetTerminalId}`) ||
         platformSessionIndex.get(`${targetTerminalId}|${terminalId}`);
+      if (!connectedPlatformSessionId) {
+        connectedPlatformSessionId = await platformService.findActiveSession(terminalId, targetTerminalId)
+          .catch((err) => {
+            console.error('[socket.io] failed to find connected active session:', err);
+            return null;
+          });
+        if (connectedPlatformSessionId) {
+          platformSessionIndex.set(`${terminalId}|${targetTerminalId}`, connectedPlatformSessionId);
+        }
+      }
+      for (const session of natSessions.values()) {
+        const samePair =
+          (session.clientTerminalId === terminalId && session.agentTerminalId === targetTerminalId) ||
+          (session.clientTerminalId === targetTerminalId && session.agentTerminalId === terminalId);
+        if (samePair) session.state = 'connected';
+      }
       if (connectedPlatformSessionId) {
-        await platformService.addSessionEvent(connectedPlatformSessionId, 'connected', {
+        await platformService.addSessionEventOnce(connectedPlatformSessionId, 'connected', {
           targetTerminalId
         }).catch((err) => console.error('[socket.io] failed to record connected event:', err));
       }
+      await platformService.addSessionEventToActiveBetween(terminalId, targetTerminalId, 'connected', {
+        targetTerminalId
+      }).catch((err) => console.error('[socket.io] failed to fallback-record connected event:', err));
       audit.log({ action: 'poleis_connected', userId, description: `with:${targetTerminalId}` });
       cb({ success: sent });
     });
@@ -689,25 +810,33 @@ const buildSocketServer = (httpServer, options = {}) => {
     socket.on(SOCKET_EVENTS.POLEIS_DISCONNECT, async (payload, cb = () => {}) => {
       // 断开P2P连接通知
       const targetTerminalId = payload?.toTerminalId;
+      const sessionId = payload?.sessionId;
       if (!targetTerminalId) {
         cb({ success: false, message: 'missing target terminal' });
         return;
       }
+      if (sessionId) {
+        const platformSessionId = platformSessionIndex.get(sessionId);
+        if (platformSessionId) {
+          await platformService.completeSession(platformSessionId, 'ended', {
+            failReason: payload?.reason || null,
+            transport: payload?.transport,
+            targetTerminalId
+          }).catch((err) => console.error('[socket.io] failed to end nat session:', err));
+          forgetPlatformSession(platformSessionId);
+        }
+        closeNatSession(sessionId);
+      }
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_DISCONNECT',
-        fromTerminalId: terminalId
+        fromTerminalId: terminalId,
+        sessionId
       });
-      const pairA = `${terminalId}|${targetTerminalId}`;
-      const pairB = `${targetTerminalId}|${terminalId}`;
-      const disconnectedPlatformSessionId = platformSessionIndex.get(pairA) || platformSessionIndex.get(pairB);
-      if (disconnectedPlatformSessionId) {
-        await platformService.completeSession(disconnectedPlatformSessionId, 'ended', {
-          transport: payload?.transport,
-          targetTerminalId
-        }).catch((err) => console.error('[socket.io] failed to end session:', err));
-        platformSessionIndex.delete(pairA);
-        platformSessionIndex.delete(pairB);
-      }
+      await completePlatformSessionsForPair(terminalId, targetTerminalId, {
+        transport: payload?.transport,
+        failReason: payload?.reason || null,
+        targetTerminalId
+      }).catch((err) => console.error('[socket.io] failed to end session:', err));
       audit.log({ action: 'poleis_disconnect', userId, description: `from:${targetTerminalId}` });
       cb({ success: sent });
     });
@@ -816,8 +945,13 @@ const buildSocketServer = (httpServer, options = {}) => {
             platformService.completeSession(disconnectedPlatformSessionId, 'ended', {
               failReason: 'terminal disconnected'
             }).catch((err) => console.error('[socket.io] failed to end disconnected session:', err));
+            forgetPlatformSession(disconnectedPlatformSessionId);
             platformSessionIndex.delete(sessionId);
           }
+          platformService.completeActiveSessionsBetween(session.clientTerminalId, session.agentTerminalId, 'ended', {
+            failReason: 'terminal disconnected'
+          }).then((sessionIds) => sessionIds.forEach(forgetPlatformSession))
+            .catch((err) => console.error('[socket.io] failed to fallback-end disconnected sessions:', err));
           if (relay && session.relayToken) relay.revokeSession(session.relayToken);
           natSessions.delete(sessionId);
         }
@@ -829,6 +963,10 @@ const buildSocketServer = (httpServer, options = {}) => {
         }
       }
       if (!terminalIndex.has(terminalId)) {
+        platformService.completeActiveSessionsForTerminal(terminalId, 'ended', {
+          failReason: 'terminal disconnected'
+        }).then((sessionIds) => sessionIds.forEach(forgetPlatformSession))
+          .catch((err) => console.error('[socket.io] failed to end terminal sessions:', err));
         platformService.markDeviceOffline(terminalId).catch((err) =>
           console.error('[socket.io] device offline update failed:', err)
         );

@@ -15,7 +15,11 @@ html(lang="zh-CN")
     script.
       window.__APP_DATA__ = {
         user: !{JSON.stringify(user || {})},
-        nav: !{navData || '[]'}
+        nav: !{navData || '[]'},
+        tenantContext: !{JSON.stringify(tenantContext || {})},
+        tenant: !{JSON.stringify((tenantContext && tenantContext.tenant) || null)},
+        tenants: !{JSON.stringify((tenantContext && tenantContext.tenants) || [])},
+        features: !{JSON.stringify((tenantContext && tenantContext.features) || {})}
       };
     div#root
     script(src="https://unpkg.com/react@18/umd/react.development.js" crossorigin)
@@ -60,6 +64,8 @@ html(lang="zh-CN")
     include admin-pages/onlineManage.jade
 
     include admin-pages/peerManage.jade
+
+    include admin-pages/platformAdmin.jade
 
     script.
       const { useState, useEffect, useMemo, useCallback } = React;
@@ -122,6 +128,7 @@ html(lang="zh-CN")
       const USER_PERMISSION_ADMIN_CODES = ['FrmUserPermissionAdmin'];
       const ONLINE_MANAGE_CODES = ['PoleisOnlineManage'];
       const PEER_MANAGE_CODES = ['PoleisPeerManage'];
+      const PLATFORM_ADMIN_CODES = ['PoleisPlatformAdmin'];
       const PERMISSION_ITEM_ADMIN_CODES = ['FrmPermissionItemAdmin'];
       const ROLE_PERMISSION_ADMIN_CODES = ['FrmRolePermissionAdmin'];
       const SEQUENCE_ADMIN_CODES = ['SequenceAdmin'];
@@ -160,6 +167,8 @@ html(lang="zh-CN")
       const isOnlineManageNode = (node = {}) => matchNavUrl(node, ONLINE_MANAGE_CODES);
 
       const isPeerManageNode = (node = {}) => matchNavUrl(node, PEER_MANAGE_CODES);
+
+      const isPlatformAdminNode = (node = {}) => matchNavUrl(node, PLATFORM_ADMIN_CODES);
 
       const isRolePermissionAdminNode = (node = {}) => matchNavUrl(node, ROLE_PERMISSION_ADMIN_CODES);
 
@@ -438,11 +447,15 @@ html(lang="zh-CN")
         const data = window.__APP_DATA__ || {};
         const user = data.user || {};
         const navTree = data.nav || [];
+        const currentTenant = data.tenant || {};
+        const currentFeatures = data.features || {};
+        const isPersonalWorkspace = currentTenant.type === 'personal';
         const [mobileOpen, setMobileOpen] = useState(false);
         const [collapsed, setCollapsed] = useState(false);
-        const consoleHasAccess = (function findPeer(nodes) {
-          return (nodes || []).some((node) => isPeerManageNode(node) || findPeer(node.children || []));
-        })(navTree);
+        // 统一 SaaS 平台：控制台即产品本体，所有登录用户都有工作区，始终可见。
+        const consoleHasAccess = true;
+        // 平台超级管理员：跨租户管理所有企业（仅 Administrator / IsAdministrator）。
+        const isPlatformAdmin = !!(user && (user.Id === 'Administrator' || user.IsAdministrator));
         const [activeView, setActiveView] = useState(consoleHasAccess ? { type: 'console', section: 'overview' } : { type: 'dashboard', node: null });
         const [activeNavId, setActiveNavId] = useState(consoleHasAccess ? 'console:overview' : null);
 
@@ -489,6 +502,8 @@ html(lang="zh-CN")
             setActiveView({ type: 'permission-item-admin', node });
           } else if (isOnlineManageNode(node)) {
             setActiveView({ type: 'online-manage', node });
+          } else if (isPlatformAdminNode(node)) {
+            setActiveView({ type: 'platform-admin', node });
           } else if (isPeerManageNode(node)) {
             setActiveView({ type: 'console', section: 'overview' });
             setActiveNavId('console:overview');
@@ -509,6 +524,27 @@ html(lang="zh-CN")
             }
           } catch (error) {
             console.error(error);
+          }
+        };
+
+        const handleWorkspaceChange = async (event) => {
+          const tenantId = event.target.value;
+          if (!tenantId || tenantId === currentTenant.id) return;
+          try {
+            const response = await fetch('/management-platform/workspaces/select', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tenantId })
+            });
+            const result = await response.json();
+            if (result?.success) {
+              window.location.reload();
+            } else {
+              window.alert(result?.message || '切换工作区失败');
+            }
+          } catch (error) {
+            console.error(error);
+            window.alert('切换工作区失败');
           }
         };
 
@@ -542,6 +578,9 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'console') {
             return React.createElement(PeerManagePage, { section: activeView.section || 'overview' });
+          }
+          if (activeView.type === 'platform-admin') {
+            return React.createElement(PlatformAdminPage, null);
           }
           if (activeView.type === 'sequence-admin') {
             return React.createElement(SequenceAdminPage, null);
@@ -582,7 +621,10 @@ html(lang="zh-CN")
           .filter((node) => !isPeerManageNode(node))
           .map((node) => Object.assign({}, node, { children: stripPeerNodes(node.children || []) }));
         const legacyNav = stripPeerNodes(navTree);
-        const consoleSections = (typeof PM_SECTIONS !== 'undefined' ? PM_SECTIONS : []);
+        // 个人版只暴露精简的控制台分区（我的设备 / 会话 / 总览）；企业/单租户用全集。
+        const PERSONAL_SECTION_KEYS = ['overview', 'devices', 'sessions'];
+        const consoleSections = (typeof PM_SECTIONS !== 'undefined' ? PM_SECTIONS : [])
+          .filter((s) => !isPersonalWorkspace || PERSONAL_SECTION_KEYS.includes(s.key));
 
         const drawer = React.createElement(Box, {
           sx: { p: 1.5, height: '100%', display: 'flex', flexDirection: 'column', gap: 0.5 }
@@ -608,6 +650,22 @@ html(lang="zh-CN")
             )
           ),
           React.createElement(Box, { sx: { flexGrow: 1, overflowY: 'auto', mt: 0.5 } },
+            (!collapsed && isPlatformAdmin)
+              ? React.createElement(Box, { sx: { mb: 1 } },
+                  React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '平台'),
+                  React.createElement(List, { disablePadding: true, sx: { mt: 0.5 } },
+                    React.createElement(ListItemButton, {
+                      selected: activeView.type === 'platform-admin',
+                      onClick: () => { setActiveView({ type: 'platform-admin' }); setActiveNavId('platform-admin'); if (mobileOpen) setMobileOpen(false); },
+                      sx: { borderRadius: 2, mb: 0.5, px: 1.5, py: 1, color: activeView.type === 'platform-admin' ? '#312e81' : '#475467', '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' }, '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' } }
+                    },
+                      React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'platform-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'business')),
+                      React.createElement(ListItemText, { primary: '平台管理', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'platform-admin' ? 700 : 500 } })
+                    )
+                  )
+                )
+              : null,
+            (!collapsed && isPlatformAdmin && consoleHasAccess) ? React.createElement(Divider, { sx: { my: 1 } }) : null,
             (!collapsed && consoleHasAccess)
               ? React.createElement(Box, { sx: { mb: 1 } },
                   React.createElement(Typography, { variant: 'caption', sx: { px: 1.5, color: '#98a2b3', fontWeight: 700, letterSpacing: 0.5 } }, '控制台'),
@@ -680,6 +738,8 @@ html(lang="zh-CN")
               ? '在线管理'
               : activeView.type === 'console'
               ? 'Poleis 控制台'
+              : activeView.type === 'platform-admin'
+              ? '平台管理'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
               : activeView.type === 'table-field-admin'
@@ -700,6 +760,30 @@ html(lang="zh-CN")
               ? '角色权限管理'
               : '管理驾驶舱'),
             React.createElement(Box, { sx: { display: 'flex', alignItems: 'center', gap: 2 } },
+              (data.tenants || []).length > 1
+                ? React.createElement(TextField, {
+                    select: true,
+                    size: 'small',
+                    label: '工作区',
+                    value: currentTenant.id || '',
+                    onChange: handleWorkspaceChange,
+                    sx: { minWidth: 190, '& .MuiInputBase-root': { borderRadius: 2 } }
+                  },
+                    (data.tenants || []).map((tenant) =>
+                      React.createElement(MenuItem, { key: tenant.id, value: tenant.id },
+                        tenant.name + (tenant.type === 'personal' ? ' · 个人' : ' · 企业')
+                      )
+                    )
+                  )
+                : currentTenant.id
+                ? React.createElement(Chip, {
+                    size: 'small',
+                    icon: React.createElement(Icon, { sx: { fontSize: 16 } }, currentTenant.type === 'personal' ? 'person' : 'business'),
+                    label: currentTenant.name || (currentTenant.type === 'personal' ? '个人空间' : '企业空间'),
+                    variant: 'outlined',
+                    sx: { display: { xs: 'none', md: 'inline-flex' } }
+                  })
+                : null,
               React.createElement(Box, null,
                 React.createElement(Typography, { variant: 'subtitle1', textAlign: 'right', color: '#1f2933' }, user.RealName || '管理员'),
                 React.createElement(Typography, { variant: 'caption', color: 'rgba(31,41,51,0.6)' }, user.UserName || '')

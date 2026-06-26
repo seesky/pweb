@@ -92,7 +92,8 @@ script.
     { key: 'devicePolicies', label: '设备策略', icon: 'settings', title: '设备策略', subtitle: '设备侧客户端运行配置（码率/帧率/传输/更新/日志），可按设备或设备组绑定并继承' },
     { key: 'deploy', label: '部署中心', icon: 'cloud_download', title: '部署中心', subtitle: '客户端版本发布、渠道管理与安装纳管指引' },
     { key: 'tickets', label: '支持工单', icon: 'confirmation_number', title: '支持工单', subtitle: '报修、接单、指派、沟通与处理' },
-    { key: 'audit', label: '审计日志', icon: 'assignment', title: '审计日志', subtitle: '关键操作的合规记录' }
+    { key: 'audit', label: '审计日志', icon: 'assignment', title: '审计日志', subtitle: '关键操作的合规记录' },
+    { key: 'settings', label: '企业设置', icon: 'business', title: '企业设置', subtitle: '企业信息、配额用量与成员邀请' }
   ];
 
   // 权限模板能力位（与后端 poleis_permission_profile 列一一对应）
@@ -138,6 +139,15 @@ script.
   const PeerManagePage = (props) => {
     const data = window.__APP_DATA__ || {};
     const currentUser = data.user || {};
+    const currentTenant = data.tenant || {};
+    const currentFeatures = data.features || {};
+    const isPersonalMode = currentTenant.type === 'personal';
+    const hasDeviceGroups = currentFeatures.deviceGroups !== false && !isPersonalMode;
+    const hasEnrollmentTokens = currentFeatures.enrollmentTokens !== false && !isPersonalMode;
+    const hasAssignments = currentFeatures.assignments !== false && !isPersonalMode;
+    const visibleSections = isPersonalMode
+      ? PM_SECTIONS.filter((item) => ['overview', 'devices', 'sessions'].includes(item.key))
+      : PM_SECTIONS;
     const embeddedSection = props && props.section;
     const embedded = !!embeddedSection;
 
@@ -169,7 +179,10 @@ script.
     const [members, setMembers] = useState([]);
     const [networkOverview, setNetworkOverview] = useState(null);
     const [addingMember, setAddingMember] = useState(false);
-    const [memberForm, setMemberForm] = useState({ userId: '', role: 'member' });
+    const [memberForm, setMemberForm] = useState({ email: '', role: 'member' });
+    const [inviteResult, setInviteResult] = useState(null); // { inviteUrl } 开发态回显设密链接
+    const [tenantInfo, setTenantInfo] = useState(null); // { tenant, usage, isTenantAdmin }
+    const [tenantNameDraft, setTenantNameDraft] = useState('');
     const [deviceDetail, setDeviceDetail] = useState(null); // { device, sessions, assignments }
     const [sessionDetail, setSessionDetail] = useState(null); // { session, events }
     const [devicePolicies, setDevicePolicies] = useState([]);
@@ -188,16 +201,19 @@ script.
 
     const toast = (severity, message) => setNotify({ open: true, severity, message });
 
-    const loadAll = useCallback(async () => {
-      setLoading(true);
-      setError('');
+    const loadAll = useCallback(async (options = {}) => {
+      const silent = options && options.silent === true;
+      if (!silent) setLoading(true);
+      if (!silent) setError('');
       try {
         const params = new URLSearchParams();
         if (keyword) params.set('keyword', keyword);
         const resps = await Promise.all([
           fetch(`/management-platform/devices?${params.toString()}`),
           fetch('/management-platform/device-groups'),
-          fetch('/management-platform/enrollment-tokens'),
+          isPersonalMode
+            ? Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true, data: [] }) })
+            : fetch('/management-platform/enrollment-tokens'),
           fetch('/management-platform/sessions'),
           fetch('/management-platform/permission-profiles'),
           fetch('/management-platform/assignments'),
@@ -226,15 +242,29 @@ script.
         setDevicePolicies(devicePolicyJson.data || []);
         setClientBuilds(buildJson.data || []);
         setTickets(ticketJson.data || []);
+        // 企业设置信息（含配额用量）单独取，避免破坏上面的固定解构。
+        try {
+          const tResp = await fetch('/management-platform/tenant');
+          if (tResp.ok) { const tJson = await tResp.json(); setTenantInfo(tJson.data || null); }
+        } catch (e) { /* 忽略：设置页非关键路径 */ }
       } catch (err) {
-        setError(err.message || '加载管理数据失败');
+        if (!silent) setError(err.message || '加载管理数据失败');
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    }, [keyword, ticketStatusFilter]);
+    }, [keyword, ticketStatusFilter, isPersonalMode]);
 
     useEffect(() => { loadAll(); }, [loadAll]);
+    useEffect(() => {
+      if (!isPersonalMode) return undefined;
+      const timer = setInterval(() => { loadAll({ silent: true }); }, 5000);
+      return () => clearInterval(timer);
+    }, [isPersonalMode, loadAll]);
     useEffect(() => { if (embeddedSection) setSection(embeddedSection); }, [embeddedSection]);
+    useEffect(() => { if (tenantInfo && tenantInfo.tenant) setTenantNameDraft(tenantInfo.tenant.name || ''); }, [tenantInfo]);
+    useEffect(() => {
+      if (!hasDeviceGroups && !hasEnrollmentTokens && deviceTab !== 'list') setDeviceTab('list');
+    }, [hasDeviceGroups, hasEnrollmentTokens, deviceTab]);
 
     const stats = useMemo(() => {
       const online = devices.filter((d) => d.status === 'online').length;
@@ -370,15 +400,35 @@ script.
     };
 
     const submitMember = async () => {
-      if (!memberForm.userId) { toast('warning', '请选择用户'); return; }
+      const email = (memberForm.email || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast('warning', '请输入有效的邮箱地址'); return; }
       try {
-        const resp = await fetch('/management-platform/members', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(memberForm)
+        const resp = await fetch('/management-platform/members/invite', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email, role: memberForm.role })
         });
         const result = await resp.json();
-        if (!resp.ok) throw new Error(result.message || '添加成员失败');
-        toast('success', '成员已添加'); setAddingMember(false); setMemberForm({ userId: '', role: 'member' }); await loadAll();
-      } catch (err) { toast('error', err.message || '添加成员失败'); }
+        if (!resp.ok) throw new Error(result.message || '邀请成员失败');
+        if (result.invited) {
+          // 新账号：已发设密邀请邮件；开发态(无 SMTP)回显链接便于自测。
+          setInviteResult({ inviteUrl: result.inviteUrl || '' });
+          toast('success', result.inviteUrl ? '已创建账号（开发态，链接见下方）' : '邀请邮件已发送');
+        } else {
+          toast('success', '成员已加入'); setAddingMember(false);
+        }
+        setMemberForm({ email: '', role: 'member' }); await loadAll();
+      } catch (err) { toast('error', err.message || '邀请成员失败'); }
+    };
+    const saveTenantName = async () => {
+      const name = (tenantNameDraft || '').trim();
+      if (!name) { toast('warning', '名称不能为空'); return; }
+      try {
+        const resp = await fetch('/management-platform/tenant', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '保存失败');
+        toast('success', '企业名称已更新'); await loadAll();
+      } catch (err) { toast('error', err.message || '保存失败'); }
     };
     const changeMemberRole = async (member, role) => {
       try {
@@ -587,7 +637,7 @@ script.
         ),
         PM_H(MaterialUI.Divider, { sx: { my: 1 } }),
         PM_H(MaterialUI.List, { sx: { flex: 1 }, disablePadding: true },
-          PM_SECTIONS.map((item) => {
+          visibleSections.map((item) => {
             const selected = section === item.key;
             return PM_H(MaterialUI.ListItemButton, {
               key: item.key, selected, onClick: () => setSection(item.key),
@@ -620,7 +670,7 @@ script.
           PM_H(PmKpiCard, { label: '在线设备', value: stats.online, hint: '共 ' + stats.total + ' 台纳管设备', icon: 'desktop_windows', grad: 'emerald' }),
           PM_H(PmKpiCard, { label: '进行中会话', value: stats.active, hint: '实时远程控制', icon: 'cast_connected', grad: 'indigo' }),
           PM_H(PmKpiCard, { label: '今日会话', value: stats.today, hint: '今日发起的连接', icon: 'today', grad: 'blue' }),
-          PM_H(PmKpiCard, { label: '访问授权', value: stats.grants, hint: '已配置授权关系', icon: 'verified_user', grad: 'amber' }),
+          hasAssignments ? PM_H(PmKpiCard, { label: '访问授权', value: stats.grants, hint: '已配置授权关系', icon: 'verified_user', grad: 'amber' }) : null,
           PM_H(PmKpiCard, { label: '会话失败率', value: stats.failRate + '%', hint: '历史连接失败占比', icon: 'error_outline', grad: stats.failRate > 20 ? 'rose' : 'slate' })
         ),
         PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2.5, gridTemplateColumns: { xs: '1fr', md: '1.6fr 1fr' } } },
@@ -661,12 +711,12 @@ script.
                   PM_H(MaterialUI.LinearProgress, { variant: 'determinate', value: stats.total ? (stats.online / stats.total) * 100 : 0, sx: { height: 8, borderRadius: 4, bgcolor: '#edeef2', '& .MuiLinearProgress-bar': { background: PM_GRADS.emerald } } })
                 ),
                 PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1, sx: { pt: 0.5 } },
-                  PM_H(MaterialUI.Chip, { size: 'small', label: '设备组 ' + stats.groups, variant: 'outlined' }),
-                  PM_H(MaterialUI.Chip, { size: 'small', label: '注册令牌 ' + stats.tokens, variant: 'outlined' })
+                  hasDeviceGroups ? PM_H(MaterialUI.Chip, { size: 'small', label: '设备组 ' + stats.groups, variant: 'outlined' }) : null,
+                  hasEnrollmentTokens ? PM_H(MaterialUI.Chip, { size: 'small', label: '注册令牌 ' + stats.tokens, variant: 'outlined' }) : null
                 )
               )
             ),
-            stats.total === 0
+            stats.total === 0 && hasEnrollmentTokens
               ? PM_H(MaterialUI.Paper, { sx: Object.assign({ p: 2.5, background: 'linear-gradient(135deg,#eef2ff,#faf5ff)' }, PM_CARD_SX) },
                   PM_H(MaterialUI.Typography, { sx: { fontWeight: 700, color: '#3730a3', mb: 0.5 } }, '开始纳管你的第一台设备'),
                   PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#5b5fc7', mb: 1.5 } }, '在「设备资产 → 注册令牌」生成令牌，客户端安装后即可自动归属到此控制台。'),
@@ -749,7 +799,11 @@ script.
                     )
                   : PM_H(MaterialUI.TableRow, null,
                       PM_H(MaterialUI.TableCell, { colSpan: 9 },
-                        PM_H(PmEmpty, { icon: 'computer', title: '暂无设备', hint: '生成注册令牌，让客户端在安装后自动归属到此控制台。' })
+                      PM_H(PmEmpty, {
+                        icon: 'computer',
+                        title: '暂无设备',
+                        hint: isPersonalMode ? '客户端登录后会自动出现在这里。' : '生成注册令牌，让客户端在安装后自动归属到此控制台。'
+                      })
                       )
                     )
               )
@@ -854,12 +908,12 @@ script.
           sx: { minHeight: 40, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 600 } }
         },
           PM_H(MaterialUI.Tab, { value: 'list', label: '设备列表', icon: pmIcon('list'), iconPosition: 'start' }),
-          PM_H(MaterialUI.Tab, { value: 'groups', label: '设备组', icon: pmIcon('folder'), iconPosition: 'start' }),
-          PM_H(MaterialUI.Tab, { value: 'tokens', label: '注册令牌', icon: pmIcon('vpn_key'), iconPosition: 'start' })
+          hasDeviceGroups ? PM_H(MaterialUI.Tab, { value: 'groups', label: '设备组', icon: pmIcon('folder'), iconPosition: 'start' }) : null,
+          hasEnrollmentTokens ? PM_H(MaterialUI.Tab, { value: 'tokens', label: '注册令牌', icon: pmIcon('vpn_key'), iconPosition: 'start' }) : null
         ),
         deviceTab === 'list' ? renderDeviceList() : null,
-        deviceTab === 'groups' ? renderGroups() : null,
-        deviceTab === 'tokens' ? renderTokens() : null
+        hasDeviceGroups && deviceTab === 'groups' ? renderGroups() : null,
+        hasEnrollmentTokens && deviceTab === 'tokens' ? renderTokens() : null
       );
 
     // ---------- 会话记录 ----------
@@ -1126,7 +1180,7 @@ script.
     const renderMembers = () =>
       PM_H(PmPanel, {
         title: '空间成员', subtitle: '共 ' + members.length + ' 名；角色是「访问授权」中按角色授权的依据',
-        action: PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('person_add'), onClick: () => { setMemberForm({ userId: '', role: 'member' }); setAddingMember(true); } }, '添加成员'),
+        action: PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('person_add'), onClick: () => { setMemberForm({ email: '', role: 'member' }); setInviteResult(null); setAddingMember(true); } }, '邀请成员'),
         dense: true
       },
         members.length
@@ -1221,15 +1275,17 @@ script.
       const selectedToken = tokens.find((t) => t.id === deployTokenId);
       const serverUrl = (stable && stable.preset && stable.preset.serverUrl) || (typeof window !== 'undefined' ? window.location.origin : '');
       const downloadUrl = stable && stable.url ? stable.url : '（请先在下方发布一个稳定渠道版本并填写下载地址）';
+      const installerName = (stable && stable.url) ? (stable.url.split('/').pop() || 'Poleis-Enterprise-Setup.exe') : 'Poleis-Enterprise-Setup.exe';
+      const tokenVal = selectedToken ? selectedToken.token : '<选择上方注册码>';
+      // 企业版静默安装：装完写入 settings.ini(edition/enroll_token/server)，
+      // 客户端服务首启即 enroll 并以设备身份无人值守上线，自动归属本企业。
       const snippet =
-        '# 1) 下载并静默安装客户端\n' +
-        (stable && stable.url ? stable.url : '<下载地址>') + ' /S\n\n' +
-        '# 2) 用注册码纳管设备（首启或安装参数预置）\n' +
-        '注册码: ' + (selectedToken ? selectedToken.token : '<在「设备资产 → 注册令牌」生成>') + '\n' +
-        '服务器: ' + serverUrl + '\n' +
-        '注册接口: ' + serverUrl + '/api/devices/enroll';
+        ':: 1) 下载企业版安装包\n' +
+        (stable && stable.url ? ('curl -L -o ' + installerName + ' "' + stable.url + '"') : ':: 先在下方「发布新版本」填写企业安装包(Poleis-Enterprise-Setup.exe)下载地址') + '\n\n' +
+        ':: 2) 静默安装并绑定到本企业（无人值守，装完即上线，需管理员权限）\n' +
+        installerName + ' /S /TOKEN=' + tokenVal + ' /SERVER=' + serverUrl;
       return PM_H(MaterialUI.Stack, { spacing: 2.5 },
-        PM_H(PmPanel, { title: '安装与纳管指引', subtitle: '选择注册码，复制安装与纳管命令给目标设备' },
+        PM_H(PmPanel, { title: '安装与纳管指引', subtitle: '选择注册码，复制企业版静默安装命令到目标设备（管理员权限运行）' },
           PM_H(MaterialUI.Stack, { spacing: 1.5 },
             PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } } },
               PM_H(MaterialUI.TextField, { select: true, size: 'small', label: '注册码', value: deployTokenId, onChange: (e) => setDeployTokenId(e.target.value) },
@@ -1337,6 +1393,42 @@ script.
         )
       );
 
+    // ---------- 企业设置 ----------
+    const renderSettings = () => {
+      const t = (tenantInfo && tenantInfo.tenant) || {};
+      const usage = (tenantInfo && tenantInfo.usage) || { members: 0, devices: 0, maxMembers: 0, maxDevices: 0 };
+      const canEdit = !!(tenantInfo && tenantInfo.isTenantAdmin);
+      const quota = (used, max) => max > 0 ? (used + ' / ' + max) : (used + ' / 不限');
+      const statusLabel = ({ active: '正常', pending: '待激活', suspended: '已停用' })[t.status] || (t.status || '');
+      return PM_H(MaterialUI.Stack, { spacing: 2 },
+        PM_H(PmPanel, { title: '企业信息', subtitle: '工作区基本信息（配额由平台管理员调整）', dense: true },
+          PM_H(MaterialUI.Box, { sx: { display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 2 } },
+            PM_H(MaterialUI.Box, null,
+              PM_H(MaterialUI.Typography, { variant: 'caption', color: 'text.secondary' }, '类型'),
+              PM_H(MaterialUI.Typography, { variant: 'body2' }, t.type === 'personal' ? '个人空间' : '企业空间')),
+            PM_H(MaterialUI.Box, null,
+              PM_H(MaterialUI.Typography, { variant: 'caption', color: 'text.secondary' }, '状态'),
+              PM_H(MaterialUI.Typography, { variant: 'body2' }, statusLabel)),
+            PM_H(MaterialUI.Box, null,
+              PM_H(MaterialUI.Typography, { variant: 'caption', color: 'text.secondary' }, '成员用量'),
+              PM_H(MaterialUI.Typography, { variant: 'body2' }, quota(usage.members, usage.maxMembers))),
+            PM_H(MaterialUI.Box, null,
+              PM_H(MaterialUI.Typography, { variant: 'caption', color: 'text.secondary' }, '设备用量'),
+              PM_H(MaterialUI.Typography, { variant: 'body2' }, quota(usage.devices, usage.maxDevices)))
+          ),
+          PM_H(MaterialUI.Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 1.5, alignItems: { sm: 'center' } },
+            PM_H(MaterialUI.TextField, { label: '企业名称', size: 'small', value: tenantNameDraft, disabled: !canEdit, onChange: (e) => setTenantNameDraft(e.target.value), sx: { flexGrow: 1 } }),
+            PM_H(MaterialUI.Button, { variant: 'contained', disabled: !canEdit || !tenantNameDraft.trim() || tenantNameDraft.trim() === (t.name || ''), onClick: saveTenantName }, '保存名称')
+          )
+        ),
+        PM_H(PmPanel, { title: '成员', subtitle: '按邮箱邀请成员加入本企业空间', dense: true,
+          action: canEdit ? PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('person_add'), onClick: () => { setMemberForm({ email: '', role: 'member' }); setInviteResult(null); setAddingMember(true); } }, '邀请成员') : null },
+          PM_H(MaterialUI.Typography, { variant: 'body2', color: 'text.secondary', sx: { mb: 1 } }, '当前共 ' + members.length + ' 名成员。角色与移除请前往「成员管理」。'),
+          PM_H(MaterialUI.Button, { variant: 'text', startIcon: pmIcon('group'), onClick: () => setSection('members') }, '前往成员管理')
+        )
+      );
+    };
+
     const activeSection = PM_SECTIONS.find((s) => s.key === section) || PM_SECTIONS[0];
     const sectionContent = section === 'overview' ? renderOverview()
       : section === 'devices' ? renderDevices()
@@ -1349,12 +1441,16 @@ script.
       : section === 'deploy' ? renderDeploy()
       : section === 'tickets' ? renderTickets()
       : section === 'audit' ? renderAudit()
+      : section === 'settings' ? renderSettings()
       : null;
+    const sectionSubtitle = isPersonalMode && section === 'devices'
+      ? '管理当前账号登录过的个人设备'
+      : activeSection.subtitle;
 
     const contentColumn = PM_H(MaterialUI.Box, { sx: { flex: 1, minWidth: 0 } },
         PM_H(MaterialUI.Box, { sx: { mb: 2.5 } },
           PM_H(MaterialUI.Typography, { sx: { fontSize: 22, fontWeight: 800, color: '#101828' } }, activeSection.title),
-          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mt: 0.25 } }, activeSection.subtitle)
+          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mt: 0.25 } }, sectionSubtitle)
         ),
         error ? PM_H(MaterialUI.Alert, { severity: 'error', sx: { mb: 2, borderRadius: 2 } }, error) : null,
         sectionContent,
@@ -1363,12 +1459,12 @@ script.
           PM_H(MaterialUI.DialogContent, null,
             PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
               PM_H(MaterialUI.TextField, { label: '别名', value: deviceForm.alias, onChange: (e) => setDeviceForm((p) => ({ ...p, alias: e.target.value })), fullWidth: true }),
-              PM_H(MaterialUI.TextField, { select: true, label: '设备组', value: deviceForm.groupId, onChange: (e) => setDeviceForm((p) => ({ ...p, groupId: e.target.value })), fullWidth: true },
+              isPersonalMode ? null : PM_H(MaterialUI.TextField, { select: true, label: '设备组', value: deviceForm.groupId, onChange: (e) => setDeviceForm((p) => ({ ...p, groupId: e.target.value })), fullWidth: true },
                 PM_H(MaterialUI.MenuItem, { value: '' }, '不指定'),
                 groups.map((group) => PM_H(MaterialUI.MenuItem, { key: group.id, value: group.id }, group.name))
               ),
-              PM_H(MaterialUI.TextField, { select: true, label: '设备策略', helperText: '不指定则继承设备组 / 默认策略', value: deviceForm.policyId, onChange: (e) => setDeviceForm((p) => ({ ...p, policyId: e.target.value })), fullWidth: true },
-                PM_H(MaterialUI.MenuItem, { value: '' }, '继承（设备组/默认）'),
+              PM_H(MaterialUI.TextField, { select: true, label: '设备策略', helperText: isPersonalMode ? '不指定则使用默认策略' : '不指定则继承设备组 / 默认策略', value: deviceForm.policyId, onChange: (e) => setDeviceForm((p) => ({ ...p, policyId: e.target.value })), fullWidth: true },
+                PM_H(MaterialUI.MenuItem, { value: '' }, isPersonalMode ? '默认策略' : '继承（设备组/默认）'),
                 devicePolicies.map((p) => PM_H(MaterialUI.MenuItem, { key: p.id, value: p.id }, p.name))
               ),
               PM_H(MaterialUI.TextField, { label: '标签（逗号分隔）', value: deviceForm.tags, onChange: (e) => setDeviceForm((p) => ({ ...p, tags: e.target.value })), fullWidth: true }),
@@ -1407,21 +1503,26 @@ script.
           )
         ),
         PM_H(MaterialUI.Dialog, { open: addingMember, onClose: () => setAddingMember(false), maxWidth: 'xs', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
-          PM_H(MaterialUI.DialogTitle, null, '添加成员'),
+          PM_H(MaterialUI.DialogTitle, null, '邀请成员'),
           PM_H(MaterialUI.DialogContent, null,
             PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
-              PM_H(MaterialUI.TextField, { select: true, label: '用户', value: memberForm.userId, onChange: (e) => setMemberForm((p) => ({ ...p, userId: e.target.value })), fullWidth: true },
-                users.map((u) => PM_H(MaterialUI.MenuItem, { key: u.id, value: u.id }, (u.label || u.id) + ' / ' + (u.userName || u.id)))
-              ),
+              PM_H(MaterialUI.Typography, { variant: 'body2', color: 'text.secondary' }, '按邮箱邀请。已注册账号将直接加入；新邮箱会创建账号并发送「设置密码」邮件。'),
+              PM_H(MaterialUI.TextField, { label: '邮箱', type: 'email', placeholder: 'name@company.com', value: memberForm.email, onChange: (e) => setMemberForm((p) => ({ ...p, email: e.target.value })), fullWidth: true }),
               PM_H(MaterialUI.TextField, { select: true, label: '角色', value: memberForm.role, onChange: (e) => setMemberForm((p) => ({ ...p, role: e.target.value })), fullWidth: true },
-                ['owner', 'admin', 'technician', 'auditor', 'member'].map((role) =>
+                ['admin', 'technician', 'auditor', 'member'].map((role) =>
                   PM_H(MaterialUI.MenuItem, { key: role, value: role }, (ROLE_LABELS[role] || role)))
-              )
+              ),
+              inviteResult
+                ? PM_H(MaterialUI.Alert, { severity: 'info', sx: { wordBreak: 'break-all' } },
+                    inviteResult.inviteUrl
+                      ? ['未配置邮件服务（开发态）。请把以下设密链接发给对方：', PM_H('div', { key: 'u', style: { marginTop: 6, fontFamily: 'monospace', fontSize: 12 } }, inviteResult.inviteUrl)]
+                      : '邀请邮件已发送。')
+                : null
             )
           ),
           PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
-            PM_H(MaterialUI.Button, { onClick: () => setAddingMember(false) }, '取消'),
-            PM_H(MaterialUI.Button, { variant: 'contained', onClick: submitMember }, '添加')
+            PM_H(MaterialUI.Button, { onClick: () => setAddingMember(false) }, '关闭'),
+            PM_H(MaterialUI.Button, { variant: 'contained', onClick: submitMember }, '发送邀请')
           )
         ),
         PM_H(MaterialUI.Dialog, { open: !!editingDevicePolicy, onClose: () => setEditingDevicePolicy(null), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },

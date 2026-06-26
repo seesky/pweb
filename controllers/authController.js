@@ -435,7 +435,8 @@ exports.resetPassword = async (req, res) => {
     });
     await prisma.piuser.update({
       where: { ID: user.ID },
-      data: { PASSWORDRESETTOKEN: null, PASSWORDRESETEXPIRES: null }
+      // 通过邮件链接设密即视为邮箱已验证（成员邀请与找回密码共用此入口）。
+      data: { PASSWORDRESETTOKEN: null, PASSWORDRESETEXPIRES: null, EMAILVERIFIED: true }
     });
     return res.json({ success: true, message: '密码已重置，请重新登录' });
   } catch (error) {

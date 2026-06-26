@@ -5,15 +5,14 @@ const { PrismaClient } = require('@prisma/client');
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const { ModuleService } = require('../services/base/module_service');
 const UserInfo = require('../utilities/publiclibrary/user_info');
+const { resolveTenantContext } = require('../services/management/tenant_context');
 
 const prisma = new PrismaClient();
 const moduleService = new ModuleService(prisma);
 
 const normalizeNavPath = (value) => {
   const v = (value || '').trim();
-  if (!v || v === '#') {
-    return '';
-  }
+  if (!v || v === '#') return '';
   return v;
 };
 
@@ -61,7 +60,6 @@ exports.dashboard = async (req, res) => {
       : await moduleService.getDTByUser(current?.Id);
     navData = buildNavTree(modules || []);
   } catch (error) {
-    // log and fallback to default nav
     console.error('[AdminController.dashboard] failed to load modules', error);
     navData = [
       {
@@ -75,11 +73,17 @@ exports.dashboard = async (req, res) => {
     ];
   }
 
-  const userPayload = UserInfo.objToJson(current);
+  let tenantContext = {};
+  try {
+    tenantContext = await resolveTenantContext(req, current) || {};
+  } catch (error) {
+    console.error('[AdminController.dashboard] failed to resolve tenant context', error);
+  }
 
   res.render('admin', {
     title: '管理后台',
-    user: userPayload,
-    navData: JSON.stringify(navData)
+    user: UserInfo.objToJson(current),
+    navData: JSON.stringify(navData),
+    tenantContext
   });
 };
