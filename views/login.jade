@@ -388,7 +388,7 @@ html(lang="zh-CN")
                   sx: {
                     display: { xs: 'none', md: 'flex' },
                     flexDirection: 'column',
-                    justifyContent: 'space-between',
+                    justifyContent: 'center',
                     flex: '0 0 44%',
                     background: 'linear-gradient(180deg,#4338ca,#312e81)',
                     color: '#fff',
@@ -397,14 +397,14 @@ html(lang="zh-CN")
                 },
                   React.createElement(Box, null,
                     React.createElement(Typography, { variant: 'h5', fontWeight: 700 }, '欢迎使用后台系统'),
-                    React.createElement(Typography, { variant: 'body2', sx: { mt: 1.5, color: 'rgba(255,255,255,0.82)' } },
+                    React.createElement(Typography, { variant: 'body2', sx: { mt: 1.5, mb: 4, color: 'rgba(255,255,255,0.82)' } },
                       '支持账号密码 + 2FA，保障安全登录体验。'
+                    ),
+                    React.createElement(Stack, { spacing: 1.5 },
+                      React.createElement(FeatureItem, { title: '高安全', description: '开启 2FA，多重验证登录。' }),
+                      React.createElement(FeatureItem, { title: '统一账号', description: '注册/登录一体化入口。' }),
+                      React.createElement(FeatureItem, { title: '找回友好', description: '支持邮箱找回密码/2FA。' })
                     )
-                  ),
-                  React.createElement(Stack, { spacing: 1.5 },
-                    React.createElement(FeatureItem, { title: '高安全', description: '开启 2FA，多重验证登录。' }),
-                    React.createElement(FeatureItem, { title: '统一账号', description: '注册/登录一体化入口。' }),
-                    React.createElement(FeatureItem, { title: '找回友好', description: '支持邮箱找回密码/2FA。' })
                   )
                 ),
                 React.createElement(Box, {
