@@ -3,7 +3,6 @@
 const { PrismaClient } = require('@prisma/client');
 
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
-const { LogService } = require('../services/base/log_service');
 
 const prisma = new PrismaClient();
 
@@ -42,14 +41,24 @@ exports.list = async (req, res) => {
   const page = parsePositive(req.query.page, 1);
   const pageSize = Math.min(100, parsePositive(req.query.pageSize, 20));
   const keyword = normalize(req.query.keyword);
-  const where = [];
+  const where = {};
   if (keyword) {
-    const kw = keyword.replace(/'/g, "''");
-    where.push(`(PROCESSNAME like '%${kw}%' OR METHODNAME like '%${kw}%' OR USERREALNAME like '%${kw}%')`);
+    where.OR = [
+      { PROCESSNAME: { contains: keyword } },
+      { METHODNAME: { contains: keyword } },
+      { USERREALNAME: { contains: keyword } }
+    ];
   }
-  const whereSql = where.length ? where.join(' AND ') : '';
   try {
-    const { recordCount, data } = await LogService.getDTByPage(page, pageSize, whereSql, 'CREATEON DESC');
+    const [recordCount, data] = await Promise.all([
+      prisma.cilog.count({ where }),
+      prisma.cilog.findMany({
+        where,
+        orderBy: { CREATEON: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      })
+    ]);
     res.json({
       success: true,
       data: (data || []).map(formatLog),

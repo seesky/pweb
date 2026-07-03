@@ -1,7 +1,5 @@
 'use strict';
 
-const SystemInfo = require('../utilities/publiclibrary/system_info');
-const UserInfo = require('../utilities/publiclibrary/user_info');
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const NetHelper = require('../utilities/publiclibrary/net_helper');
 const StatusCode = require('../utilities/message/status_code');
@@ -25,22 +23,6 @@ exports.checkLogin = async (req, res) => {
   const ipAddress = NetHelper.getIpAddress(req) || req.ip || '';
 
   try {
-    if (account === SystemInfo.CurrentUserName && password === SystemInfo.CurrentPassword) {
-      const superAdmin = new UserInfo();
-      superAdmin.Id = 'Administrator';
-      superAdmin.UserName = '超级管理员';
-      superAdmin.RealName = '超级管理员';
-      superAdmin.Code = 'Administrator';
-      superAdmin.CompanyId = '系统';
-      superAdmin.DepartmentId = '系统';
-      superAdmin.IPAddress = ipAddress;
-      superAdmin.IsAdministrator = true;
-
-      CommonUtils.addCurrent(superAdmin, res, req);
-      CommonUtils.uiStyle(superAdmin, res, req);
-      return res.json({ success: true, redirect: SUCCESS_REDIRECT });
-    }
-
     const { returnStatusCode, userInfo } = await logOnService.userLogOn(
       account,
       password,

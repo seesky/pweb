@@ -243,6 +243,33 @@ class ScopPermission {
 
     if (targetCategory === 'PIORGANIZE') {
       const [, permissionScope] = await permissionScopeService.transformPermissionScope(userId, resourceIds);
+      if (permissionScope === PermissionScope.All) {
+        const organizations = await this.prisma.piorganize.findMany({
+          where: { ENABLED: 1, DELETEMARK: 0 },
+          select: { ID: true }
+        });
+        return organizations.map((item) => item.ID);
+      }
       if (permissionScope === PermissionScope.User) {
         return [userId];
       }
+      if (permissionScope === PermissionScope.UserCompany) {
+        return [user.COMPANYID].filter(Boolean);
+      }
+      if (permissionScope === PermissionScope.UserDepartment) {
+        return [user.DEPARTMENTID].filter(Boolean);
+      }
+      if (permissionScope === PermissionScope.UserWorkgroup) {
+        return [user.WORKGROUPID].filter(Boolean);
+      }
+      resourceIds = resourceIds.filter((id) => !Object.values(PermissionScope).includes(id));
+    }
+
+    return resourceIds;
+  }
+}
+
+module.exports = {
+  ScopPermission,
+  scopPermission: new ScopPermission()
+};

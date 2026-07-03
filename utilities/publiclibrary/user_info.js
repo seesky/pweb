@@ -9,8 +9,6 @@ class UserInfo {
     this.UserName = '';
     this.RealName = '';
     this.CompanyId = '';
-    this.ServicePassword = SystemInfo.ServicePassword;
-    this.ServiceUsername = SystemInfo.ServiceUserName;
     this.RoleId = '';
     this.WorkgroupId = '';
     this.SubCompanyId = '';
@@ -34,7 +32,6 @@ class UserInfo {
     this.SecurityLevel = 0;
     this.RoleName = '';
     this.IsAdministrator = '';
-    this.Password = '';
     this.ProcessName = '';
     this.ProcessId = '';
     this.LastVisit = '';
@@ -60,8 +57,6 @@ class UserInfo {
       'UserName',
       'RealName',
       'CompanyId',
-      'ServicePassword',
-      'ServiceUsername',
       'RoleId',
       'WorkgroupId',
       'SubCompanyId',
@@ -85,7 +80,6 @@ class UserInfo {
       'SecurityLevel',
       'RoleName',
       'IsAdministrator',
-      'Password',
       'ProcessName',
       'ProcessId',
       'LastVisit'

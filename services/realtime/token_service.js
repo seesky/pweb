@@ -1,12 +1,13 @@
 'use strict';
 
 const jwt = require('jsonwebtoken');
+const { getSecret } = require('../../middleware/security');
 
-const DEFAULT_EXPIRES_SECONDS = 60 * 60 * 24 * 90; // 90 days for socket token
+const DEFAULT_EXPIRES_SECONDS = 60 * 60 * 24 * 365; // 1 year for long-lived clients
 
 class SocketTokenService {
   constructor(secret) {
-    this.secret = secret || process.env.SOCKET_JWT_SECRET || process.env.AUTH_JWT_SECRET || 'socket-secret';
+    this.secret = secret || process.env.SOCKET_JWT_SECRET || getSecret('SOCKET_JWT_SECRET');
   }
 
   issue(userId, terminalId, expiresInSeconds = DEFAULT_EXPIRES_SECONDS, profile = {}) {
@@ -21,7 +22,11 @@ class SocketTokenService {
     // without an extra request — including on cached-token startup.
     if (profile.username) payload.username = profile.username;
     if (profile.email) payload.email = profile.email;
-    return jwt.sign(payload, this.secret, { expiresIn: expiresInSeconds });
+    return jwt.sign(payload, this.secret, {
+      expiresIn: expiresInSeconds,
+      algorithm: 'HS256',
+      issuer: 'poleis-socket'
+    });
   }
 
   // 设备身份 token：企业版被控主机 enroll 后用它连信令，无需任何用户登录。
@@ -36,12 +41,19 @@ class SocketTokenService {
       tid: terminalId,
       tenant: tenantId || null
     };
-    return jwt.sign(payload, this.secret, { expiresIn: expiresInSeconds });
+    return jwt.sign(payload, this.secret, {
+      expiresIn: expiresInSeconds,
+      algorithm: 'HS256',
+      issuer: 'poleis-socket'
+    });
   }
 
   verify(token) {
     try {
-      return jwt.verify(token, this.secret);
+      return jwt.verify(token, this.secret, {
+        algorithms: ['HS256'],
+        issuer: 'poleis-socket'
+      });
     } catch (error) {
       return null;
     }

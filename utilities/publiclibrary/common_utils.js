@@ -1,42 +1,23 @@
 'use strict';
 
-const SecretHelper = require('./secret_helper');
 const UserInfo = require('./user_info');
-const { ParameterService } = require('../../services/base/parameter_service');
-
-const parameterService = new ParameterService();
-
-const getConfig = (key, defaultValue) => {
-  try {
-    return parameterService.getServiceConfig(null, key) || defaultValue;
-  } catch (error) {
-    return defaultValue;
-  }
-};
-
-const getProvider = () => getConfig('LoginProvider', 'Session');
-const getCookieMaxAge = () => parseInt(getConfig('CookieMaxAge', '14400000'), 10) || 14400000;
-const getLoginUserKey = () => getConfig('LoginUserKey', 'LoginUserKey');
+const getCookieMaxAge = () =>
+  parseInt(process.env.SESSION_MAX_AGE_MS || '14400000', 10) || 14400000;
+const getLoginUserKey = () => 'LoginUserKey';
 
 const serializeUser = (userInfo) => {
   if (!userInfo) {
     return '';
   }
-  const payload = JSON.stringify(UserInfo.objToJson(userInfo));
-  return SecretHelper.aesEncrypt(payload);
+  return UserInfo.objToJson(userInfo);
 };
 
 const deserializeUser = (encrypted) => {
-  if (!encrypted) {
-    return null;
-  }
-  const decrypted = SecretHelper.aesDecrypt(encrypted);
-  if (!decrypted) {
+  if (!encrypted || typeof encrypted !== 'object') {
     return null;
   }
   try {
-    const data = JSON.parse(decrypted);
-    return UserInfo.jsonToObj(data);
+    return UserInfo.jsonToObj(encrypted);
   } catch (error) {
     return null;
   }
@@ -47,42 +28,21 @@ class CommonUtils {
     if (!userInfo || !req) {
       return;
     }
-    const encrypted = serializeUser(userInfo);
-    const provider = getProvider();
-    const cookieKey = provider;
+    const serialized = serializeUser(userInfo);
+    const cookieKey = getLoginUserKey();
     const maxAge = getCookieMaxAge();
-    const cookieOptions = {
-      maxAge,
-      httpOnly: true,
-      signed: true
-    };
-
-    if (provider === 'Cookie') {
-      res?.cookie(cookieKey, encrypted, cookieOptions);
-    } else {
-      req.session[cookieKey] = encrypted;
-      req.session.cookie.maxAge = maxAge;
-    }
+    req.session[cookieKey] = serialized;
+    req.session.cookie.maxAge = maxAge;
   }
 
   static getCurrent(res, req) {
-    const provider = getProvider();
-    const cookieKey = provider;
-    let encrypted;
-    if (provider === 'Cookie') {
-      encrypted = req?.signedCookies?.[cookieKey];
-    } else {
-      encrypted = req?.session?.[cookieKey];
-    }
-    return deserializeUser(encrypted);
+    const cookieKey = getLoginUserKey();
+    return deserializeUser(req?.session?.[cookieKey]);
   }
 
   static emptyCurrent(res, req) {
-    const provider = getProvider();
-    const cookieKey = provider;
-    if (provider === 'Cookie') {
-      res?.clearCookie(cookieKey);
-    } else if (req?.session) {
+    const cookieKey = getLoginUserKey();
+    if (req?.session) {
       delete req.session[cookieKey];
     }
   }
@@ -92,7 +52,9 @@ class CommonUtils {
     const maxAge = getCookieMaxAge();
     const cookieOptions = {
       maxAge,
-      signed: true
+      signed: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
     };
     if (req?.session) {
       req.session.UIStyle = style;

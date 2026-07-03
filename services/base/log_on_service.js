@@ -1,15 +1,14 @@
 'use strict';
 
 const { PrismaClient } = require('@prisma/client');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('node:crypto');
+const bcrypt = require('bcryptjs');
 
 const StatusCode = require('../../utilities/message/status_code');
 const FrameworkMessage = require('../../utilities/message/framework_message');
 const AuditStatus = require('../../utilities/message/audit_status');
 const SystemInfo = require('../../utilities/publiclibrary/system_info');
 const UserInfo = require('../../utilities/publiclibrary/user_info');
-const SecretHelper = require('../../utilities/publiclibrary/secret_helper');
-const ValidateUtil = require('../../utilities/publiclibrary/validate_util');
 const { CheckIPAddress } = require('../../utilities/publiclibrary/check_ip_address');
 const DbCommonLibaray = require('../../utilities/publiclibrary/db_common_libaray');
 const { ParameterService } = require('./parameter_service');
@@ -19,6 +18,14 @@ const prisma = new PrismaClient();
 const db = new DbCommonLibaray();
 const parameterService = new ParameterService(prisma);
 const checkIPAddressService = new CheckIPAddress(prisma);
+const uuidv4 = randomUUID;
+const passwordIsStrong = (password) =>
+  typeof password === 'string' &&
+  password.length >= 12 &&
+  password.length <= 128 &&
+  /[a-z]/.test(password) &&
+  /[A-Z]/.test(password) &&
+  /\d/.test(password);
 
 class LogOnService {
   constructor(client = prisma) {
@@ -144,10 +151,10 @@ class LogOnService {
     if (!userIds?.length) {
       return { returnCode: StatusCode.NotFound, returnValue };
     }
-    let hashed = password || '';
-    if (SystemInfo.EnableEncryptServerPassword) {
-      hashed = SecretHelper.aesEncrypt(password || '');
+    if (!passwordIsStrong(password)) {
+      return { returnCode: StatusCode.PasswordNotStrength, returnValue };
     }
+    const hashed = await bcrypt.hash(password || '', 12);
     const enableCheckIPAddress = SystemInfo.EnableCheckIPAddress ? 1 : 0;
     const now = new Date();
     await Promise.all(
@@ -319,14 +326,10 @@ class LogOnService {
       }
     }
 
-    let encryptedPassword = password || '';
-    if (checkUserPassword && SystemInfo.EnableEncryptServerPassword && password) {
-      encryptedPassword = SecretHelper.aesEncrypt(password);
-    }
-
     if (checkUserPassword) {
       const storedPassword = userLogOnEntity.USERPASSWORD || '';
-      const passwordOK = !storedPassword && !encryptedPassword ? true : storedPassword === encryptedPassword;
+      const passwordOK = !!storedPassword && await bcrypt.compare(password || '', storedPassword)
+        .catch(() => false);
       if (!passwordOK) {
         const newErrorCount = (userLogOnEntity.PASSWORDERRORCOUNT || 0) + 1;
         await this.prisma.piuserlogon.update({
@@ -351,7 +354,6 @@ class LogOnService {
     userInfo = await this.convertToUserInfo(new UserInfo(), userEntity, userLogOnEntity);
     userInfo.IPAddress = ipAddress;
     userInfo.MACAddress = macAddress;
-    userInfo.Password = encryptedPassword;
     userInfo.IsAdministrator = userEntity.USERNAME === 'Administrator';
 
     if (returnStatusCode === StatusCode.OK) {
@@ -388,6 +390,7 @@ class LogOnService {
     if (userEntity.ROLEID) {
       userInfo.RoleId = userEntity.ROLEID;
     }
+    userInfo.IsAdministrator = userEntity.USERNAME === 'Administrator';
     return userInfo;
   }
 
@@ -433,31 +436,25 @@ class LogOnService {
   async changePassword(userId, oldPassword, newPassword) {
     let statusCode = '';
     let returnValue = 0;
-    if (SystemInfo.EnableCheckPasswordStrength) {
-      if (!newPassword) {
-        statusCode = StatusCode.PasswordCanNotBeNull;
-        return { statusCode, returnValue };
-      }
-      if (!ValidateUtil.enableCheckPasswordStrength(newPassword)) {
-        statusCode = StatusCode.PasswordNotStrength;
-        return { statusCode, returnValue };
-      }
+    if (!newPassword) {
+      statusCode = StatusCode.PasswordCanNotBeNull;
+      return { statusCode, returnValue };
     }
-
-    let oldPwd = oldPassword || '';
-    let newPwd = newPassword || '';
-    if (SystemInfo.EnableEncryptServerPassword) {
-      oldPwd = SecretHelper.aesEncrypt(oldPwd);
-      newPwd = SecretHelper.aesEncrypt(newPwd);
+    if (!passwordIsStrong(newPassword)) {
+      statusCode = StatusCode.PasswordNotStrength;
+      return { statusCode, returnValue };
     }
 
     const entity = await this.prisma.piuserlogon.findUnique({ where: { ID: userId } });
     if (!entity) {
       return { statusCode: StatusCode.UserNotFound, returnValue: 0 };
     }
-    if ((entity.USERPASSWORD || '') !== (oldPwd || '')) {
+    const oldPasswordMatches = await bcrypt.compare(oldPassword || '', entity.USERPASSWORD || '')
+      .catch(() => false);
+    if (!oldPasswordMatches) {
       return { statusCode: StatusCode.OldPasswordError, returnValue: 0 };
     }
+    const newPwd = await bcrypt.hash(newPassword || '', 12);
     await this.prisma.piuserlogon.update({
       where: { ID: userId },
       data: { USERPASSWORD: newPwd, CHANGEPASSWORDDATE: new Date() }

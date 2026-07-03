@@ -2,22 +2,24 @@
 
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomBytes } = require('node:crypto');
 const jwt = require('jsonwebtoken');
 const { authenticator } = require('otplib');
 const qrcode = require('qrcode');
 
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
-const SystemInfo = require('../utilities/publiclibrary/system_info');
+const { getSecret } = require('../middleware/security');
 const NetHelper = require('../utilities/publiclibrary/net_helper');
 const UserInfo = require('../utilities/publiclibrary/user_info');
 const { logOnService } = require('../services/base/log_on_service');
 
 const prisma = new PrismaClient();
-const JWT_SECRET = process.env.AUTH_JWT_SECRET || 'dev-auth-secret';
+const JWT_SECRET = getSecret('AUTH_JWT_SECRET');
 const TEMP_TOKEN_EXPIRES_SECONDS = 5 * 60;
+const MAX_PASSWORD_FAILURES = 5;
+const LOCK_MINUTES = 30;
 
-const hashPassword = (plain) => bcrypt.hash(plain, 10);
+const hashPassword = (plain) => bcrypt.hash(plain, 12);
 const verifyPassword = async (plain, hashed) => {
   if (!hashed) return false;
   try {
@@ -31,12 +33,16 @@ const buildTempToken = (userId) =>
   jwt.sign(
     { uid: userId, step: '2fa' },
     JWT_SECRET,
-    { expiresIn: TEMP_TOKEN_EXPIRES_SECONDS }
+    { expiresIn: TEMP_TOKEN_EXPIRES_SECONDS, algorithm: 'HS256', issuer: 'poleis-auth' }
   );
 
 const parseTempToken = (token) => {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET, {
+      algorithms: ['HS256'],
+      issuer: 'poleis-auth'
+    });
+    return payload?.step === '2fa' ? payload : null;
   } catch {
     return null;
   }
@@ -44,7 +50,7 @@ const parseTempToken = (token) => {
 
 const generateRecoveryCodes = async () => {
   const codes = Array.from({ length: 8 }, () =>
-    Math.random().toString(36).slice(2, 10).toUpperCase()
+    randomBytes(6).toString('base64url').toUpperCase()
   );
   const hashes = await Promise.all(codes.map((c) => bcrypt.hash(c, 8)));
   return { codes, hashes };
@@ -55,6 +61,25 @@ const is2faEnabled = (logon) =>
   (logon.IS2FAENABLED === true ||
     logon.IS2FAENABLED === 1 ||
     String(logon.IS2FAENABLED).toLowerCase() === 'true');
+
+const passwordIsStrong = (password) =>
+  typeof password === 'string' &&
+  password.length >= 12 &&
+  password.length <= 128 &&
+  /[a-z]/.test(password) &&
+  /[A-Z]/.test(password) &&
+  /\d/.test(password);
+
+const establishSession = (req, res, userInfo) =>
+  new Promise((resolve, reject) => {
+    if (!req.session) return reject(new Error('Session is unavailable'));
+    req.session.regenerate((error) => {
+      if (error) return reject(error);
+      CommonUtils.addCurrent(userInfo, res, req);
+      CommonUtils.uiStyle(userInfo, res, req);
+      req.session.save((saveError) => saveError ? reject(saveError) : resolve());
+    });
+  });
 
 const ensureCurrent = (req, res) => {
   const current = req.currentUser || CommonUtils.getCurrent(res, req);
@@ -74,6 +99,9 @@ exports.register = async (req, res) => {
   const { username, password, email } = req.body || {};
   if (!username || !password || !email) {
     return res.status(400).json({ success: false, message: '用户名、密码、邮箱必填' });
+  }
+  if (!passwordIsStrong(password)) {
+    return res.status(400).json({ success: false, message: '密码至少12位，且需包含大小写字母和数字' });
   }
   try {
     const existing = await prisma.piuser.findFirst({
@@ -177,8 +205,7 @@ exports.register = async (req, res) => {
     // 自动登录，便于后续绑定 2FA
     const userInfo = await convertToUserInfo(createdUser, createdLogon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
-    CommonUtils.addCurrent(userInfo, res, req);
-    CommonUtils.uiStyle(userInfo, res, req);
+    await establishSession(req, res, userInfo);
     // TODO: 可发送邮箱验证邮件，暂留空
     return res.json({ success: true, message: '注册成功，已登录，请绑定 2FA', autoLogin: true });
   } catch (error) {
@@ -188,29 +215,16 @@ exports.register = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
-  const { account, password } = req.body || {};
+  const account = String(req.body?.account || '').trim();
+  const password = String(req.body?.password || '');
   if (!account || !password) {
     return res.status(400).json({ success: false, message: '请输入账户和密码' });
   }
   try {
-    // 超级管理员直通（原逻辑兼容）
-    if (account === SystemInfo.CurrentUserName && password === SystemInfo.CurrentPassword) {
-      const superAdmin = new UserInfo();
-      superAdmin.Id = 'Administrator';
-      superAdmin.UserName = SystemInfo.CurrentUserName;
-      superAdmin.RealName = '超级管理员';
-      superAdmin.Code = 'Administrator';
-      superAdmin.CompanyId = 'SYSTEM';
-      superAdmin.DepartmentId = 'SYSTEM';
-      superAdmin.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
-      superAdmin.IsAdministrator = true;
-      CommonUtils.addCurrent(superAdmin, res, req);
-      CommonUtils.uiStyle(superAdmin, res, req);
-      return res.json({ success: true, redirect: '/admin' });
-    }
     const user = await prisma.piuser.findFirst({
       where: {
         DELETEMARK: 0,
+        ENABLED: 1,
         OR: [{ USERNAME: account }, { EMAIL: account }]
       }
     });
@@ -221,24 +235,43 @@ exports.login = async (req, res) => {
     if (!logon) {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
-    // 兼容旧密码：先 bcrypt，再明文比较
-    const passed =
-      (await verifyPassword(password, logon.USERPASSWORD || '')) ||
-      password === logon.USERPASSWORD;
+    const now = new Date();
+    if (logon.LOCKENDDATE && logon.LOCKENDDATE > now) {
+      return res.status(423).json({ success: false, message: '账户暂时锁定，请稍后重试' });
+    }
+    const passed = await verifyPassword(password, logon.USERPASSWORD || '');
     if (!passed) {
+      const failures = (logon.PASSWORDERRORCOUNT || 0) + 1;
+      const lockUntil = failures >= MAX_PASSWORD_FAILURES
+        ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000)
+        : null;
+      await prisma.piuserlogon.update({
+        where: { ID: user.ID },
+        data: {
+          PASSWORDERRORCOUNT: failures,
+          LOCKSTARTDATE: lockUntil ? now : logon.LOCKSTARTDATE,
+          LOCKENDDATE: lockUntil
+        }
+      });
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
+    await prisma.piuserlogon.update({
+      where: { ID: user.ID },
+      data: {
+        PASSWORDERRORCOUNT: 0,
+        LOCKSTARTDATE: null,
+        LOCKENDDATE: null,
+        LASTVISIT: now,
+        IPADDRESS: NetHelper.getIpAddress(req) || req.ip || ''
+      }
+    });
     const userInfo = await convertToUserInfo(user, logon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
-    CommonUtils.addCurrent(userInfo, res, req);
-    CommonUtils.uiStyle(userInfo, res, req);
     if (is2faEnabled(logon)) {
       const tempToken = buildTempToken(user.ID);
-      // 清除已登录状态，等待 2FA 验证后再写入
-      CommonUtils.emptyCurrent(res, req);
       return res.json({ success: true, need2fa: true, tempToken });
     }
-    // 未开启 2FA 的场景，返回提示绑定，已登录可直接进入后台
+    await establishSession(req, res, userInfo);
     return res.json({ success: true, needSetup2fa: true, redirect: '/admin' });
   } catch (error) {
     console.error('[Auth.login]', error);
@@ -288,8 +321,7 @@ exports.verify2fa = async (req, res) => {
     const user = await prisma.piuser.findUnique({ where: { ID: userId } });
     const userInfo = await convertToUserInfo(user, logon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
-    CommonUtils.addCurrent(userInfo, res, req);
-    CommonUtils.uiStyle(userInfo, res, req);
+    await establishSession(req, res, userInfo);
     return res.json({ success: true, redirect: '/admin' });
   } catch (error) {
     console.error('[Auth.verify2fa]', error);
@@ -357,9 +389,7 @@ exports.disable2fa = async (req, res) => {
   try {
     const logon = await prisma.piuserlogon.findUnique({ where: { ID: current.Id } });
     if (!logon) return res.status(400).json({ success: false, message: '账号不存在' });
-    const passedPwd =
-      (await verifyPassword(password, logon.USERPASSWORD || '')) ||
-      password === logon.USERPASSWORD;
+    const passedPwd = await verifyPassword(password, logon.USERPASSWORD || '');
     if (!passedPwd) {
       return res.status(401).json({ success: false, message: '密码错误' });
     }
@@ -417,6 +447,9 @@ exports.resetPassword = async (req, res) => {
   const { token, newPassword } = req.body || {};
   if (!token || !newPassword) {
     return res.status(400).json({ success: false, message: '缺少参数' });
+  }
+  if (!passwordIsStrong(newPassword)) {
+    return res.status(400).json({ success: false, message: '密码至少12位，且需包含大小写字母和数字' });
   }
   try {
     const user = await prisma.piuser.findFirst({

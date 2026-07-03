@@ -1,6 +1,7 @@
 'use strict';
 
 const { Server } = require('socket.io');
+const { PrismaClient } = require('@prisma/client');
 const { randomUUID, randomBytes } = require('node:crypto');
 const { SocketTokenService } = require('./token_service');
 const { PresenceService } = require('./presence_service');
@@ -9,6 +10,7 @@ const { AssistanceService } = require('./assistance_service');
 const { platformService } = require('../management/platform_service');
 const { resolveTenantId } = require('../management/tenant_context');
 const socketControl = require('./socket_control');
+const prisma = new PrismaClient();
 
 const SOCKET_EVENTS = {
   AUTH: 'auth',
@@ -50,8 +52,23 @@ const SOCKET_EVENTS = {
 };
 
 const buildSocketServer = (httpServer, options = {}) => {
+  const allowedOrigins = String(process.env.ALLOWED_ORIGINS || process.env.PUBLIC_BASE_URL || '')
+    .split(',')
+    .map((value) => value.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  if (process.env.NODE_ENV === 'production' && !allowedOrigins.length) {
+    throw new Error('ALLOWED_ORIGINS or PUBLIC_BASE_URL is required in production');
+  }
   const io = new Server(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] }
+    cors: {
+      origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin.replace(/\/+$/, ''))) return callback(null, true);
+        return callback(new Error('origin not allowed'));
+      },
+      methods: ['GET', 'POST'],
+      credentials: true
+    },
+    maxHttpBufferSize: 1024 * 1024
   });
   const tokenService = new SocketTokenService();
   const presence = new PresenceService();
@@ -90,6 +107,20 @@ const buildSocketServer = (httpServer, options = {}) => {
   const natSessions = new Map(); // sessionId -> { clientTerminalId, agentTerminalId, createdAt, state }
   const platformSessionIndex = new Map(); // signaling session/pair -> poleis_session.ID
   const relayPairTokens = new Map(); // sorted "termA|termB" -> { token, createdAt }
+  const authorizedPairs = new Map(); // sorted terminal pair -> expiry timestamp
+  const pairKey = (a, b) => [String(a || ''), String(b || '')].sort().join('|');
+  const authorizePair = (a, b, ttlMs = 10 * 60 * 1000) => {
+    if (a && b) authorizedPairs.set(pairKey(a, b), Date.now() + ttlMs);
+  };
+  const isPairAuthorized = (a, b) => {
+    const key = pairKey(a, b);
+    const expiresAt = authorizedPairs.get(key) || 0;
+    if (expiresAt <= Date.now()) {
+      authorizedPairs.delete(key);
+      return false;
+    }
+    return true;
+  };
 
   const forgetPlatformSession = (sessionId) => {
     if (!sessionId) return;
@@ -193,7 +224,7 @@ const buildSocketServer = (httpServer, options = {}) => {
   });
 
   io.use(async (socket, next) => {
-    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    const token = socket.handshake.auth?.token;
     const deviceInfo = socket.handshake.auth?.deviceInfo || {};
     const terminalIdFromClient = socket.handshake.auth?.terminalId || socket.handshake.query?.terminalId;
     const payload = tokenService.verify(token);
@@ -209,11 +240,27 @@ const buildSocketServer = (httpServer, options = {}) => {
       socket.data.deviceTenantId = payload.tenant || null;
       socket.data.terminalId = payload.tid;
       socket.data.userId = 'device:' + payload.did; // 合成 id，仅用于路由/索引
+      const device = await prisma.poleis_device.findFirst({
+        where: {
+          ID: payload.did,
+          TERMINALID: payload.tid,
+          TENANTID: payload.tenant || undefined,
+          ENABLED: 1,
+          DELETEMARK: 0
+        },
+        select: { ID: true }
+      });
+      if (!device) return next(new Error('unauthorized'));
       return next();
     }
     if (!payload.uid) {
       return next(new Error('unauthorized'));
     }
+    const user = await prisma.piuser.findFirst({
+      where: { ID: payload.uid, ENABLED: 1, DELETEMARK: 0 },
+      select: { ID: true }
+    });
+    if (!user) return next(new Error('unauthorized'));
     socket.data.userId = payload.uid;
     socket.data.terminalId = terminalIdFromClient || payload.tid || randomUUID();
     return next();
@@ -339,6 +386,11 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'missing target terminal' });
         return;
       }
+      const ownEndpoints = await presence.getEndpointsByUser(userId);
+      if (!ownEndpoints.some((endpoint) => endpoint.terminalId === targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
+        return;
+      }
       const sent = await sendToTerminal(targetTerminalId, payload?.payload);
       audit.log({ action: 'send_terminal', userId, description: `to:${targetTerminalId}`, payload: { size: JSON.stringify(payload?.payload || '').length } });
       cb({ success: sent });
@@ -348,6 +400,10 @@ const buildSocketServer = (httpServer, options = {}) => {
       const toUserId = payload?.toUserId;
       if (!toUserId) {
         cb({ success: false, message: 'missing target user' });
+        return;
+      }
+      if (toUserId !== userId) {
+        cb({ success: false, message: 'forbidden' });
         return;
       }
       const endpoints = await presence.getEndpointsByUser(toUserId);
@@ -480,6 +536,16 @@ const buildSocketServer = (httpServer, options = {}) => {
         return;
       }
       // 转发连接请求到目标终端
+      let validGrant = false;
+      if (payload?.grantToken) {
+        const grant = await assistance.consumeGrant(payload.grantToken);
+        validGrant = !!(
+          grant &&
+          grant.hostTerminalId === targetTerminalId &&
+          grant.controllerTerminalId === terminalId &&
+          grant.controllerUserId === userId
+        );
+      }
       const authz = await platformService.isAuthorized({
         controllerUserId: userId,
         targetTerminalId,
@@ -488,7 +554,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         console.error('[socket.io] authorization check failed:', err);
         return { allowed: false, reason: 'AUTHZ_ERROR' };
       });
-      if (!authz.allowed && !payload?.grantToken) {
+      if (!authz.allowed && !validGrant) {
         audit.log({
           category: 'authz',
           action: 'poleis_connect_denied',
@@ -499,6 +565,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: authz.reason || 'forbidden' });
         return;
       }
+      authorizePair(terminalId, targetTerminalId);
       const connectPlatformSessionId = await platformService.createSession({
         controllerUserId: userId,
         controllerTerminal: terminalId,
@@ -516,7 +583,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         type: 'POLEIS_CONNECT_REQUEST',
         fromTerminalId: terminalId,
         fromUserId: userId,
-        grantToken: payload?.grantToken || '',
+        grantToken: validGrant ? payload.grantToken : '',
         // 把生效的权限模板能力位下发给 agent，由 agent 真正强制（只读/文件/剪贴板/确认/超时等）
         profile: authz.profile || null,
         // 生效的设备策略（客户端运行配置：码率/帧率/传输偏好/自动更新/日志保留）
@@ -570,6 +637,10 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'missing target or sdp' });
         return;
       }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
+        return;
+      }
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_SDP_OFFER',
         fromTerminalId: terminalId,
@@ -587,6 +658,10 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'missing target or sdp' });
         return;
       }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
+        return;
+      }
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_SDP_ANSWER',
         fromTerminalId: terminalId,
@@ -602,6 +677,10 @@ const buildSocketServer = (httpServer, options = {}) => {
       const candidate = payload?.candidate;
       if (!targetTerminalId || !candidate) {
         cb({ success: false, message: 'missing target or candidate' });
+        return;
+      }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
         return;
       }
       const sent = await sendToTerminal(targetTerminalId, {
@@ -631,9 +710,28 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'unknown nat session' });
         return;
       }
+      if (existing) {
+        const validParticipants =
+          (existing.clientTerminalId === terminalId && existing.agentTerminalId === targetTerminalId) ||
+          (existing.agentTerminalId === terminalId && existing.clientTerminalId === targetTerminalId);
+        if (!validParticipants) {
+          cb({ success: false, message: 'forbidden' });
+          return;
+        }
+      }
 
       let connectAuthz = null;
+      let validGrant = false;
       if (eventType === 'POLEIS_NAT_CONNECT_REQUEST') {
+        if (payload?.grantToken) {
+          const grant = await assistance.consumeGrant(payload.grantToken);
+          validGrant = !!(
+            grant &&
+            grant.hostTerminalId === targetTerminalId &&
+            grant.controllerTerminalId === terminalId &&
+            grant.controllerUserId === userId
+          );
+        }
         connectAuthz = await platformService.isAuthorized({
           controllerUserId: userId,
           targetTerminalId,
@@ -642,7 +740,7 @@ const buildSocketServer = (httpServer, options = {}) => {
           console.error('[socket.io] authorization check failed:', err);
           return { allowed: false, reason: 'AUTHZ_ERROR' };
         });
-        if (!connectAuthz.allowed && !payload?.grantToken) {
+        if (!connectAuthz.allowed && !validGrant) {
           audit.log({
             category: 'authz',
             action: 'poleis_nat_connect_denied',
@@ -653,6 +751,7 @@ const buildSocketServer = (httpServer, options = {}) => {
           cb({ success: false, message: connectAuthz.reason || 'forbidden' });
           return;
         }
+        authorizePair(terminalId, targetTerminalId);
         natSessions.set(sessionId, {
           clientTerminalId: terminalId,
           agentTerminalId: targetTerminalId,
@@ -714,7 +813,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         role: payload?.role,
         nat: natToSend,
         error: payload?.error,
-        grantToken: payload?.grantToken || '',
+        grantToken: validGrant ? payload.grantToken : '',
         // 仅连接请求阶段带上权限模板能力位 + 设备策略，供 agent 强制 / 配置
         profile: connectAuthz ? (connectAuthz.profile || null) : undefined,
         policy: connectAuthz ? (connectAuthz.policy || null) : undefined
