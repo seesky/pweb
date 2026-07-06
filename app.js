@@ -34,6 +34,7 @@ var dataItemAdminRouter = require('./routes/dataItemAdmin');
 var messageAdminRouter = require('./routes/messageAdmin');
 var socketRouter = require('./routes/socket');
 var realtimeAdminRouter = require('./routes/realtimeAdmin');
+var relayAdminRouter = require('./routes/relayAdmin');
 var managementPlatformRouter = require('./routes/managementPlatform');
 var saasOnboardingRouter = require('./routes/saasOnboarding');
 var platformAdminRouter = require('./routes/platformAdmin');
@@ -41,6 +42,25 @@ var platformAdminRouter = require('./routes/platformAdmin');
 var app = express();
 var isProduction = process.env.NODE_ENV === 'production';
 var sessionStore;
+
+// 登录限流相关参数：均可通过 .env 调整；未配置时保留内置默认值。
+// AUTH_RATE_LIMIT_ENABLED：是否启用登录接口限流（false 时所有登录类接口不限流）
+// AUTH_RATE_WINDOW_MS：限流计数窗口（毫秒）
+// AUTH_RATE_LIMIT：窗口内同一 IP 的最大请求次数
+// SESSION_COOKIE_MAX_AGE_MS：会话 cookie 有效期（毫秒）
+var envBool = function (name, fallback) {
+  var v = String(process.env[name] || '').trim().toLowerCase();
+  if (v === '') return fallback;
+  return v === 'false' || v === '0' || v === 'no' ? false : Boolean(v);
+};
+var envInt = function (name, fallback) {
+  var v = Number(process.env[name]);
+  return Number.isFinite(v) && v >= 0 ? Math.trunc(v) : fallback;
+};
+var rateLimitEnabled = envBool('AUTH_RATE_LIMIT_ENABLED', true);
+var rateWindowMs = envInt('AUTH_RATE_WINDOW_MS', 15 * 60 * 1000);
+var rateLimitCount = envInt('AUTH_RATE_LIMIT', 10);
+var sessionMaxAge = envInt('SESSION_COOKIE_MAX_AGE_MS', 1000 * 60 * 60 * 4);
 
 if (isProduction) {
   if (!process.env.SESSION_REDIS_URL) {
@@ -82,7 +102,7 @@ app.use(
       httpOnly: true,
       secure: isProduction,
       sameSite: 'lax',
-      maxAge: 1000 * 60 * 60 * 4
+      maxAge: sessionMaxAge
     }
   })
 );
@@ -116,13 +136,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', landingRouter);
 app.use('/index', indexRouter);
 app.use('/users', usersRouter);
-var authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many authentication attempts; try again later' }
-});
+var authLimiter = rateLimitEnabled
+  ? rateLimit({
+      windowMs: rateWindowMs,
+      limit: rateLimitCount,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
+      message: { success: false, message: 'Too many authentication attempts; try again later' }
+    })
+  // 限流关闭时使用透传函数，保持后续中间件链不受影响。
+  : function (req, res, next) { next(); };
 // 登录页面 GET 不限流，只对 POST（提交登录）限制
 app.use('/login', function(req, res, next) {
   if (req.method === 'POST' && authLimiter) return authLimiter(req, res, next);
@@ -153,6 +176,7 @@ app.use('/data-item-admin', security.requirePlatformAdmin, dataItemAdminRouter);
 app.use('/message-admin', security.requirePlatformAdmin, messageAdminRouter);
 app.use('/socket', socketRouter);
 app.use('/realtime-admin', realtimeAdminRouter);
+app.use('/relay-admin', relayAdminRouter);
 app.use('/', managementPlatformRouter);
 // 企业注册/邮箱验证 + 平台超管控制台（统一 SaaS 平台，始终加载）。
 app.use('/', saasOnboardingRouter);

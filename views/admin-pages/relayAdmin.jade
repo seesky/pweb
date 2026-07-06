@@ -1,0 +1,320 @@
+script.
+  // ===== TURN/中继节点管理（平台超管） =====
+  // 复用 peerManage.jade 中定义的 PM_H / PmKpiCard / PmPanel / PmEmpty / pmIcon / pmFormatDate / pmTimeAgo
+  const RELAY_STATUS_LABEL = { online: '在线', offline: '离线', draining: '排空中' };
+  const RELAY_STATUS_COLOR = { online: 'success', offline: 'default', draining: 'warning' };
+
+  const RELAY_REGIONS = ['cn-east', 'cn-south', 'cn-north', 'cn-west', 'hk', 'sg', 'us-west', 'us-east', 'eu-west'];
+
+  const fmtBytes = (n) => {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  };
+
+  const RelayAdminPage = () => {
+    const [nodes, setNodes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [editing, setEditing] = useState(null); // node | null
+    const [form, setForm] = useState({});
+    const [creating, setCreating] = useState(false);
+    const [createForm, setCreateForm] = useState({ name: '', host: '', port: 3478, tlsPort: '', region: 'cn-east', weight: 100, maxBandwidthKbps: 0, staticSecret: '', realm: '' });
+    const [metricsMap, setMetricsMap] = useState({}); // id -> metrics
+    const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+    const [confirmDelete, setConfirmDelete] = useState(null);
+    const toast = (severity, message) => setNotify({ open: true, severity, message });
+
+    const loadAll = useCallback(async () => {
+      setLoading(true); setError('');
+      try {
+        const resp = await fetch('/relay-admin/nodes');
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        if (resp.status === 403) { setError('仅平台超级管理员可访问'); setNodes([]); return; }
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '加载中继节点失败');
+        setNodes(json.data || []);
+      } catch (err) { setError(err.message || '加载失败'); }
+      finally { setLoading(false); }
+    }, []);
+    useEffect(() => { loadAll(); }, [loadAll]);
+
+    // 周期性拉取每个节点的实时指标（活跃会话/延迟/流量）
+    const refreshMetrics = useCallback(async () => {
+      for (const n of nodes) {
+        try {
+          const r = await fetch('/relay-admin/nodes/' + encodeURIComponent(n.id) + '/metrics');
+          if (!r.ok) continue;
+          const j = await r.json();
+          if (j.success && j.data) {
+            setMetricsMap((prev) => ({ ...prev, [n.id]: j.data }));
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }, [nodes]);
+    useEffect(() => {
+      if (!nodes.length) return;
+      refreshMetrics();
+      const t = setInterval(refreshMetrics, 15000);
+      return () => clearInterval(t);
+    }, [refreshMetrics]);
+
+    const stats = useMemo(() => ({
+      total: nodes.length,
+      online: nodes.filter((n) => n.status === 'online' && n.enabled).length,
+      draining: nodes.filter((n) => n.status === 'draining').length,
+      offline: nodes.filter((n) => n.status === 'offline' || !n.enabled).length,
+      sessions: nodes.reduce((s, n) => s + (n.activeSessions || 0), 0)
+    }), [nodes]);
+
+    const doCreate = async () => {
+      if (!createForm.name.trim() || !createForm.host.trim()) { toast('warning', '节点名称与地址必填'); return; }
+      try {
+        const resp = await fetch('/relay-admin/nodes', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: createForm.name.trim(),
+            host: createForm.host.trim(),
+            port: Number(createForm.port || 3478),
+            tlsPort: createForm.tlsPort ? Number(createForm.tlsPort) : null,
+            region: createForm.region || null,
+            weight: Number(createForm.weight || 100),
+            maxBandwidthKbps: Number(createForm.maxBandwidthKbps || 0),
+            staticSecret: createForm.staticSecret || null,
+            realm: createForm.realm || null,
+            status: 'offline'
+          })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '创建失败');
+        toast('success', '中继节点已创建，等待心跳上报后转为在线');
+        setCreating(false);
+        setCreateForm({ name: '', host: '', port: 3478, tlsPort: '', region: 'cn-east', weight: 100, maxBandwidthKbps: 0, staticSecret: '', realm: '' });
+        await loadAll();
+      } catch (err) { toast('error', err.message || '创建失败'); }
+    };
+
+    const openEdit = (n) => {
+      setForm({
+        name: n.name || '', host: n.host || '', port: n.port || 3478, tlsPort: n.tlsPort || '',
+        region: n.region || '', weight: n.weight || 100, maxBandwidthKbps: n.maxBandwidthKbps || 0,
+        staticSecret: '', realm: n.realm || '', enabled: n.enabled
+      });
+      setEditing(n);
+    };
+
+    const doSave = async () => {
+      if (!editing) return;
+      try {
+        const body = {
+          name: form.name.trim(),
+          host: form.host.trim(),
+          port: Number(form.port || 3478),
+          tlsPort: form.tlsPort ? Number(form.tlsPort) : null,
+          region: form.region || null,
+          weight: Number(form.weight || 100),
+          maxBandwidthKbps: Number(form.maxBandwidthKbps || 0),
+          realm: form.realm || null,
+          enabled: !!form.enabled
+        };
+        if (form.staticSecret) body.staticSecret = form.staticSecret;
+        const resp = await fetch('/relay-admin/nodes/' + encodeURIComponent(editing.id), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '保存失败');
+        toast('success', '节点配置已保存');
+        setEditing(null);
+        await loadAll();
+      } catch (err) { toast('error', err.message || '保存失败'); }
+    };
+
+    const doDrain = async (n) => {
+      try {
+        const resp = await fetch('/relay-admin/nodes/' + encodeURIComponent(n.id) + '/drain', { method: 'POST' });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '操作失败');
+        toast('success', '节点已置为排空，不再接受新会话');
+        await loadAll();
+      } catch (err) { toast('error', err.message || '操作失败'); }
+    };
+
+    const doToggleEnabled = async (n) => {
+      try {
+        const resp = await fetch('/relay-admin/nodes/' + encodeURIComponent(n.id), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !n.enabled })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '操作失败');
+        toast('success', n.enabled ? '节点已停用' : '节点已启用');
+        await loadAll();
+      } catch (err) { toast('error', err.message || '操作失败'); }
+    };
+
+    const doDelete = async () => {
+      if (!confirmDelete) return;
+      try {
+        const resp = await fetch('/relay-admin/nodes/' + encodeURIComponent(confirmDelete.id), { method: 'DELETE' });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '删除失败');
+        toast('success', '节点已删除');
+        setConfirmDelete(null);
+        await loadAll();
+      } catch (err) { toast('error', err.message || '删除失败'); }
+    };
+
+    const statusActions = (n) => {
+      const btns = [];
+      btns.push(PM_H(MaterialUI.Button, { key: 'e', size: 'small', startIcon: pmIcon('tune'), onClick: () => openEdit(n) }, '编辑'));
+      if (n.status === 'online' || n.status === 'draining') {
+        btns.push(PM_H(MaterialUI.Button, { key: 'd', size: 'small', color: 'warning', startIcon: pmIcon('pause_circle'), onClick: () => doDrain(n) }, '排空'));
+      }
+      btns.push(PM_H(MaterialUI.Button, { key: 't', size: 'small', color: n.enabled ? 'inherit' : 'success', onClick: () => doToggleEnabled(n) }, n.enabled ? '停用' : '启用'));
+      btns.push(PM_H(MaterialUI.Button, { key: 'x', size: 'small', color: 'error', startIcon: pmIcon('delete'), onClick: () => setConfirmDelete(n) }, '删除'));
+      return btns;
+    };
+
+    return PM_H(MaterialUI.Box, { sx: { maxWidth: 1400, mx: 'auto' } },
+      PM_H(MaterialUI.Box, { sx: { mb: 2.5 } },
+        PM_H(MaterialUI.Typography, { sx: { fontSize: 22, fontWeight: 800, color: '#101828' } }, '中继节点管理'),
+        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mt: 0.25 } }, 'TURN/coturn 中继服务器：注册、区域、权重、心跳与实时指标。基于延迟自动择优，P2P 不通时自动回退到中继。')
+      ),
+      error ? PM_H(MaterialUI.Alert, { severity: 'error', sx: { mb: 2, borderRadius: 2 } }, error) : null,
+      PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', mb: 2.5 } },
+        PM_H(PmKpiCard, { label: '节点总数', value: stats.total, icon: 'dns', grad: 'indigo' }),
+        PM_H(PmKpiCard, { label: '在线节点', value: stats.online, hint: '可接受新会话', icon: 'cloud_done', grad: stats.online ? 'emerald' : 'slate' }),
+        PM_H(PmKpiCard, { label: '排空中', value: stats.draining, hint: '存量会话自然结束', icon: 'hourglass_empty', grad: stats.draining ? 'amber' : 'slate' }),
+        PM_H(PmKpiCard, { label: '活跃中继会话', value: stats.sessions, icon: 'cast_connected', grad: stats.sessions ? 'blue' : 'slate' })
+      ),
+      PM_H(PmPanel, { title: '节点列表', subtitle: '共 ' + nodes.length + ' 个节点', dense: true,
+        action: PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add'), onClick: () => { setCreating(true); } }, '新增节点') },
+        nodes.length
+          ? PM_H(MaterialUI.TableContainer, null,
+              PM_H(MaterialUI.Table, { size: 'small' },
+                PM_H(MaterialUI.TableHead, null,
+                  PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                    PM_H(MaterialUI.TableCell, null, '节点'),
+                    PM_H(MaterialUI.TableCell, null, '状态'),
+                    PM_H(MaterialUI.TableCell, null, '地址'),
+                    PM_H(MaterialUI.TableCell, null, '区域'),
+                    PM_H(MaterialUI.TableCell, null, '权重'),
+                    PM_H(MaterialUI.TableCell, null, '活跃会话'),
+                    PM_H(MaterialUI.TableCell, null, '延迟'),
+                    PM_H(MaterialUI.TableCell, null, '流量'),
+                    PM_H(MaterialUI.TableCell, null, '心跳'),
+                    PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                  )
+                ),
+                PM_H(MaterialUI.TableBody, null,
+                  nodes.map((n) => {
+                    const m = metricsMap[n.id] || n;
+                    return PM_H(MaterialUI.TableRow, { key: n.id, hover: true },
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, n.name),
+                        PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3', fontFamily: 'monospace' } }, n.id.slice(0, 12)),
+                        n.hasSecret ? PM_H(MaterialUI.Chip, { size: 'small', label: '已配置密钥', sx: { mt: 0.5, height: 18, fontSize: 11 } }) : PM_H(MaterialUI.Chip, { size: 'small', label: '无静态密钥', color: 'warning', variant: 'outlined', sx: { mt: 0.5, height: 18, fontSize: 11 } })
+                      ),
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Stack, { spacing: 0.5 },
+                          PM_H(MaterialUI.Chip, { size: 'small', color: RELAY_STATUS_COLOR[n.status] || 'default', variant: n.status === 'online' ? 'filled' : 'outlined', label: RELAY_STATUS_LABEL[n.status] || n.status }),
+                          !n.enabled ? PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#f04438' } }, '已停用') : null
+                        )
+                      ),
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontFamily: 'monospace' } }, n.host + ':' + n.port),
+                        n.tlsPort ? PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, 'TLS ' + n.tlsPort) : null
+                      ),
+                      PM_H(MaterialUI.TableCell, null, n.region || '-'),
+                      PM_H(MaterialUI.TableCell, null, n.weight),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600, color: (m.activeSessions || 0) > 0 ? '#6366f1' : '#667085' } }, m.activeSessions || 0)),
+                      PM_H(MaterialUI.TableCell, null, n.lastLatencyMs != null ? (n.lastLatencyMs + ' ms') : '-'),
+                      PM_H(MaterialUI.TableCell, null, fmtBytes(m.totalBytes || 0)),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Tooltip, { title: n.lastHeartbeat ? pmFormatDate(n.lastHeartbeat) : '从未' }, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085' } }, pmTimeAgo(n.lastHeartbeat)))),
+                      PM_H(MaterialUI.TableCell, { align: 'right' },
+                        PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.5, justifyContent: 'flex-end', sx: { flexWrap: 'wrap', gap: 0.5 } }, statusActions(n))
+                      )
+                    );
+                  })
+                )
+              )
+            )
+          : (loading ? PM_H(MaterialUI.Box, { sx: { p: 3, textAlign: 'center' } }, PM_H(MaterialUI.CircularProgress, { size: 24 }))
+                     : PM_H(PmEmpty, { icon: 'dns', title: '暂无中继节点', hint: '点击右上角“新增节点”注册一台 TURN/coturn 服务器。客户端 P2P 不通时将自动回退到中继路径。' }))
+      ),
+      // 新增节点对话框
+      PM_H(MaterialUI.Dialog, { open: creating, onClose: () => setCreating(false), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+        PM_H(MaterialUI.DialogTitle, null, '新增中继节点'),
+        PM_H(MaterialUI.DialogContent, null,
+          PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+            PM_H(MaterialUI.Typography, { variant: 'body2', color: 'text.secondary' }, '注册一台 TURN 服务器。节点启动后通过心跳上报状态，平台按延迟为每对客户端择优分配。静态密钥用于 coturn use-auth-secret 模式的 HMAC 签名。'),
+            PM_H(MaterialUI.TextField, { label: '节点名称 *', value: createForm.name, onChange: (e) => setCreateForm((p) => ({ ...p, name: e.target.value })), fullWidth: true, placeholder: '如 华东-上海-01' }),
+            PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
+              PM_H(MaterialUI.TextField, { label: '主机地址 *', value: createForm.host, onChange: (e) => setCreateForm((p) => ({ ...p, host: e.target.value })), fullWidth: true, placeholder: 'relay.example.com 或 IP' }),
+              PM_H(MaterialUI.TextField, { label: '端口', type: 'number', value: createForm.port, onChange: (e) => setCreateForm((p) => ({ ...p, port: e.target.value })), sx: { width: 120 } }),
+              PM_H(MaterialUI.TextField, { label: 'TLS 端口', type: 'number', value: createForm.tlsPort, onChange: (e) => setCreateForm((p) => ({ ...p, tlsPort: e.target.value })), sx: { width: 120 } })
+            ),
+            PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
+              PM_H(MaterialUI.TextField, { select: true, label: '区域', value: createForm.region, onChange: (e) => setCreateForm((p) => ({ ...p, region: e.target.value })), sx: { minWidth: 160 } },
+                RELAY_REGIONS.map((r) => PM_H(MaterialUI.MenuItem, { key: r, value: r }, r))
+              ),
+              PM_H(MaterialUI.TextField, { label: '权重', type: 'number', value: createForm.weight, onChange: (e) => setCreateForm((p) => ({ ...p, weight: e.target.value })), sx: { width: 120 }, helperText: '越高越优先' }),
+              PM_H(MaterialUI.TextField, { label: '带宽上限(Kbps)', type: 'number', value: createForm.maxBandwidthKbps, onChange: (e) => setCreateForm((p) => ({ ...p, maxBandwidthKbps: e.target.value })), sx: { width: 180 }, helperText: '0=不限' })
+            ),
+            PM_H(MaterialUI.TextField, { label: '静态密钥 (static secret)', value: createForm.staticSecret, onChange: (e) => setCreateForm((p) => ({ ...p, staticSecret: e.target.value })), fullWidth: true, helperText: '对应 coturn 的 use-auth-secret/static-auth-secret；留空则使用平台默认密钥', placeholder: '可留空' }),
+            PM_H(MaterialUI.TextField, { label: 'Realm', value: createForm.realm, onChange: (e) => setCreateForm((p) => ({ ...p, realm: e.target.value })), fullWidth: true, helperText: 'coturn turnserver.conf 的 realm= 值；留空则使用默认 poleis', placeholder: '如 poleis.io' })
+          )
+        ),
+        PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+          PM_H(MaterialUI.Button, { onClick: () => setCreating(false) }, '取消'),
+          PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add'), onClick: doCreate }, '创建')
+        )
+      ),
+      // 编辑节点对话框
+      PM_H(MaterialUI.Dialog, { open: !!editing, onClose: () => setEditing(null), maxWidth: 'sm', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+        PM_H(MaterialUI.DialogTitle, null, '编辑节点'),
+        PM_H(MaterialUI.DialogContent, null,
+          PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+            PM_H(MaterialUI.TextField, { label: '节点名称', value: form.name, onChange: (e) => setForm((p) => ({ ...p, name: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
+              PM_H(MaterialUI.TextField, { label: '主机地址', value: form.host, onChange: (e) => setForm((p) => ({ ...p, host: e.target.value })), fullWidth: true }),
+              PM_H(MaterialUI.TextField, { label: '端口', type: 'number', value: form.port, onChange: (e) => setForm((p) => ({ ...p, port: e.target.value })), sx: { width: 120 } }),
+              PM_H(MaterialUI.TextField, { label: 'TLS 端口', type: 'number', value: form.tlsPort, onChange: (e) => setForm((p) => ({ ...p, tlsPort: e.target.value })), sx: { width: 120 } })
+            ),
+            PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
+              PM_H(MaterialUI.TextField, { select: true, label: '区域', value: form.region, onChange: (e) => setForm((p) => ({ ...p, region: e.target.value })), sx: { minWidth: 160 } },
+                RELAY_REGIONS.map((r) => PM_H(MaterialUI.MenuItem, { key: r, value: r }, r))
+              ),
+              PM_H(MaterialUI.TextField, { label: '权重', type: 'number', value: form.weight, onChange: (e) => setForm((p) => ({ ...p, weight: e.target.value })), sx: { width: 120 } }),
+              PM_H(MaterialUI.TextField, { label: '带宽上限(Kbps)', type: 'number', value: form.maxBandwidthKbps, onChange: (e) => setForm((p) => ({ ...p, maxBandwidthKbps: e.target.value })), sx: { width: 180 } })
+            ),
+            PM_H(MaterialUI.TextField, { label: '静态密钥（留空则不修改）', value: form.staticSecret, onChange: (e) => setForm((p) => ({ ...p, staticSecret: e.target.value })), fullWidth: true, helperText: '对应 coturn 的 static-auth-secret' }),
+            PM_H(MaterialUI.TextField, { label: 'Realm', value: form.realm, onChange: (e) => setForm((p) => ({ ...p, realm: e.target.value })), fullWidth: true, helperText: 'coturn turnserver.conf 的 realm= 值', placeholder: '如 poleis.io' }),
+            PM_H(MaterialUI.FormControlLabel, { control: PM_H(MaterialUI.Switch, { checked: !!form.enabled, onChange: (e) => setForm((p) => ({ ...p, enabled: e.target.checked })) }), label: '启用（停用后不参与分配）' })
+          )
+        ),
+        PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+          PM_H(MaterialUI.Button, { onClick: () => setEditing(null) }, '取消'),
+          PM_H(MaterialUI.Button, { variant: 'contained', onClick: doSave }, '保存')
+        )
+      ),
+      // 删除确认
+      PM_H(MaterialUI.Dialog, { open: !!confirmDelete, onClose: () => setConfirmDelete(null), maxWidth: 'xs', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+        PM_H(MaterialUI.DialogTitle, null, '确认删除'),
+        PM_H(MaterialUI.DialogContent, null,
+          PM_H(MaterialUI.Typography, { variant: 'body2' },
+            '确定要删除中继节点「' + (confirmDelete ? confirmDelete.name : '') + '」吗？该操作不可恢复，已连接的中继会话会立即中断。')
+        ),
+        PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+          PM_H(MaterialUI.Button, { onClick: () => setConfirmDelete(null) }, '取消'),
+          PM_H(MaterialUI.Button, { variant: 'contained', color: 'error', onClick: doDelete }, '删除')
+        )
+      ),
+      PM_H(MaterialUI.Snackbar, { open: notify.open, autoHideDuration: 3000, onClose: () => setNotify((p) => ({ ...p, open: false })), anchorOrigin: { vertical: 'bottom', horizontal: 'center' } },
+        PM_H(MaterialUI.Alert, { severity: notify.severity, onClose: () => setNotify((p) => ({ ...p, open: false })), variant: 'filled', sx: { width: '100%' } }, notify.message)
+      )
+    );
+  };

@@ -68,6 +68,8 @@ html(lang="zh-CN")
 
     include admin-pages/platformAdmin.jade
 
+    include admin-pages/relayAdmin.jade
+
     script.
       const { useState, useEffect, useMemo, useCallback } = React;
       const { createRoot } = ReactDOM;
@@ -130,6 +132,7 @@ html(lang="zh-CN")
       const ONLINE_MANAGE_CODES = ['PoleisOnlineManage'];
       const PEER_MANAGE_CODES = ['PoleisPeerManage'];
       const PLATFORM_ADMIN_CODES = ['PoleisPlatformAdmin'];
+      const RELAY_ADMIN_CODES = ['PoleisRelayAdmin', 'RelayAdmin'];
       const PERMISSION_ITEM_ADMIN_CODES = ['FrmPermissionItemAdmin'];
       const ROLE_PERMISSION_ADMIN_CODES = ['FrmRolePermissionAdmin'];
       const SEQUENCE_ADMIN_CODES = ['SequenceAdmin'];
@@ -170,6 +173,8 @@ html(lang="zh-CN")
       const isPeerManageNode = (node = {}) => matchNavUrl(node, PEER_MANAGE_CODES);
 
       const isPlatformAdminNode = (node = {}) => matchNavUrl(node, PLATFORM_ADMIN_CODES);
+
+      const isRelayAdminNode = (node = {}) => matchNavUrl(node, RELAY_ADMIN_CODES);
 
       const isRolePermissionAdminNode = (node = {}) => matchNavUrl(node, ROLE_PERMISSION_ADMIN_CODES);
 
@@ -512,6 +517,8 @@ html(lang="zh-CN")
             setActiveView({ type: 'online-manage', node });
           } else if (isPlatformAdminNode(node)) {
             setActiveView({ type: 'platform-admin', node });
+          } else if (isRelayAdminNode(node)) {
+            setActiveView({ type: 'relay-admin', node });
           } else if (isPeerManageNode(node)) {
             setActiveView({ type: 'console', section: 'overview' });
             setActiveNavId('console:overview');
@@ -589,6 +596,9 @@ html(lang="zh-CN")
           }
           if (activeView.type === 'platform-admin') {
             return React.createElement(PlatformAdminPage, null);
+          }
+          if (activeView.type === 'relay-admin') {
+            return React.createElement(RelayAdminPage, null);
           }
           if (activeView.type === 'sequence-admin') {
             return React.createElement(SequenceAdminPage, null);
@@ -677,6 +687,14 @@ html(lang="zh-CN")
                     },
                       React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'platform-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'business')),
                       React.createElement(ListItemText, { primary: '平台管理', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'platform-admin' ? 700 : 500 } })
+                    ),
+                    React.createElement(ListItemButton, {
+                      selected: activeView.type === 'relay-admin',
+                      onClick: () => { setActiveView({ type: 'relay-admin' }); setActiveNavId('relay-admin'); if (mobileOpen) setMobileOpen(false); },
+                      sx: { borderRadius: 2, mb: 0.5, px: 1.5, py: 1, color: activeView.type === 'relay-admin' ? '#312e81' : '#475467', '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' }, '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' } }
+                    },
+                      React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'relay-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'dns')),
+                      React.createElement(ListItemText, { primary: '中继节点', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'relay-admin' ? 700 : 500 } })
                     )
                   )
                 )
@@ -777,6 +795,8 @@ html(lang="zh-CN")
               ? 'Poleis 控制台'
               : activeView.type === 'platform-admin'
               ? '平台管理'
+              : activeView.type === 'relay-admin'
+              ? '中继节点管理'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
               : activeView.type === 'table-field-admin'

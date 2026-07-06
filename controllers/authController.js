@@ -15,9 +15,24 @@ const { logOnService } = require('../services/base/log_on_service');
 
 const prisma = new PrismaClient();
 const JWT_SECRET = getSecret('AUTH_JWT_SECRET');
-const TEMP_TOKEN_EXPIRES_SECONDS = 5 * 60;
-const MAX_PASSWORD_FAILURES = 5;
-const LOCK_MINUTES = 30;
+// 登录限制相关参数：均可通过 .env 调整；未配置时保留内置默认值。
+// AUTH_TEMP_TOKEN_TTL_SECONDS：2FA 临时凭证有效期（秒）
+// AUTH_MAX_PASSWORD_FAILURES：密码连续失败多少次后锁定账户（0 表示不按次数锁定）
+// AUTH_LOCK_MINUTES：达到失败阈值后的锁定时长（分钟）
+// AUTH_PASSWORD_LOCK_ENABLED：是否启用「密码失败锁定」功能（false 时既不校验已有锁定、也不新增锁定）
+const envBool = (name, fallback) => {
+  const v = String(process.env[name] ?? '').trim().toLowerCase();
+  if (v === '') return fallback;
+  return v === 'false' || v === '0' || v === 'no' ? false : Boolean(v);
+};
+const envInt = (name, fallback) => {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v >= 0 ? Math.trunc(v) : fallback;
+};
+const TEMP_TOKEN_EXPIRES_SECONDS = envInt('AUTH_TEMP_TOKEN_TTL_SECONDS', 5 * 60);
+const MAX_PASSWORD_FAILURES = envInt('AUTH_MAX_PASSWORD_FAILURES', 5);
+const LOCK_MINUTES = envInt('AUTH_LOCK_MINUTES', 30);
+const PASSWORD_LOCK_ENABLED = envBool('AUTH_PASSWORD_LOCK_ENABLED', true);
 
 const hashPassword = (plain) => bcrypt.hash(plain, 12);
 const verifyPassword = async (plain, hashed) => {
@@ -236,23 +251,25 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
     const now = new Date();
-    if (logon.LOCKENDDATE && logon.LOCKENDDATE > now) {
+    if (PASSWORD_LOCK_ENABLED && logon.LOCKENDDATE && logon.LOCKENDDATE > now) {
       return res.status(423).json({ success: false, message: '账户暂时锁定，请稍后重试' });
     }
     const passed = await verifyPassword(password, logon.USERPASSWORD || '');
     if (!passed) {
-      const failures = (logon.PASSWORDERRORCOUNT || 0) + 1;
-      const lockUntil = failures >= MAX_PASSWORD_FAILURES
-        ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000)
-        : null;
-      await prisma.piuserlogon.update({
-        where: { ID: user.ID },
-        data: {
-          PASSWORDERRORCOUNT: failures,
-          LOCKSTARTDATE: lockUntil ? now : logon.LOCKSTARTDATE,
-          LOCKENDDATE: lockUntil
-        }
-      });
+      if (PASSWORD_LOCK_ENABLED && MAX_PASSWORD_FAILURES > 0) {
+        const failures = (logon.PASSWORDERRORCOUNT || 0) + 1;
+        const lockUntil = failures >= MAX_PASSWORD_FAILURES
+          ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000)
+          : null;
+        await prisma.piuserlogon.update({
+          where: { ID: user.ID },
+          data: {
+            PASSWORDERRORCOUNT: failures,
+            LOCKSTARTDATE: lockUntil ? now : logon.LOCKSTARTDATE,
+            LOCKENDDATE: lockUntil
+          }
+        });
+      }
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
     await prisma.piuserlogon.update({

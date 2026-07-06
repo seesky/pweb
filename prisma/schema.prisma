@@ -1430,6 +1430,8 @@ model poleis_session {
   DURATIONSEC        Int?
   TRANSPORT          String?   @db.VarChar(20)
   NATTYPE            String?   @db.VarChar(30)
+  RELAYNODEID        String?   @db.VarChar(40)   // 使用的 relay 节点 ID（审计/统计）
+  RELAYBYTES         BigInt    @default(0)        // relay 中转字节数（若使用）
   RESULT             String    @default("active") @db.VarChar(20)
   FAILREASON         String?   @db.VarChar(200)
   RECORDINGURL       String?   @db.VarChar(500)
@@ -1555,6 +1557,39 @@ model uprpeerinfo {
   PEERNAME          String?   @db.VarChar(1000)
   PEERIP            String?   @db.VarChar(1000)
   MODIFIEDTIMESTAMP DateTime? @db.Timestamp(0)
+}
+
+model poleis_relay_node {
+  ID               String    @id @default("uuid()") @db.VarChar(40)
+  TENANTID         String    @default("default") @db.VarChar(40)
+  NAME             String    @db.VarChar(100)
+  HOST             String    @db.VarChar(200)
+  PORT             Int       @default(3478)
+  TLSPORT          Int?
+  REGION           String?   @db.VarChar(40)
+  LATITUDE         Float?
+  LONGITUDE        Float?
+  WEIGHT           Int       @default(100)
+  MAXBANDWIDTHKBPS Int       @default(0)
+  STATICSECRET     String?   @db.VarChar(200)
+  REALM            String?   @db.VarChar(100)  // coturn realm（turnserver.conf realm=），签 TURN 凭证用
+  STATUS           String    @default("offline") @db.VarChar(20)
+  LASTHEARTBEAT    DateTime? @db.DateTime(0)
+  LASTLATENCYMS    Int?
+  ACTIVESESSIONS   Int       @default(0)
+  TOTALBYTES       BigInt    @default(0)
+  ENABLED          Int       @default(1)
+  DELETEMARK       Int       @default(0)
+  CREATEON         DateTime? @default(now()) @db.Timestamp(0)
+  CREATEUSERID     String?   @db.VarChar(50)
+  CREATEBY         String?   @db.VarChar(50)
+  MODIFIEDON       DateTime? @db.DateTime(0)
+  MODIFIEDUSERID   String?   @db.VarChar(50)
+  MODIFIEDBY       String?   @db.VarChar(50)
+
+  @@index([TENANTID])
+  @@index([REGION])
+  @@index([STATUS])
 }
 
 model users {

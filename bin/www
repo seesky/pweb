@@ -15,6 +15,13 @@ var debug = require('debug')('pweb:server');
 var http = require('http');
 var { buildSocketServer } = require('../services/realtime/socket_server');
 var { RelayServer } = require('../services/realtime/relay_server');
+// relay 池纳管：relay_registry 自启健康检查（见 relay_registry.js 单例）。
+// 旧单机 RelayServer 仅作开发回退，POLEIS_RELAY_ENABLED=1 时启动。
+var { relayRegistry } = require('../services/realtime/relay_registry');
+// 主动 STUN 探测：周期向各 coturn 节点发 STUN Binding，自动维持 online/offline + 延迟。
+var { RelayStunProber } = require('../services/realtime/relay_stun_prober');
+var relayStunProber = new RelayStunProber(relayRegistry);
+relayStunProber.start();
 
 /**
  * Get port from environment and store in Express.
@@ -29,15 +36,17 @@ app.set('port', port);
 
 var server = http.createServer(app);
 
-// Relay is opt-in. Direct P2P remains the default until a production-grade
-// relay service is ready.
+// Relay 池由 relay_registry 纳管（Prisma + Redis），无需本地进程。
+// 旧单机 RelayServer 仅开发回退：POLEIS_RELAY_ENABLED=1 时启动，用于
+// 没有独立 coturn 节点的本地测试环境。
 var relayEnabled = /^(1|true|yes|on)$/i.test(process.env.POLEIS_RELAY_ENABLED || '');
 var relay = null;
 if (relayEnabled) {
   relay = new RelayServer();
   relay.start();
+  console.log('[relay] legacy local RelayServer started (dev fallback)');
 } else {
-  console.log('[relay] disabled; direct P2P only');
+  console.log('[relay] pool-managed (registry); legacy local relay disabled');
 }
 buildSocketServer(server, { relay });
 
