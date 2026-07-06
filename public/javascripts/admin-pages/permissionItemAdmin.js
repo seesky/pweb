@@ -1,0 +1,637 @@
+/**
+ * permissionItemAdmin.js —— 由 views/admin-pages/permissionItemAdmin.jade 提取。
+ * 懒加载：用户切换到「permission-item-admin」页时由 loader.js 动态拉取。
+ * 依赖：react / react-dom / material-ui（外壳已同步加载）
+ */
+(function () {
+  'use strict';
+
+const createDefaultPermissionItemForm = (parentId = null) => ({
+    id: '',
+    parentId: parentId || null,
+    moduleId: '',
+    code: '',
+    fullName: '',
+    categoryCode: 'Application',
+    jsEvent: '',
+    sortCode: '',
+    isScope: false,
+    isPublic: false,
+    allowEdit: true,
+    allowDelete: true,
+    enabled: true,
+    isSplit: false,
+    description: ''
+  });
+
+  const mapRecordToPermissionForm = (record = {}) => ({
+    id: record.id || '',
+    parentId: record.parentId || null,
+    moduleId: record.moduleId || '',
+    code: record.code || '',
+    fullName: record.fullName || '',
+    categoryCode: record.categoryCode || 'Application',
+    jsEvent: record.jsEvent || '',
+    sortCode: record.sortCode ?? '',
+    isScope: !!record.isScope,
+    isPublic: !!record.isPublic,
+    allowEdit: !!record.allowEdit,
+    allowDelete: !!record.allowDelete,
+    enabled: !!record.enabled,
+    isSplit: !!record.isSplit,
+    description: record.description || ''
+  });
+
+  const flattenPermissionTree = (nodes = [], depth = 0, list = []) => {
+    nodes.forEach((node) => {
+      list.push({
+        id: node.id,
+        label: `${depth ? `${'--'.repeat(depth)} ` : ''}${node.name || node.code || '未命名权限项'}`
+      });
+      if (node.children?.length) {
+        flattenPermissionTree(node.children, depth + 1, list);
+      }
+    });
+    return list;
+  };
+
+  const PermissionTreeNode = ({ node, selectedId, onSelect, depth = 0 }) => {
+    const hasChildren = node.children && node.children.length > 0;
+    const [open, setOpen] = useState(depth < 1);
+    const handleClick = () => {
+      onSelect(node.id);
+      if (hasChildren) {
+        setOpen((prev) => !prev);
+      }
+    };
+    return React.createElement(React.Fragment, null,
+      React.createElement(ListItemButton, {
+        onClick: handleClick,
+        selected: selectedId === node.id,
+        sx: {
+          pl: 2 + depth * 1.5,
+          borderRadius: 1.5,
+          mb: 0.25,
+          '&.Mui-selected': { backgroundColor: 'rgba(79,70,229,0.1)' }
+        }
+      },
+        React.createElement(ListItemText, {
+          primary: node.name || node.code || '未命名',
+          secondary: node.code
+        })
+      ),
+      hasChildren
+        ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
+            React.createElement(List, { disablePadding: true },
+              node.children.map((child) =>
+                React.createElement(PermissionTreeNode, {
+                  key: child.id,
+                  node: child,
+                  selectedId,
+                  onSelect,
+                  depth: depth + 1
+                })
+              )
+            )
+          )
+        : null
+    );
+  };
+
+  const PermissionItemTree = ({ data = [], selectedId, onSelect }) =>
+    React.createElement(List, { component: 'nav' },
+      React.createElement(ListItemButton, {
+        selected: selectedId === null,
+        onClick: () => onSelect(null),
+        sx: { borderRadius: 1.5, mb: 0.5 }
+      },
+        React.createElement(ListItemText, { primary: '全部权限项' })
+      ),
+      data.map((node) =>
+        React.createElement(PermissionTreeNode, {
+          key: node.id,
+          node,
+          selectedId,
+          onSelect,
+          depth: 0
+        })
+      )
+    );
+
+  const BooleanChip = ({ value }) =>
+    React.createElement(Chip, {
+      size: 'small',
+      label: value ? '是' : '否',
+      color: value ? 'success' : 'default',
+      variant: value ? 'filled' : 'outlined'
+    });
+
+  const PermissionItemAdminPage = () => {
+    const [treeData, setTreeData] = useState([]);
+    const [treeLoading, setTreeLoading] = useState(false);
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [total, setTotal] = useState(0);
+    const [searchInput, setSearchInput] = useState('');
+    const [keyword, setKeyword] = useState('');
+    const [selectedNodeId, setSelectedNodeId] = useState(null);
+    const [selectedRow, setSelectedRow] = useState(null);
+    const [dialogState, setDialogState] = useState({ open: false, mode: 'create' });
+    const [formValues, setFormValues] = useState(createDefaultPermissionItemForm());
+    const [saving, setSaving] = useState(false);
+    const [modules, setModules] = useState([]);
+    const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
+    const closeNotify = () => setNotify((prev) => ({ ...prev, open: false }));
+
+    const loadTree = useCallback(async () => {
+      setTreeLoading(true);
+      try {
+        const resp = await fetch('/permission-item-admin/permission-items/tree');
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '获取权限项树失败');
+        }
+        setTreeData(result.data || []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setTreeLoading(false);
+      }
+    }, []);
+
+    const loadModules = useCallback(async () => {
+      try {
+        const resp = await fetch('/permission-item-admin/modules');
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (resp.ok) {
+          setModules(result.data || []);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }, []);
+
+    const loadItems = useCallback(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(pageSize)
+        });
+        if (keyword) {
+          params.append('keyword', keyword);
+        }
+        if (selectedNodeId !== null) {
+          params.append('parentId', selectedNodeId || '');
+        }
+        const resp = await fetch(`/permission-item-admin/permission-items?${params.toString()}`);
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '获取权限项失败');
+        }
+        setItems(result.data || []);
+        setTotal(result.total || 0);
+      } catch (err) {
+        setError(err.message || '获取权限项失败');
+      } finally {
+        setLoading(false);
+      }
+    }, [page, pageSize, keyword, selectedNodeId]);
+
+    useEffect(() => {
+      loadModules();
+      loadTree();
+    }, [loadModules, loadTree]);
+
+    useEffect(() => {
+      loadItems();
+    }, [loadItems]);
+
+    useEffect(() => {
+      if (selectedRow && !items.find((item) => item.id === selectedRow.id)) {
+        setSelectedRow(null);
+      }
+    }, [items, selectedRow]);
+
+    const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize) || 1);
+
+    const handleSearch = () => {
+      setKeyword(searchInput.trim());
+      setPage(1);
+    };
+
+    const handleSelectNode = (nodeId) => {
+      setSelectedNodeId(nodeId);
+      setPage(1);
+      setSelectedRow(null);
+    };
+
+    const handleOpenCreate = () => {
+      setFormValues(createDefaultPermissionItemForm(selectedNodeId));
+      setDialogState({ open: true, mode: 'create' });
+    };
+
+    const handleOpenEdit = () => {
+      if (!selectedRow) {
+        return;
+      }
+      setFormValues(mapRecordToPermissionForm(selectedRow));
+      setDialogState({ open: true, mode: 'edit' });
+    };
+
+    const handleCloseDialog = () => {
+      setDialogState({ open: false, mode: 'create' });
+      setFormValues(createDefaultPermissionItemForm(selectedNodeId));
+    };
+
+    const handleSave = async () => {
+      if (!formValues.code || !formValues.fullName) {
+        setNotify({ open: true, severity: 'error', message: '请填写编码与权限名称' });
+        return;
+      }
+      setSaving(true);
+      try {
+        const payload = {
+          parentId: formValues.parentId || null,
+          moduleId: formValues.moduleId || null,
+          code: formValues.code.trim(),
+          fullName: formValues.fullName.trim(),
+          categoryCode: formValues.categoryCode?.trim() || 'Application',
+          jsEvent: formValues.jsEvent?.trim() || null,
+          sortCode: formValues.sortCode === '' ? null : Number(formValues.sortCode),
+          isScope: !!formValues.isScope,
+          isPublic: !!formValues.isPublic,
+          allowEdit: !!formValues.allowEdit,
+          allowDelete: !!formValues.allowDelete,
+          enabled: !!formValues.enabled,
+          isSplit: !!formValues.isSplit,
+          description: formValues.description?.trim() || null
+        };
+        const isEdit = dialogState.mode === 'edit';
+        const url = isEdit
+          ? `/permission-item-admin/permission-items/${formValues.id}`
+          : '/permission-item-admin/permission-items';
+        const resp = await fetch(url, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '保存权限项失败');
+        }
+        setNotify({ open: true, severity: 'success', message: result.message || '权限项已保存' });
+        handleCloseDialog();
+        await Promise.all([loadItems(), loadTree()]);
+      } catch (err) {
+        setNotify({ open: true, severity: 'error', message: err.message || '保存权限项失败' });
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleDelete = async () => {
+      if (!selectedRow) {
+        return;
+      }
+      setSaving(true);
+      try {
+        const resp = await fetch(`/permission-item-admin/permission-items/${selectedRow.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '删除权限项失败');
+        }
+        setNotify({ open: true, severity: 'success', message: result.message || '权限项已删除' });
+        setSelectedRow(null);
+        await Promise.all([loadItems(), loadTree()]);
+      } catch (err) {
+        setNotify({ open: true, severity: 'error', message: err.message || '删除权限项失败' });
+      } finally {
+        setSaving(false);
+        setConfirmDelete(false);
+      }
+    };
+
+    const parentOptions = useMemo(() => {
+      const options = flattenPermissionTree(treeData);
+      return [{ id: '', label: '无上级权限项' }, ...options];
+    }, [treeData]);
+
+    const moduleOptions = useMemo(() => {
+      const sorted = [...modules];
+      sorted.sort((a, b) => (a.sortCode || 0) - (b.sortCode || 0));
+      return sorted;
+    }, [modules]);
+
+    return React.createElement(Box, {
+      sx: { display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: '320px 1fr' } }
+    },
+      React.createElement(Paper, { sx: { p: 2.5, borderRadius: 3, height: 'fit-content' } },
+        React.createElement(Stack, { spacing: 1 },
+          React.createElement(Typography, { variant: 'h6' }, '权限项目录'),
+          React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, '通过树选择快速定位模块权限。')
+        ),
+        React.createElement(Divider, { sx: { my: 2 } }),
+        treeLoading
+          ? React.createElement(Box, { sx: { display: 'flex', justifyContent: 'center', py: 4 } },
+              React.createElement(CircularProgress, { size: 24 })
+            )
+          : React.createElement(PermissionItemTree, {
+              data: treeData,
+              selectedId: selectedNodeId,
+              onSelect: handleSelectNode
+            }),
+        React.createElement(Button, {
+          variant: 'text',
+          size: 'small',
+          onClick: loadTree,
+          sx: { mt: 2 }
+        }, '刷新目录')
+      ),
+      React.createElement(Box, null,
+        React.createElement(Paper, { sx: { p: 2, borderRadius: 3, mb: 2 } },
+          React.createElement(Stack, {
+            direction: { xs: 'column', md: 'row' },
+            spacing: 2,
+            alignItems: { xs: 'stretch', md: 'center' },
+            justifyContent: 'space-between'
+          },
+            React.createElement(Stack, { spacing: 0.5 },
+              React.createElement(Typography, { variant: 'subtitle1' }, '权限项列表'),
+              React.createElement(Typography, { variant: 'caption', color: 'text.secondary' },
+                `已加载 ${items.length} 条 / 共 ${total} 条`
+              )
+            ),
+            React.createElement(Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 1 },
+              React.createElement(TextField, {
+                size: 'small',
+                label: '搜索（编码 / 名称）',
+                value: searchInput,
+                onChange: (event) => setSearchInput(event.target.value)
+              }),
+              React.createElement(Button, { variant: 'contained', onClick: handleSearch }, '搜索'),
+              React.createElement(Button, { variant: 'outlined', onClick: handleOpenCreate }, '新增'),
+              React.createElement(Button, {
+                variant: 'outlined',
+                disabled: !selectedRow,
+                onClick: handleOpenEdit
+              }, '编辑'),
+              React.createElement(Button, {
+                variant: 'outlined',
+                color: 'error',
+                disabled: !selectedRow,
+                onClick: () => setConfirmDelete(true)
+              }, '删除'),
+              React.createElement(Button, { variant: 'text', onClick: loadItems }, '刷新')
+            )
+          )
+        ),
+        error ? React.createElement(Alert, { severity: 'error', sx: { mb: 2 } }, error) : null,
+        React.createElement(Paper, { sx: { borderRadius: 3, overflow: 'hidden' } },
+          loading ? React.createElement(LinearProgress, null) : null,
+          React.createElement(TableContainer, null,
+            React.createElement(Table, { size: 'small' },
+              React.createElement(TableHead, null,
+                React.createElement(TableRow, null,
+                  React.createElement(TableCell, null, '权限名称'),
+                  React.createElement(TableCell, null, '编码'),
+                  React.createElement(TableCell, null, '所属模块'),
+                  React.createElement(TableCell, null, '类别'),
+                  React.createElement(TableCell, null, '范围'),
+                  React.createElement(TableCell, null, '公开'),
+                  React.createElement(TableCell, null, '可编辑'),
+                  React.createElement(TableCell, null, '可删除'),
+                  React.createElement(TableCell, null, '启用'),
+                  React.createElement(TableCell, null, '排序'),
+                  React.createElement(TableCell, null, '说明')
+                )
+              ),
+              React.createElement(TableBody, null,
+                items.length
+                  ? items.map((item) =>
+                      React.createElement(TableRow, {
+                        key: item.id,
+                        hover: true,
+                        selected: selectedRow?.id === item.id,
+                        onClick: () => setSelectedRow(item),
+                        sx: { cursor: 'pointer' }
+                      },
+                        React.createElement(TableCell, null, item.fullName || '-'),
+                        React.createElement(TableCell, null, item.code || '-'),
+                        React.createElement(TableCell, null, item.moduleName || '-'),
+                        React.createElement(TableCell, null, item.categoryCode || '-'),
+                        React.createElement(TableCell, null, React.createElement(BooleanChip, { value: item.isScope })),
+                        React.createElement(TableCell, null, React.createElement(BooleanChip, { value: item.isPublic })),
+                        React.createElement(TableCell, null, React.createElement(BooleanChip, { value: item.allowEdit })),
+                        React.createElement(TableCell, null, React.createElement(BooleanChip, { value: item.allowDelete })),
+                        React.createElement(TableCell, null, React.createElement(BooleanChip, { value: item.enabled })),
+                        React.createElement(TableCell, null, item.sortCode ?? '-'),
+                        React.createElement(TableCell, null, item.description || '-')
+                      )
+                    )
+                  : React.createElement(TableRow, null,
+                      React.createElement(TableCell, {
+                        colSpan: 11,
+                        align: 'center',
+                        sx: { py: 4, color: 'text.secondary' }
+                      }, loading ? '正在加载数据...' : '暂无数据')
+                    )
+              )
+            )
+          ),
+          React.createElement(Divider, null),
+          React.createElement(Box, {
+            sx: {
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              p: 2,
+              gap: 1.5
+            }
+          },
+            React.createElement(Typography, { variant: 'body2', color: 'text.secondary' }, `共 ${total} 条记录`),
+            React.createElement(Stack, { direction: 'row', spacing: 1.5, alignItems: 'center' },
+              React.createElement(TextField, {
+                select: true,
+                size: 'small',
+                label: '每页',
+                value: pageSize,
+                onChange: (event) => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                },
+                sx: { minWidth: 100 }
+              },
+                [10, 20, 50, 100].map((size) =>
+                  React.createElement(MenuItem, { key: size, value: size }, `${size} 条`)
+                )
+              ),
+              React.createElement(Pagination, {
+                count: totalPages,
+                page,
+                onChange: (event, value) => setPage(value),
+                color: 'primary'
+              })
+            )
+          )
+        )
+      ),
+      React.createElement(Dialog, {
+        open: dialogState.open,
+        onClose: handleCloseDialog,
+        maxWidth: 'sm',
+        fullWidth: true
+      },
+        React.createElement(DialogTitle, null, dialogState.mode === 'edit' ? '编辑权限项' : '新增权限项'),
+        React.createElement(DialogContent, null,
+          React.createElement(Stack, { spacing: 2, mt: 1 },
+            React.createElement(TextField, {
+              label: '权限名称',
+              value: formValues.fullName,
+              required: true,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, fullName: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '编码',
+              value: formValues.code,
+              required: true,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, code: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              select: true,
+              label: '上级权限项',
+              value: formValues.parentId || '',
+              onChange: (event) => setFormValues((prev) => ({ ...prev, parentId: event.target.value || null }))
+            },
+              parentOptions.map((option) =>
+                React.createElement(MenuItem, { key: option.id || 'root', value: option.id }, option.label)
+              )
+            ),
+            React.createElement(TextField, {
+              select: true,
+              label: '所属模块',
+              value: formValues.moduleId || '',
+              onChange: (event) => setFormValues((prev) => ({ ...prev, moduleId: event.target.value || null }))
+            },
+              React.createElement(MenuItem, { value: '' }, '未关联模块'),
+              moduleOptions.map((mod) =>
+                React.createElement(MenuItem, { key: mod.id, value: mod.id }, mod.name || mod.code || '未命名模块')
+              )
+            ),
+            React.createElement(TextField, {
+              label: '类别',
+              value: formValues.categoryCode,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, categoryCode: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: 'JS 事件',
+              value: formValues.jsEvent,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, jsEvent: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '排序码',
+              type: 'number',
+              value: formValues.sortCode,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, sortCode: event.target.value }))
+            }),
+            React.createElement(Stack, {
+              direction: 'row',
+              spacing: 2,
+              flexWrap: 'wrap'
+            },
+              React.createElement(FormControlLabel, {
+                control: React.createElement(Switch, {
+                  checked: formValues.enabled,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, enabled: event.target.checked }))
+                }),
+                label: '启用'
+              }),
+              React.createElement(FormControlLabel, {
+                control: React.createElement(Switch, {
+                  checked: formValues.isScope,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, isScope: event.target.checked }))
+                }),
+                label: '范围'
+              }),
+              React.createElement(FormControlLabel, {
+                control: React.createElement(Switch, {
+                  checked: formValues.isPublic,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, isPublic: event.target.checked }))
+                }),
+                label: '公开'
+              }),
+              React.createElement(FormControlLabel, {
+                control: React.createElement(Switch, {
+                  checked: formValues.allowEdit,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, allowEdit: event.target.checked }))
+                }),
+                label: '可编辑'
+              }),
+              React.createElement(FormControlLabel, {
+                control: React.createElement(Switch, {
+                  checked: formValues.allowDelete,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, allowDelete: event.target.checked }))
+                }),
+                label: '可删除'
+              }),
+              React.createElement(FormControlLabel, {
+                control: React.createElement(Switch, {
+                  checked: formValues.isSplit,
+                  onChange: (event) => setFormValues((prev) => ({ ...prev, isSplit: event.target.checked }))
+                }),
+                label: '拆分'
+              })
+            ),
+            React.createElement(TextField, {
+              label: '描述',
+              multiline: true,
+              minRows: 2,
+              value: formValues.description,
+              onChange: (event) => setFormValues((prev) => ({ ...prev, description: event.target.value }))
+            })
+          )
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: handleCloseDialog }, '取消'),
+          React.createElement(Button, { onClick: handleSave, variant: 'contained', disabled: saving }, '保存')
+        )
+      ),
+      React.createElement(Dialog, { open: confirmDelete, onClose: () => setConfirmDelete(false) },
+        React.createElement(DialogTitle, null, '删除权限项'),
+        React.createElement(DialogContent, null,
+          React.createElement(Typography, null, '确定删除所选权限项吗？该操作将无法恢复。')
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: () => setConfirmDelete(false) }, '取消'),
+          React.createElement(Button, { color: 'error', onClick: handleDelete, disabled: saving }, '删除')
+        )
+      ),
+      React.createElement(Snackbar, { open: notify.open, autoHideDuration: 3200, onClose: closeNotify },
+        React.createElement(Alert, { severity: notify.severity, onClose: closeNotify, sx: { width: '100%' } }, notify.message)
+      )
+    );
+  };
+
+  // 注册组件供 loader.js 读取
+  window.AdminPages = window.AdminPages || {};
+  window.AdminPages['permission-item-admin'] = PermissionItemAdminPage;
+})();

@@ -1,0 +1,210 @@
+/**
+ * platformAdmin.js —— 由 views/admin-pages/platformAdmin.jade 提取。
+ * 懒加载：用户切换到「platform-admin」页时由 loader.js 动态拉取。
+ * 依赖：react / react-dom / material-ui（外壳已同步加载） + pm-shared.js
+ */
+(function () {
+  'use strict';
+
+  const PM_H = window.PM.H;
+  const pmIcon = window.PM.icon;
+  const PM_GRADS = window.PM.GRADS;
+  const PM_CARD_SX = window.PM.CARD_SX;
+  const PM_SECTIONS = window.PM_SECTIONS;
+  const pmFormatDate = window.PM.formatDate;
+  const pmIsToday = window.PM.isToday;
+  const pmTimeAgo = window.PM.timeAgo;
+  const pmFormatDuration = window.PM.formatDuration;
+  const PmKpiCard = window.PM.KpiCard;
+  const PmPanel = window.PM.Panel;
+  const PmStatusChip = window.PM.StatusChip;
+  const PmEmpty = window.PM.Empty;
+
+// ===== 平台超管：跨租户企业管理（复用 peerManage 的全局 PM_* 辅助） =====
+  const PM_TENANT_STATUS = { active: '活跃', pending: '待审批', suspended: '已停用' };
+  const PM_TENANT_STATUS_COLORS = { active: 'success', pending: 'warning', suspended: 'default' };
+
+  const PlatformAdminPage = () => {
+    const [tenants, setTenants] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [editing, setEditing] = useState(null); // tenant | null
+    const [form, setForm] = useState({ name: '', edition: 'enterprise', maxMembers: 0, maxDevices: 0 });
+    const [creating, setCreating] = useState(false);
+    const [createForm, setCreateForm] = useState({ name: '', ownerEmail: '', maxMembers: 0, maxDevices: 0 });
+    const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+    const toast = (severity, message) => setNotify({ open: true, severity, message });
+
+    const loadAll = useCallback(async () => {
+      setLoading(true); setError('');
+      try {
+        const resp = await fetch('/platform-admin/tenants');
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        if (resp.status === 403) { setError('仅平台超级管理员可访问'); setTenants([]); return; }
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '加载企业列表失败');
+        setTenants(json.data || []);
+      } catch (err) { setError(err.message || '加载失败'); }
+      finally { setLoading(false); }
+    }, []);
+    useEffect(() => { loadAll(); }, [loadAll]);
+
+    const stats = useMemo(() => ({
+      total: tenants.length,
+      pending: tenants.filter((t) => t.status === 'pending').length,
+      active: tenants.filter((t) => t.status === 'active').length,
+      suspended: tenants.filter((t) => t.status === 'suspended').length
+    }), [tenants]);
+
+    const setStatus = async (tenant, status) => {
+      try {
+        const resp = await fetch(`/platform-admin/tenants/${tenant.id}/status`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '操作失败');
+        toast('success', '已更新企业状态'); await loadAll();
+      } catch (err) { toast('error', err.message || '操作失败'); }
+    };
+    const openQuota = (t) => {
+      setForm({ name: t.name || '', edition: t.edition || 'enterprise', maxMembers: t.maxMembers || 0, maxDevices: t.maxDevices || 0 });
+      setEditing(t);
+    };
+    const saveQuota = async () => {
+      if (!editing) return;
+      try {
+        const resp = await fetch(`/platform-admin/tenants/${editing.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: form.name, maxMembers: Number(form.maxMembers || 0), maxDevices: Number(form.maxDevices || 0) })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '保存失败');
+        toast('success', '企业信息已保存'); setEditing(null); await loadAll();
+      } catch (err) { toast('error', err.message || '保存失败'); }
+    };
+
+    const submitCreate = async () => {
+      if (!createForm.name.trim() || !createForm.ownerEmail.trim()) { toast('warning', '企业名称与负责人邮箱必填'); return; }
+      try {
+        const resp = await fetch('/platform-admin/tenants', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: createForm.name.trim(), ownerEmail: createForm.ownerEmail.trim(), maxMembers: Number(createForm.maxMembers || 0), maxDevices: Number(createForm.maxDevices || 0) })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '创建失败');
+        toast('success', '企业已创建；负责人重新登录后右上角即可切换到企业空间');
+        setCreating(false); setCreateForm({ name: '', ownerEmail: '', maxMembers: 0, maxDevices: 0 }); await loadAll();
+      } catch (err) { toast('error', err.message || '创建失败'); }
+    };
+
+    const statusActions = (t) => {
+      const btns = [];
+      if (t.status === 'pending') btns.push(PM_H(MaterialUI.Button, { key: 'a', size: 'small', color: 'success', onClick: () => setStatus(t, 'active') }, '通过'));
+      if (t.status === 'active') btns.push(PM_H(MaterialUI.Button, { key: 's', size: 'small', color: 'warning', onClick: () => setStatus(t, 'suspended') }, '停用'));
+      if (t.status === 'suspended') btns.push(PM_H(MaterialUI.Button, { key: 'r', size: 'small', color: 'success', onClick: () => setStatus(t, 'active') }, '恢复'));
+      btns.push(PM_H(MaterialUI.Button, { key: 'q', size: 'small', startIcon: pmIcon('tune'), onClick: () => openQuota(t) }, '配额'));
+      return btns;
+    };
+
+    return PM_H(MaterialUI.Box, { sx: { maxWidth: 1280, mx: 'auto' } },
+      PM_H(MaterialUI.Box, { sx: { mb: 2.5 } },
+        PM_H(MaterialUI.Typography, { sx: { fontSize: 22, fontWeight: 800, color: '#101828' } }, '平台管理'),
+        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mt: 0.25 } }, '跨租户管理所有企业空间：审批、停用、配额与用量')
+      ),
+      error ? PM_H(MaterialUI.Alert, { severity: 'error', sx: { mb: 2, borderRadius: 2 } }, error) : null,
+      PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', mb: 2.5 } },
+        PM_H(PmKpiCard, { label: '企业总数', value: stats.total, icon: 'business', grad: 'indigo' }),
+        PM_H(PmKpiCard, { label: '待审批', value: stats.pending, hint: '等待邮箱验证/激活', icon: 'hourglass_empty', grad: stats.pending ? 'amber' : 'slate' }),
+        PM_H(PmKpiCard, { label: '活跃企业', value: stats.active, icon: 'verified', grad: 'emerald' }),
+        PM_H(PmKpiCard, { label: '已停用', value: stats.suspended, icon: 'block', grad: stats.suspended ? 'rose' : 'slate' })
+      ),
+      PM_H(PmPanel, { title: '企业列表', subtitle: '共 ' + tenants.length + ' 家', dense: true,
+        action: PM_H(MaterialUI.Button, { variant: 'contained', startIcon: pmIcon('add_business'), onClick: () => { setCreateForm({ name: '', ownerEmail: '', maxMembers: 0, maxDevices: 0 }); setCreating(true); } }, '新建企业') },
+        tenants.length
+          ? PM_H(MaterialUI.TableContainer, null,
+              PM_H(MaterialUI.Table, { size: 'small' },
+                PM_H(MaterialUI.TableHead, null,
+                  PM_H(MaterialUI.TableRow, { sx: { '& th': { bgcolor: '#fafbfc', color: '#667085', fontWeight: 600 } } },
+                    PM_H(MaterialUI.TableCell, null, '企业'),
+                    PM_H(MaterialUI.TableCell, null, '状态'),
+                    PM_H(MaterialUI.TableCell, null, '版本'),
+                    PM_H(MaterialUI.TableCell, null, '所有者'),
+                    PM_H(MaterialUI.TableCell, null, '成员'),
+                    PM_H(MaterialUI.TableCell, null, '设备(在线/总)'),
+                    PM_H(MaterialUI.TableCell, null, '会话'),
+                    PM_H(MaterialUI.TableCell, null, '配额'),
+                    PM_H(MaterialUI.TableCell, null, '创建'),
+                    PM_H(MaterialUI.TableCell, { align: 'right' }, '操作')
+                  )
+                ),
+                PM_H(MaterialUI.TableBody, null,
+                  tenants.map((t) =>
+                    PM_H(MaterialUI.TableRow, { key: t.id, hover: true },
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { fontWeight: 600 } }, t.name),
+                        PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3', fontFamily: 'monospace' } }, t.id)
+                      ),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Chip, { size: 'small', color: PM_TENANT_STATUS_COLORS[t.status] || 'default', variant: t.status === 'active' ? 'filled' : 'outlined', label: PM_TENANT_STATUS[t.status] || t.status })),
+                      PM_H(MaterialUI.TableCell, null, t.edition || '-'),
+                      PM_H(MaterialUI.TableCell, null,
+                        PM_H(MaterialUI.Box, null,
+                          PM_H(MaterialUI.Typography, { variant: 'body2' }, t.ownerName || '-'),
+                          t.ownerEmail ? PM_H(MaterialUI.Typography, { variant: 'caption', sx: { color: '#98a2b3' } }, t.ownerEmail) : null
+                        )
+                      ),
+                      PM_H(MaterialUI.TableCell, null, t.memberCount + (t.maxMembers ? ' / ' + t.maxMembers : '')),
+                      PM_H(MaterialUI.TableCell, null, t.onlineCount + ' / ' + t.deviceCount + (t.maxDevices ? '（上限 ' + t.maxDevices + '）' : '')),
+                      PM_H(MaterialUI.TableCell, null, t.sessionCount),
+                      PM_H(MaterialUI.TableCell, null, (t.maxMembers || '∞') + ' 人 / ' + (t.maxDevices || '∞') + ' 台'),
+                      PM_H(MaterialUI.TableCell, null, PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#667085' } }, pmFormatDate(t.createdAt))),
+                      PM_H(MaterialUI.TableCell, { align: 'right' },
+                        PM_H(MaterialUI.Stack, { direction: 'row', spacing: 0.5, justifyContent: 'flex-end' }, statusActions(t))
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          : (loading ? PM_H(MaterialUI.Box, { sx: { p: 3, textAlign: 'center' } }, PM_H(MaterialUI.CircularProgress, { size: 24 }))
+                     : PM_H(PmEmpty, { icon: 'business', title: '暂无企业', hint: '点击右上角“新建企业”指派一个负责人，或让企业通过“申请企业账号”自助注册。' }))
+      ),
+      PM_H(MaterialUI.Dialog, { open: !!editing, onClose: () => setEditing(null), maxWidth: 'xs', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+        PM_H(MaterialUI.DialogTitle, null, '企业配额与版本'),
+        PM_H(MaterialUI.DialogContent, null,
+          PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+            PM_H(MaterialUI.TextField, { label: '企业名称', value: form.name, onChange: (e) => setForm((p) => ({ ...p, name: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '成员上限（0=不限）', type: 'number', value: form.maxMembers, onChange: (e) => setForm((p) => ({ ...p, maxMembers: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '设备上限（0=不限）', type: 'number', value: form.maxDevices, onChange: (e) => setForm((p) => ({ ...p, maxDevices: e.target.value })), fullWidth: true })
+          )
+        ),
+        PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+          PM_H(MaterialUI.Button, { onClick: () => setEditing(null) }, '取消'),
+          PM_H(MaterialUI.Button, { variant: 'contained', onClick: saveQuota }, '保存')
+        )
+      ),
+      PM_H(MaterialUI.Dialog, { open: creating, onClose: () => setCreating(false), maxWidth: 'xs', fullWidth: true, PaperProps: { sx: { borderRadius: 3 } } },
+        PM_H(MaterialUI.DialogTitle, null, '新建企业'),
+        PM_H(MaterialUI.DialogContent, null,
+          PM_H(MaterialUI.Stack, { spacing: 2, sx: { mt: 1 } },
+            PM_H(MaterialUI.Typography, { variant: 'body2', color: 'text.secondary' }, '创建一个企业空间，并把一个已注册账号设为负责人。该账号登录后即可在右上角切换到企业空间、邀请成员、纳管设备。'),
+            PM_H(MaterialUI.TextField, { label: '企业名称', value: createForm.name, onChange: (e) => setCreateForm((p) => ({ ...p, name: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '负责人邮箱（已注册账号）', type: 'email', placeholder: 'owner@company.com', value: createForm.ownerEmail, onChange: (e) => setCreateForm((p) => ({ ...p, ownerEmail: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '成员上限（0=不限）', type: 'number', value: createForm.maxMembers, onChange: (e) => setCreateForm((p) => ({ ...p, maxMembers: e.target.value })), fullWidth: true }),
+            PM_H(MaterialUI.TextField, { label: '设备上限（0=不限）', type: 'number', value: createForm.maxDevices, onChange: (e) => setCreateForm((p) => ({ ...p, maxDevices: e.target.value })), fullWidth: true })
+          )
+        ),
+        PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
+          PM_H(MaterialUI.Button, { onClick: () => setCreating(false) }, '取消'),
+          PM_H(MaterialUI.Button, { variant: 'contained', onClick: submitCreate }, '创建')
+        )
+      ),
+      PM_H(MaterialUI.Snackbar, { open: notify.open, autoHideDuration: 3000, onClose: () => setNotify((p) => ({ ...p, open: false })), anchorOrigin: { vertical: 'bottom', horizontal: 'center' } },
+        PM_H(MaterialUI.Alert, { severity: notify.severity, onClose: () => setNotify((p) => ({ ...p, open: false })), variant: 'filled', sx: { width: '100%' } }, notify.message)
+      )
+    );
+  };
+
+  // 注册组件供 loader.js 读取
+  window.AdminPages = window.AdminPages || {};
+  window.AdminPages['platform-admin'] = PlatformAdminPage;
+})();

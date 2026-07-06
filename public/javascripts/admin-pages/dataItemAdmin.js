@@ -1,0 +1,619 @@
+/**
+ * dataItemAdmin.js —— 由 views/admin-pages/dataItemAdmin.jade 提取。
+ * 懒加载：用户切换到「data-item-admin」页时由 loader.js 动态拉取。
+ * 依赖：react / react-dom / material-ui（外壳已同步加载）
+ */
+(function () {
+  'use strict';
+
+const DataItemAdminPage = () => {
+    const [itemTree, setItemTree] = useState([]);
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [details, setDetails] = useState([]);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [detailError, setDetailError] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [total, setTotal] = useState(0);
+    const [searchInput, setSearchInput] = useState('');
+    const [keyword, setKeyword] = useState('');
+    const [selectedDetail, setSelectedDetail] = useState(null);
+    const [notify, setNotify] = useState({ open: false, severity: 'success', message: '' });
+    const [saving, setSaving] = useState(false);
+    const [itemDialog, setItemDialog] = useState({ open: false, mode: 'create' });
+    const [detailDialog, setDetailDialog] = useState({ open: false, mode: 'create' });
+    const [itemForm, setItemForm] = useState({
+      id: '',
+      parentId: null,
+      code: '',
+      fullName: '',
+      isTree: false,
+      allowEdit: true,
+      allowDelete: true,
+      enabled: true,
+      sortCode: '',
+      description: ''
+    });
+    const [detailForm, setDetailForm] = useState({
+      id: '',
+      itemId: '',
+      code: '',
+      fullName: '',
+      value: '',
+      isDefault: false,
+      allowEdit: true,
+      allowDelete: true,
+      enabled: true,
+      sortCode: '',
+      description: ''
+    });
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    const [confirmDeleteDetail, setConfirmDeleteDetail] = useState(false);
+
+    const closeNotify = () => setNotify((prev) => ({ ...prev, open: false }));
+
+    const loadItems = useCallback(async () => {
+      try {
+        const resp = await fetch('/data-item-admin/items');
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const result = await resp.json();
+        if (!resp.ok) {
+          throw new Error(result.message || '加载数据字典分类失败');
+        }
+        setItemTree(result.data || []);
+        if (!selectedItem && (result.data || []).length) {
+          setSelectedItem(result.data[0]);
+        }
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '加载数据字典分类失败' });
+      }
+    }, [selectedItem]);
+
+    useEffect(() => {
+      loadItems();
+    }, [loadItems]);
+
+    const loadDetails = useCallback(async () => {
+      if (!selectedItem) {
+        setDetails([]);
+        setTotal(0);
+        setSelectedDetail(null);
+        return;
+      }
+      setDetailLoading(true);
+      setDetailError('');
+      try {
+        const params = new URLSearchParams({
+          itemId: selectedItem.id,
+          page: String(page),
+          pageSize: String(pageSize)
+        });
+        if (keyword) params.append('keyword', keyword);
+        const resp = await fetch(`/data-item-admin/item-details?${params.toString()}`);
+        if (resp.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        const contentType = resp.headers.get('content-type') || '';
+        const result = contentType.includes('application/json') ? await resp.json() : { message: await resp.text() };
+        if (!resp.ok) {
+          throw new Error(result.message || '加载字典明细失败');
+        }
+        setDetails(result.data || []);
+        setTotal(result.total || 0);
+        if (selectedDetail && !(result.data || []).find((row) => row.id === selectedDetail.id)) {
+          setSelectedDetail(null);
+        }
+      } catch (error) {
+        setDetailError(error.message || '加载字典明细失败');
+      } finally {
+        setDetailLoading(false);
+      }
+    }, [selectedItem, page, pageSize, keyword, selectedDetail]);
+
+    useEffect(() => {
+      loadDetails();
+    }, [loadDetails]);
+
+    useEffect(() => {
+      setPage(1);
+      setSelectedDetail(null);
+    }, [selectedItem]);
+
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    const handleSearch = () => {
+      setKeyword(searchInput.trim());
+      setPage(1);
+    };
+
+    const flatItems = useMemo(() => {
+      const list = [];
+      const walk = (nodes = [], depth = 0) => {
+        nodes.forEach((n) => {
+          list.push({ id: n.id, label: `${'--'.repeat(depth)}${n.fullName || n.code}`, raw: n });
+          if (n.children?.length) walk(n.children, depth + 1);
+        });
+      };
+      walk(itemTree, 0);
+      return list;
+    }, [itemTree]);
+
+    const openItemDialog = (mode) => {
+      if (mode === 'edit' && selectedItem) {
+        setItemForm({
+          id: selectedItem.id,
+          parentId: selectedItem.parentId || null,
+          code: selectedItem.code || '',
+          fullName: selectedItem.fullName || '',
+          isTree: !!selectedItem.isTree,
+          allowEdit: !!selectedItem.allowEdit,
+          allowDelete: !!selectedItem.allowDelete,
+          enabled: !!selectedItem.enabled,
+          sortCode: selectedItem.sortCode ?? '',
+          description: selectedItem.description || ''
+        });
+        setItemDialog({ open: true, mode: 'edit' });
+      } else {
+        setItemForm({
+          id: '',
+          parentId: selectedItem?.id || null,
+          code: '',
+          fullName: '',
+          isTree: false,
+          allowEdit: true,
+          allowDelete: true,
+          enabled: true,
+          sortCode: '',
+          description: ''
+        });
+        setItemDialog({ open: true, mode: 'create' });
+      }
+    };
+
+    const openDetailDialog = (mode) => {
+      if (!selectedItem) return;
+      if (mode === 'edit' && selectedDetail) {
+        setDetailForm({
+          id: selectedDetail.id,
+          itemId: selectedItem.id,
+          code: selectedDetail.code || '',
+          fullName: selectedDetail.fullName || '',
+          value: selectedDetail.value || '',
+          isDefault: !!selectedDetail.isDefault,
+          allowEdit: !!selectedDetail.allowEdit,
+          allowDelete: !!selectedDetail.allowDelete,
+          enabled: !!selectedDetail.enabled,
+          sortCode: selectedDetail.sortCode ?? '',
+          description: selectedDetail.description || ''
+        });
+        setDetailDialog({ open: true, mode: 'edit' });
+      } else {
+        setDetailForm({
+          id: '',
+          itemId: selectedItem.id,
+          code: '',
+          fullName: '',
+          value: '',
+          isDefault: false,
+          allowEdit: true,
+          allowDelete: true,
+          enabled: true,
+          sortCode: '',
+          description: ''
+        });
+        setDetailDialog({ open: true, mode: 'create' });
+      }
+    };
+
+    const closeItemDialog = () => {
+      setItemDialog({ open: false, mode: 'create' });
+    };
+
+    const closeDetailDialog = () => {
+      setDetailDialog({ open: false, mode: 'create' });
+    };
+
+    const saveItem = async () => {
+      if (!itemForm.code || !itemForm.fullName) {
+        setNotify({ open: true, severity: 'error', message: '请填写编码和名称' });
+        return;
+      }
+      setSaving(true);
+      try {
+        const payload = {
+          parentId: itemForm.parentId || null,
+          code: itemForm.code.trim(),
+          fullName: itemForm.fullName.trim(),
+          isTree: !!itemForm.isTree,
+          allowEdit: !!itemForm.allowEdit,
+          allowDelete: !!itemForm.allowDelete,
+          enabled: !!itemForm.enabled,
+          sortCode: itemForm.sortCode === '' ? null : Number(itemForm.sortCode),
+          description: itemForm.description?.trim() || null
+        };
+        const isEdit = itemDialog.mode === 'edit';
+        const url = isEdit ? `/data-item-admin/items/${itemForm.id}` : '/data-item-admin/items';
+        const resp = await fetch(url, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '保存失败');
+        setNotify({ open: true, severity: 'success', message: result.message || '保存成功' });
+        closeItemDialog();
+        await loadItems();
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '保存失败' });
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const saveDetail = async () => {
+      if (!selectedItem) return;
+      if (!detailForm.code || !detailForm.fullName) {
+        setNotify({ open: true, severity: 'error', message: '请填写编码和名称' });
+        return;
+      }
+      setSaving(true);
+      try {
+        const payload = {
+          itemId: selectedItem.id,
+          code: detailForm.code.trim(),
+          fullName: detailForm.fullName.trim(),
+          value: detailForm.value.trim(),
+          isDefault: !!detailForm.isDefault,
+          allowEdit: !!detailForm.allowEdit,
+          allowDelete: !!detailForm.allowDelete,
+          enabled: !!detailForm.enabled,
+          sortCode: detailForm.sortCode === '' ? null : Number(detailForm.sortCode),
+          description: detailForm.description?.trim() || null
+        };
+        const isEdit = detailDialog.mode === 'edit';
+        const url = isEdit ? `/data-item-admin/item-details/${detailForm.id}` : '/data-item-admin/item-details';
+        const resp = await fetch(url, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '保存失败');
+        setNotify({ open: true, severity: 'success', message: result.message || '保存成功' });
+        closeDetailDialog();
+        await loadDetails();
+        await loadItems();
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '保存失败' });
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const deleteItem = async () => {
+      if (!selectedItem) return;
+      setSaving(true);
+      try {
+        const resp = await fetch(`/data-item-admin/items/${selectedItem.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '删除失败');
+        setNotify({ open: true, severity: 'success', message: result.message || '已删除' });
+        setSelectedItem(null);
+        await loadItems();
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '删除失败' });
+      } finally {
+        setSaving(false);
+        setConfirmDelete(false);
+      }
+    };
+
+    const deleteDetail = async () => {
+      if (!selectedDetail) return;
+      setSaving(true);
+      try {
+        const resp = await fetch(`/data-item-admin/item-details/${selectedDetail.id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.message || '删除失败');
+        setNotify({ open: true, severity: 'success', message: result.message || '已删除' });
+        setSelectedDetail(null);
+        await loadDetails();
+      } catch (error) {
+        setNotify({ open: true, severity: 'error', message: error.message || '删除失败' });
+      } finally {
+        setSaving(false);
+        setConfirmDeleteDetail(false);
+      }
+    };
+
+    return React.createElement(Box, { sx: { display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: '320px 1fr' } } },
+      React.createElement(Paper, { sx: { p: 2, borderRadius: 3, height: 'fit-content' } },
+        React.createElement(Stack, { direction: 'row', justifyContent: 'space-between', alignItems: 'center', mb: 1 },
+          React.createElement(Typography, { variant: 'h6' }, '数据字典')
+        ),
+        React.createElement(Divider, { sx: { mb: 1 } }),
+        itemTree.length
+          ? React.createElement(List, { sx: { maxHeight: 520, overflowY: 'auto' } },
+              flatItems.map((item) =>
+                React.createElement(ListItemButton, {
+                  key: item.id,
+                  selected: selectedItem?.id === item.id,
+                  onClick: () => setSelectedItem(item.raw),
+                  sx: { pl: 2 }
+                },
+                  React.createElement(ListItemText, { primary: item.label })
+                )
+              )
+            )
+          : React.createElement(Typography, { variant: 'body2', color: 'text.secondary', sx: { py: 2, textAlign: 'center' } }, '暂无数据'),
+        React.createElement(Stack, { direction: 'row', spacing: 1, mt: 2 },
+          React.createElement(Button, { variant: 'contained', size: 'small', onClick: () => openItemDialog('create') }, '新增'),
+          React.createElement(Button, { variant: 'outlined', size: 'small', disabled: !selectedItem, onClick: () => openItemDialog('edit') }, '编辑'),
+          React.createElement(Button, {
+            variant: 'outlined',
+            size: 'small',
+            color: 'error',
+            disabled: !selectedItem,
+            onClick: () => setConfirmDelete(true)
+          }, '删除')
+        )
+      ),
+      React.createElement(Box, null,
+        React.createElement(Paper, { sx: { p: 2, borderRadius: 3, mb: 2 } },
+          React.createElement(Stack, {
+            direction: { xs: 'column', md: 'row' },
+            spacing: 1.5,
+            alignItems: { xs: 'stretch', md: 'center' },
+            justifyContent: 'space-between'
+          },
+            React.createElement(Stack, { spacing: 0.5 },
+              React.createElement(Typography, { variant: 'subtitle1' }, selectedItem?.fullName || '字典明细'),
+              React.createElement(Typography, { variant: 'caption', color: 'text.secondary' },
+                selectedItem ? `当前分类：${selectedItem.code || selectedItem.fullName}` : '请选择左侧分类')
+            ),
+            React.createElement(Stack, { direction: { xs: 'column', sm: 'row' }, spacing: 1 },
+              React.createElement(TextField, {
+                size: 'small',
+                label: '搜索明细',
+                value: searchInput,
+                onChange: (event) => setSearchInput(event.target.value)
+              }),
+              React.createElement(Button, { variant: 'contained', onClick: handleSearch }, '搜索'),
+              React.createElement(Button, { variant: 'outlined', onClick: () => openDetailDialog('create'), disabled: !selectedItem }, '新增'),
+              React.createElement(Button, { variant: 'outlined', onClick: () => openDetailDialog('edit'), disabled: !selectedDetail }, '编辑'),
+              React.createElement(Button, {
+                variant: 'outlined',
+                color: 'error',
+                disabled: !selectedDetail,
+                onClick: () => setConfirmDeleteDetail(true)
+              }, '删除'),
+              React.createElement(Button, { variant: 'text', onClick: loadDetails }, '刷新')
+            )
+          )
+        ),
+        detailError ? React.createElement(Alert, { severity: 'error', sx: { mb: 2 } }, detailError) : null,
+        React.createElement(Paper, { sx: { borderRadius: 3, overflow: 'hidden' } },
+          detailLoading ? React.createElement(LinearProgress, null) : null,
+          React.createElement(TableContainer, null,
+            React.createElement(Table, { size: 'small' },
+              React.createElement(TableHead, null,
+                React.createElement(TableRow, null,
+                  React.createElement(TableCell, null, '编码'),
+                  React.createElement(TableCell, null, '名称'),
+                  React.createElement(TableCell, null, '值'),
+                  React.createElement(TableCell, null, '默认'),
+                  React.createElement(TableCell, null, '启用'),
+                  React.createElement(TableCell, null, '排序'),
+                  React.createElement(TableCell, null, '描述')
+                )
+              ),
+              React.createElement(TableBody, null,
+                details.length
+                  ? details.map((row) =>
+                      React.createElement(TableRow, {
+                        key: row.id,
+                        hover: true,
+                        selected: selectedDetail?.id === row.id,
+                        onClick: () => setSelectedDetail(row),
+                        sx: { cursor: 'pointer' }
+                      },
+                        React.createElement(TableCell, null, row.code || '-'),
+                        React.createElement(TableCell, null, row.fullName || '-'),
+                        React.createElement(TableCell, null, row.value || '-'),
+                        React.createElement(TableCell, null, row.isDefault ? '是' : '否'),
+                        React.createElement(TableCell, null, row.enabled ? '是' : '否'),
+                        React.createElement(TableCell, null, row.sortCode ?? '-'),
+                        React.createElement(TableCell, null, row.description || '-')
+                      )
+                    )
+                  : React.createElement(TableRow, null,
+                      React.createElement(TableCell, { colSpan: 7, align: 'center', sx: { py: 4, color: 'text.secondary' } },
+                        detailLoading ? '正在加载...' : '暂无数据')
+                    )
+              )
+            )
+          ),
+          React.createElement(Divider, null),
+          React.createElement(Box, {
+            sx: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', p: 2, gap: 1.5 }
+          },
+            React.createElement(TextField, {
+              select: true,
+              size: 'small',
+              label: '每页',
+              value: pageSize,
+              onChange: (event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              },
+              sx: { minWidth: 90 }
+            },
+              [10, 20, 50, 100].map((size) =>
+                React.createElement(MenuItem, { key: size, value: size }, `${size} 条`)
+              )
+            ),
+            React.createElement(Pagination, {
+              count: totalPages,
+              page,
+              onChange: (event, value) => setPage(value),
+              color: 'primary'
+            })
+          )
+        )
+      ),
+      React.createElement(Dialog, { open: itemDialog.open, onClose: closeItemDialog, maxWidth: 'sm', fullWidth: true },
+        React.createElement(DialogTitle, null, itemDialog.mode === 'edit' ? '编辑分类' : '新增分类'),
+        React.createElement(DialogContent, null,
+          React.createElement(Stack, { spacing: 2, mt: 1 },
+            React.createElement(TextField, {
+              label: '所属上级',
+              select: true,
+              value: itemForm.parentId || '',
+              onChange: (event) => setItemForm((prev) => ({ ...prev, parentId: event.target.value || null }))
+            },
+              React.createElement(MenuItem, { value: '' }, '无上级'),
+              flatItems.map((item) =>
+                React.createElement(MenuItem, { key: item.id, value: item.id }, item.label)
+              )
+            ),
+            React.createElement(TextField, {
+              label: '编码',
+              required: true,
+              value: itemForm.code,
+              onChange: (event) => setItemForm((prev) => ({ ...prev, code: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '名称',
+              required: true,
+              value: itemForm.fullName,
+              onChange: (event) => setItemForm((prev) => ({ ...prev, fullName: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '排序',
+              type: 'number',
+              value: itemForm.sortCode,
+              onChange: (event) => setItemForm((prev) => ({ ...prev, sortCode: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '描述',
+              multiline: true,
+              minRows: 2,
+              value: itemForm.description,
+              onChange: (event) => setItemForm((prev) => ({ ...prev, description: event.target.value }))
+            }),
+            React.createElement(Stack, { direction: 'row', spacing: 2, flexWrap: 'wrap' },
+              [
+                { label: '树形', field: 'isTree' },
+                { label: '启用', field: 'enabled' },
+                { label: '可编辑', field: 'allowEdit' },
+                { label: '可删除', field: 'allowDelete' }
+              ].map((item) =>
+                React.createElement(FormControlLabel, {
+                  key: item.field,
+                  control: React.createElement(Switch, {
+                    checked: itemForm[item.field],
+                    onChange: (event) => setItemForm((prev) => ({ ...prev, [item.field]: event.target.checked }))
+                  }),
+                  label: item.label
+                })
+              )
+            )
+          )
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: closeItemDialog }, '取消'),
+          React.createElement(Button, { onClick: saveItem, variant: 'contained', disabled: saving }, '保存')
+        )
+      ),
+      React.createElement(Dialog, { open: detailDialog.open, onClose: closeDetailDialog, maxWidth: 'sm', fullWidth: true },
+        React.createElement(DialogTitle, null, detailDialog.mode === 'edit' ? '编辑明细' : '新增明细'),
+        React.createElement(DialogContent, null,
+          React.createElement(Stack, { spacing: 2, mt: 1 },
+            React.createElement(TextField, {
+              label: '编码',
+              required: true,
+              value: detailForm.code,
+              onChange: (event) => setDetailForm((prev) => ({ ...prev, code: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '名称',
+              required: true,
+              value: detailForm.fullName,
+              onChange: (event) => setDetailForm((prev) => ({ ...prev, fullName: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '值',
+              value: detailForm.value,
+              onChange: (event) => setDetailForm((prev) => ({ ...prev, value: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '排序',
+              type: 'number',
+              value: detailForm.sortCode,
+              onChange: (event) => setDetailForm((prev) => ({ ...prev, sortCode: event.target.value }))
+            }),
+            React.createElement(TextField, {
+              label: '描述',
+              multiline: true,
+              minRows: 2,
+              value: detailForm.description,
+              onChange: (event) => setDetailForm((prev) => ({ ...prev, description: event.target.value }))
+            }),
+            React.createElement(Stack, { direction: 'row', spacing: 2, flexWrap: 'wrap' },
+              [
+                { label: '默认', field: 'isDefault' },
+                { label: '启用', field: 'enabled' },
+                { label: '可编辑', field: 'allowEdit' },
+                { label: '可删除', field: 'allowDelete' }
+              ].map((item) =>
+                React.createElement(FormControlLabel, {
+                  key: item.field,
+                  control: React.createElement(Switch, {
+                    checked: detailForm[item.field],
+                    onChange: (event) => setDetailForm((prev) => ({ ...prev, [item.field]: event.target.checked }))
+                  }),
+                  label: item.label
+                })
+              )
+            )
+          )
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: closeDetailDialog }, '取消'),
+          React.createElement(Button, { onClick: saveDetail, variant: 'contained', disabled: saving }, '保存')
+        )
+      ),
+      React.createElement(Dialog, { open: confirmDelete, onClose: () => setConfirmDelete(false) },
+        React.createElement(DialogTitle, null, '删除分类'),
+        React.createElement(DialogContent, null,
+          React.createElement(Typography, null, '确定删除所选分类吗？')
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: () => setConfirmDelete(false) }, '取消'),
+          React.createElement(Button, { color: 'error', onClick: deleteItem, disabled: saving }, '删除')
+        )
+      ),
+      React.createElement(Dialog, { open: confirmDeleteDetail, onClose: () => setConfirmDeleteDetail(false) },
+        React.createElement(DialogTitle, null, '删除明细'),
+        React.createElement(DialogContent, null,
+          React.createElement(Typography, null, '确定删除所选明细吗？')
+        ),
+        React.createElement(DialogActions, null,
+          React.createElement(Button, { onClick: () => setConfirmDeleteDetail(false) }, '取消'),
+          React.createElement(Button, { color: 'error', onClick: deleteDetail, disabled: saving }, '删除')
+        )
+      ),
+      React.createElement(Snackbar, { open: notify.open, autoHideDuration: 3200, onClose: closeNotify },
+        React.createElement(Alert, { severity: notify.severity, onClose: closeNotify, sx: { width: '100%' } }, notify.message)
+      )
+    );
+  };
+
+  // 注册组件供 loader.js 读取
+  window.AdminPages = window.AdminPages || {};
+  window.AdminPages['data-item-admin'] = DataItemAdminPage;
+})();
