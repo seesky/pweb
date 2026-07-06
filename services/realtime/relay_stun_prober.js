@@ -122,6 +122,7 @@ class RelayStunProber {
     this.perNodeTimeoutMs = perNodeTimeoutMs;
     this._timer = null;
     this._busy = false;
+    this._consecutiveFailures = new Map();
   }
 
   start() {
@@ -159,9 +160,22 @@ class RelayStunProber {
   async _probeNode(node) {
     try {
       const { ok, rttMs } = await probeReachable(node.host, node.port, this.perNodeTimeoutMs);
-      await this.registry.recordProbe(node.id, rttMs, ok);
+      if (ok) {
+        this._consecutiveFailures.delete(node.id);
+        await this.registry.recordProbe(node.id, rttMs, true);
+        return;
+      }
+      const failures = (this._consecutiveFailures.get(node.id) || 0) + 1;
+      this._consecutiveFailures.set(node.id, failures);
+      if (failures >= 3) {
+        await this.registry.recordProbe(node.id, 0, false);
+      }
     } catch (_) {
-      /* ignore */
+      const failures = (this._consecutiveFailures.get(node.id) || 0) + 1;
+      this._consecutiveFailures.set(node.id, failures);
+      if (failures >= 3) {
+        await this.registry.recordProbe(node.id, 0, false);
+      }
     }
   }
 }

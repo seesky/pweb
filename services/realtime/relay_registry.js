@@ -419,7 +419,7 @@ class RelayRegistry {
   /**
    * 为指定节点 + 会话签发 time-limited TURN 凭证（coturn use-auth-secret 兼容）。
    * username 格式："<expiryEpoch>:<sessionId>"
-   * credential  = HMAC-SHA1(secret, username) 的十六进制。
+   * credential  = Base64(HMAC-SHA1(secret, username))。
    * @returns {{username, credential, realm, expiresAt}|null}
    */
   async signCredentials(nodeId, sessionId, ttlSeconds = 3600) {
@@ -429,7 +429,7 @@ class RelayRegistry {
     const username = `${expiry}:${sessionId}`;
     const credential = createHmac('sha1', row.STATICSECRET)
       .update(username)
-      .digest('hex');
+      .digest('base64');
     // realm 必须与 coturn turnserver.conf 中 realm= 配置一致，
     // 否则 long-term credential 的 MESSAGE-INTEGRITY 校验会失败。
     // 优先用数据库 REALM 字段；未配置时回落到默认值。

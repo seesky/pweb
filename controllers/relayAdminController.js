@@ -61,6 +61,8 @@ exports.updateNode = async (req, res) => {
   if (!id) return res.status(400).json({ success: false, message: 'missing id' });
   const input = normalizeInput(req.body || {}, false);
   try {
+    const existing = await relayRegistry.get(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'relay node not found' });
     const node = await relayRegistry.upsert({ id, ...input });
     if (!node) return res.status(404).json({ success: false, message: 'relay node not found' });
     res.json({ success: true, data: node });
@@ -87,6 +89,8 @@ exports.drainNode = async (req, res) => {
   const id = req.params.id;
   if (!id) return res.status(400).json({ success: false, message: 'missing id' });
   try {
+    const existing = await relayRegistry.get(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'relay node not found' });
     const node = await relayRegistry.upsert({ id, status: 'draining' });
     if (!node) return res.status(404).json({ success: false, message: 'relay node not found' });
     res.json({ success: true, data: node });

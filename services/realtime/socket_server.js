@@ -1085,6 +1085,8 @@ const buildSocketServer = (httpServer, options = {}) => {
       if (alloc.token && relay) relay.authorizeSession(alloc.token);
       const relayPlatformSessionId = platformSessionIndex.get(sessionId);
       if (relayPlatformSessionId) {
+        platformService.updateSessionRelay(relayPlatformSessionId, alloc.nodeId || null)
+          .catch((err) => console.error('[socket.io] failed to persist relay node:', err));
         platformService.addSessionEvent(relayPlatformSessionId, 'relay_fallback', {
           targetTerminalId, relayNodeId: alloc.nodeId || null
         }).catch((err) => console.error('[socket.io] failed to record relay event:', err));
