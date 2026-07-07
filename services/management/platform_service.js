@@ -1846,7 +1846,7 @@ class PlatformService {
     };
   }
 
-  async createSession({ controllerUserId, controllerTerminal, targetTerminal, profileId, transport = null }) {
+  async createSession({ controllerUserId, controllerTerminal, targetTerminal, profileId, transport = null, relayNodeId = null }) {
     await this.ensureSchema();
     const device = await this.getDeviceByTerminal(targetTerminal);
     if (!device) return null;
@@ -1854,8 +1854,8 @@ class PlatformService {
     await this.prisma.$executeRawUnsafe(
       `INSERT INTO poleis_session
        (ID, TENANTID, CONTROLLERUSERID, CONTROLLERTERMINAL, TARGETDEVICEID, TARGETTERMINAL,
-        PROFILEID, STARTAT, TRANSPORT, RESULT, CREATEON, CREATEUSERID)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), ?)`,
+        PROFILEID, STARTAT, TRANSPORT, RELAYNODEID, RESULT, CREATEON, CREATEUSERID)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), ?)`,
       id,
       device.tenantId || this.tenantId,
       normalizeNullable(controllerUserId) || '',
@@ -1865,10 +1865,23 @@ class PlatformService {
       normalizeNullable(profileId),
       new Date(),
       normalizeNullable(transport),
+      normalizeNullable(relayNodeId),
       normalizeNullable(controllerUserId)
     );
     await this.addSessionEvent(id, 'request', { controllerTerminal, targetTerminal });
     return id;
+  }
+
+  /** 更新会话使用的 relay 节点（relay 分配后调用，供审计/统计） */
+  async updateSessionRelay(sessionId, relayNodeId) {
+    if (!sessionId) return;
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE poleis_session SET RELAYNODEID = COALESCE(?, RELAYNODEID), MODIFIEDON = NOW() WHERE ID = ?`,
+        normalizeNullable(relayNodeId),
+        sessionId
+      );
+    } catch (e) { /* ignore */ }
   }
 
   async getSession(id) {

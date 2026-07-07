@@ -9,6 +9,7 @@ const { AuditService } = require('./audit_service');
 const { AssistanceService } = require('./assistance_service');
 const { platformService } = require('../management/platform_service');
 const { resolveTenantId } = require('../management/tenant_context');
+const { relayRegistry } = require('./relay_registry');
 const socketControl = require('./socket_control');
 const prisma = new PrismaClient();
 
@@ -41,6 +42,14 @@ const SOCKET_EVENTS = {
   POLEIS_RELAY_REQUEST: 'poleis_relay_request',  // peer asks web to allocate a relay session
   POLEIS_RELAY_OFFER: 'poleis_relay_offer',      // web pushes relay endpoint+token to the other peer
   POLEIS_RELAY_ANSWER: 'poleis_relay_answer',    // peer confirms it bound to the relay
+  // Relay 池纳管：候选下发 / 延迟上报 / 分配下发（见 docs/relay-server-design.md §2.6）
+  POLEIS_RELAY_LIST: 'poleis_relay_list',        // web → peer：下发候选 relay 列表供 STUN 探测
+  POLEIS_RELAY_LATENCY: 'poleis_relay_latency',  // peer → web：上报到各 relay 的 STUN RTT 样本
+  // 当前 TURN 凭证通过两种途径下发：(1) augmentSdpWithRelay 注入 NatInfo JSON（SDP/NatInfo 交换时）；
+  // (2) POLEIS_RELAY_OFFER 事件（poleis_relay_request 响应时）。
+  // POLEIS_RELAY_ALLOCATED 预留给后续「凭证续签主动推送」场景（长会话凭证即将过期时 Web 主动推新凭证），
+  // 客户端需注册 handler 监听此事件以支持续签。当前未启用。
+  POLEIS_RELAY_ALLOCATED: 'poleis_relay_allocated', // web → peer：下发选中 relay + TURN 凭证（预留）
   // Poleis P2P连接事件
   POLEIS_CONNECT_REQUEST: 'poleis_connect_request',  // 请求建立P2P连接
   POLEIS_SDP_OFFER: 'poleis_sdp_offer',              // SDP offer（服务端->客户端）
@@ -315,6 +324,18 @@ const buildSocketServer = (httpServer, options = {}) => {
     socket.emit(SOCKET_EVENTS.AUTH, { ok: true, userId, terminalId });
     const snapshot = await presence.getEndpointsByUser(userId);
     socket.emit(SOCKET_EVENTS.ENDPOINTS_SNAPSHOT, { success: true, data: snapshot });
+
+    // 下发候选 relay 列表供终端 STUN 探测（延迟选择，见 §2.5）。
+    // 周期刷新，使新增/下线节点及时同步到终端。
+    const pushRelayList = async () => {
+      try {
+        const nodes = await relayRegistry.listForProbe(10);
+        socket.emit(SOCKET_EVENTS.POLEIS_RELAY_LIST, { nodes });
+      } catch (e) { /* ignore */ }
+    };
+    pushRelayList();
+    const relayListTimer = setInterval(pushRelayList, 60000);
+    if (relayListTimer.unref) relayListTimer.unref();
 
     socket.on(SOCKET_EVENTS.HEARTBEAT, async () => {
       await presence.updateLastSeen(terminalId, socket.id);
@@ -594,25 +615,62 @@ const buildSocketServer = (httpServer, options = {}) => {
     });
 
     // Poleis exchanges its NatInfo as the base64-encoded "SDP". Inject the
-    // Parsec-style relay allocation (one token per terminal pair) into that JSON
-    // so both peers learn the same relay endpoint+token via the normal SDP
-    // exchange and can fall back to the relay without any extra round trip.
-    const augmentSdpWithRelay = (toTerminalId, sdpB64) => {
+    // relay allocation into that JSON so both peers learn the same relay
+    // endpoint via the normal SDP exchange and can fall back without extra RTT.
+    //
+    // 优先级：relay 池(registry) > 旧单机 relay(localhost) > 无 relay。
+    // registry 分配会返回 TURN 凭证(阶段C)或 PRLY token(阶段A过渡期)。
+    const augmentSdpWithRelay = async (toTerminalId, sdpB64) => {
       if (typeof sdpB64 !== 'string' || !sdpB64.length) return sdpB64;
-      // Inject the relay allocation (one token per terminal pair) only when a
-      // relay is configured and reachable.
       let relayFields = null;
-      if (relay) {
+      // 1) relay 池（registry）：按终端对选择最优节点 + 签凭证
+      const pk = [terminalId, toTerminalId].sort().join('|');
+      let entry = relayPairTokens.get(pk);
+      try {
+        // 检查缓存的分配是否已过期（TURN 凭证有 TTL），过期则重新分配。
+        // 留 60s 安全余量，避免凭证在传输/Allocate 过程中刚好过期。
+        const isStale = entry && entry.alloc && entry.alloc.expiresAt &&
+                        entry.alloc.expiresAt * 1000 < Date.now() + 60000;
+        if (isStale) {
+          relayPairTokens.delete(pk);
+          entry = null;
+        }
+        if (!entry) {
+          const alloc = await relayRegistry.allocateForPair(terminalId, toTerminalId, pk, { ttlSeconds: 3600 });
+          if (alloc) {
+            entry = {
+              token: alloc.token || null,
+              createdAt: Date.now(),
+              alloc  // 缓存分配结果，同一终端对复用
+            };
+            relayPairTokens.set(pk, entry);
+            // 旧 relay 兼容：若本地 RelayServer 也在跑，授权同一 token
+            if (relay && entry.token) relay.authorizeSession(entry.token);
+          }
+        }
+        if (entry && entry.alloc) {
+          const a = entry.alloc;
+          relayFields = { relay_host: a.host, relay_port: a.port };
+          if (a.token) relayFields.relay_token = a.token;          // PRLY 过渡期
+          if (a.username) relayFields.relay_username = a.username;  // TURN 凭证
+          if (a.credential) relayFields.relay_credential = a.credential;
+          if (a.realm) relayFields.relay_realm = a.realm;
+          if (a.expiresAt) relayFields.relay_expires_at = a.expiresAt;
+        }
+      } catch (e) {
+        // registry 不可用（如无在线节点）时回落到旧单机 relay
+      }
+      // 2) 旧单机 relay 回退
+      if (!relayFields && relay) {
         const host = relayPublicHost || (socket.handshake.headers.host || '').split(':')[0] || '';
         if (host) {
-          const pairKey = [terminalId, toTerminalId].sort().join('|');
-          let entry = relayPairTokens.get(pairKey);
-          if (!entry) {
-            entry = { token: randomBytes(16).toString('hex'), createdAt: Date.now() };
-            relayPairTokens.set(pairKey, entry);
-            relay.authorizeSession(entry.token);
+          let legacy = relayPairTokens.get(pk);
+          if (!legacy) {
+            legacy = { token: randomBytes(16).toString('hex'), createdAt: Date.now() };
+            relayPairTokens.set(pk, legacy);
+            relay.authorizeSession(legacy.token);
           }
-          relayFields = { relay_host: host, relay_port: relayPublicPort, relay_token: entry.token };
+          relayFields = { relay_host: host, relay_port: relayPublicPort, relay_token: legacy.token };
         }
       }
       // Nothing to inject -> leave the blob untouched (unknown fields, e.g. the
@@ -644,7 +702,7 @@ const buildSocketServer = (httpServer, options = {}) => {
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_SDP_OFFER',
         fromTerminalId: terminalId,
-        sdp: augmentSdpWithRelay(targetTerminalId, sdp)
+        sdp: await augmentSdpWithRelay(targetTerminalId, sdp)
       });
       audit.log({ action: 'poleis_sdp_offer', userId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
@@ -665,7 +723,7 @@ const buildSocketServer = (httpServer, options = {}) => {
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_SDP_ANSWER',
         fromTerminalId: terminalId,
-        sdp: augmentSdpWithRelay(targetTerminalId, sdp)
+        sdp: await augmentSdpWithRelay(targetTerminalId, sdp)
       });
       audit.log({ action: 'poleis_sdp_answer', userId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
@@ -774,20 +832,50 @@ const buildSocketServer = (httpServer, options = {}) => {
       }
 
       const session = natSessions.get(sessionId);
-      // Allocate a one-time relay token for this NAT session (Parsec-style relay
-      // fallback) and ride it along inside the exchanged NatInfo so both peers
-      // learn the same relay endpoint without an extra round trip.
-      if (relay && session && !session.relayToken) {
-        session.relayToken = randomBytes(16).toString('hex');
-        relay.authorizeSession(session.relayToken);
+      // 通过 relay 池(registry)为本次 NAT 会话分配中转节点 + 签 TURN 凭证。
+      // 同一 sessionId 复用分配结果，使两端拿到一致的 relay 端点。
+      // 回落顺序：registry > 旧单机 relay > 无 relay。
+      if (session && !session.relayAlloc) {
+        try {
+          const alloc = await relayRegistry.allocateForPair(
+            session.clientTerminalId, session.agentTerminalId, sessionId, { ttlSeconds: 3600 }
+          );
+          if (alloc) {
+            session.relayAlloc = alloc;
+            if (alloc.token && relay) relay.authorizeSession(alloc.token);
+            // 记录 relay 节点到平台会话（审计/统计）
+            const psid = platformSessionIndex.get(sessionId);
+            if (psid && alloc.nodeId) {
+              platformService.updateSessionRelay(psid, alloc.nodeId).catch(() => {});
+            }
+          }
+        } catch (e) { /* registry 不可用 */ }
+      }
+      // 旧单机 relay 回退
+      if (!session || !session.relayAlloc) {
+        if (relay && session && !session.relayToken) {
+          session.relayToken = randomBytes(16).toString('hex');
+          relay.authorizeSession(session.relayToken);
+        }
       }
 
       let natToSend = payload?.nat;
+      const hasRelayAlloc = !!(session && session.relayAlloc);
+      const hasLegacyRelay = !!(relay && session && session.relayToken);
       if (typeof natToSend === 'string' && natToSend.length &&
-          ((relay && session && session.relayToken) || punchStartCountdownMs > 0)) {
+          (hasRelayAlloc || hasLegacyRelay || punchStartCountdownMs > 0)) {
         try {
           const obj = JSON.parse(natToSend);
-          if (relay && session && session.relayToken) {
+          if (hasRelayAlloc) {
+            const a = session.relayAlloc;
+            obj.relay_host = a.host;
+            obj.relay_port = a.port;
+            if (a.token) obj.relay_token = a.token;            // PRLY 过渡期
+            if (a.username) obj.relay_username = a.username;    // TURN 凭证
+            if (a.credential) obj.relay_credential = a.credential;
+            if (a.realm) obj.relay_realm = a.realm;
+            if (a.expiresAt) obj.relay_expires_at = a.expiresAt;
+          } else if (hasLegacyRelay) {
             const host = relayPublicHost ||
                          (socket.handshake.headers.host || '').split(':')[0] || '';
             if (host) {
@@ -956,11 +1044,9 @@ const buildSocketServer = (httpServer, options = {}) => {
       cb({ success: sent });
     });
 
-    // Parsec-style relay fallback: a peer asks the web to allocate a relay
-    // session for an existing NAT session. The web authorizes a one-time token
-    // on the UDP relay, returns the relay endpoint+token to the requester, and
-    // pushes a relay_offer (same token+endpoint) to the other peer so both BIND
-    // to the same relay session and tunnel their QUIC stream through it.
+    // Relay fallback: a peer asks the web to allocate a relay session for an
+    // existing NAT session. Web 经 relay 池(registry)选择最优节点 + 签 TURN 凭证，
+    // 返回给请求方并推 relay_offer 给对端，两端用同一凭证 BIND 同一 relay。
     socket.on(SOCKET_EVENTS.POLEIS_RELAY_REQUEST, async (payload, cb = () => {}) => {
       const targetTerminalId = payload?.toTerminalId;
       const sessionId = payload?.sessionId;
@@ -968,30 +1054,54 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'missing target terminal or sessionId' });
         return;
       }
-      if (!relay) {
+      const existing = natSessions.get(sessionId);
+      // 复用已为本会话分配的 relay（同一 sessionId 两端一致）
+      let alloc = existing && existing.relayAlloc;
+      if (!alloc) {
+        try {
+          alloc = await relayRegistry.allocateForPair(
+            terminalId, targetTerminalId, sessionId, { ttlSeconds: 3600 }
+          );
+        } catch (e) { alloc = null; }
+      }
+      // 旧单机 relay 回退
+      if (!alloc && relay) {
+        let token = existing && existing.relayToken;
+        if (!token) token = randomBytes(16).toString('hex');
+        relay.authorizeSession(token);
+        const host = relayPublicHost || socket.handshake.headers['x-forwarded-host'] ||
+                     (socket.handshake.headers.host || '').split(':')[0] || '';
+        alloc = { token, host, port: relayPublicPort, legacy: true };
+      }
+      if (!alloc) {
         cb({ success: false, message: 'relay not available' });
         return;
       }
-      const existing = natSessions.get(sessionId);
-      // Reuse a token already allocated for this NAT session if present.
-      let token = existing && existing.relayToken;
-      if (!token) {
-        token = randomBytes(16).toString('hex');
-      }
-      relay.authorizeSession(token);
       if (existing) {
-        existing.relayToken = token;
+        existing.relayAlloc = alloc;
+        if (alloc.token) existing.relayToken = alloc.token;
         existing.state = 'relay';
       }
+      if (alloc.token && relay) relay.authorizeSession(alloc.token);
       const relayPlatformSessionId = platformSessionIndex.get(sessionId);
       if (relayPlatformSessionId) {
+        platformService.updateSessionRelay(relayPlatformSessionId, alloc.nodeId || null)
+          .catch((err) => console.error('[socket.io] failed to persist relay node:', err));
         platformService.addSessionEvent(relayPlatformSessionId, 'relay_fallback', {
-          targetTerminalId
+          targetTerminalId, relayNodeId: alloc.nodeId || null
         }).catch((err) => console.error('[socket.io] failed to record relay event:', err));
       }
-      const host = relayPublicHost || socket.handshake.headers['x-forwarded-host'] ||
-                   (socket.handshake.headers.host || '').split(':')[0] || '';
-      const relayInfo = { token, relayHost: host, relayPort: relayPublicPort };
+      const relayInfo = {
+        token: alloc.token || null,
+        relayHost: alloc.host,
+        relayPort: alloc.port,
+        // TURN 凭证（阶段C；阶段A过渡期为 null）
+        username: alloc.username || null,
+        credential: alloc.credential || null,
+        realm: alloc.realm || null,
+        expiresAt: alloc.expiresAt || null,
+        nodeId: alloc.nodeId || null
+      };
 
       // Push relay_offer to the peer (the agent side binds with role=agent).
       await sendToTerminal(targetTerminalId, {
@@ -1001,15 +1111,12 @@ const buildSocketServer = (httpServer, options = {}) => {
         fromUserId: userId,
         relay: relayInfo
       });
-      audit.log({ action: 'poleis_relay_request', userId, description: `session:${sessionId} to:${targetTerminalId}` });
+      audit.log({ action: 'poleis_relay_request', userId, description: `session:${sessionId} to:${targetTerminalId} node:${alloc.nodeId || 'legacy'}` });
       cb({ success: true, relay: relayInfo });
     });
 
     socket.on(SOCKET_EVENTS.POLEIS_RELAY_ANSWER, async (payload, cb = () => {}) => {
-      if (!relay) {
-        cb({ success: false, message: 'relay disabled' });
-        return;
-      }
+      // relay 已由 registry 或本地 relay 提供，answer 仅做对端确认转发
       const targetTerminalId = payload?.toTerminalId;
       const sessionId = payload?.sessionId;
       if (!targetTerminalId || !sessionId) {
@@ -1026,7 +1133,19 @@ const buildSocketServer = (httpServer, options = {}) => {
       cb({ success: sent });
     });
 
+    // 终端上报到各 relay 节点的 STUN RTT 样本（延迟探测，见 §2.5）
+    socket.on(SOCKET_EVENTS.POLEIS_RELAY_LATENCY, async (payload, cb = () => {}) => {
+      const samples = Array.isArray(payload?.samples) ? payload.samples : [];
+      try {
+        await relayRegistry.recordLatency(terminalId, samples);
+        cb({ success: true });
+      } catch (e) {
+        cb({ success: false, message: 'failed to record latency' });
+      }
+    });
+
     socket.on('disconnect', async () => {
+      clearInterval(relayListTimer);
       socketIndex.delete(socket.id);
       const set = terminalIndex.get(terminalId);
       if (set) {

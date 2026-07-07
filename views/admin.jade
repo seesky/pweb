@@ -28,45 +28,16 @@ html(lang="zh-CN")
     script(src="/vendor/material-ui.js")
     script(src="/vendor/emotion-react.js")
     script(src="/vendor/emotion-styled.js")
-    include admin-pages/moduleAdmin.jade
-
-    include admin-pages/staffAdmin.jade
-
-    include admin-pages/userAdmin.jade
-
-    include admin-pages/organizeAdmin.jade
-
-    include admin-pages/roleAdmin.jade
-
-    include admin-pages/postAdmin.jade
-
-    include admin-pages/sequenceAdmin.jade
-
-    include admin-pages/permissionItemAdmin.jade
-
-    include admin-pages/rolePermissionAdmin.jade
-
-    include admin-pages/userPermissionAdmin.jade
-
-    include admin-pages/tableFieldAdmin.jade
-
-    include admin-pages/sysConfigAdmin.jade
-
-    include admin-pages/parameterAdmin.jade
-
-    include admin-pages/logAdmin.jade
-
-    include admin-pages/exceptionAdmin.jade
-
-    include admin-pages/dataItemAdmin.jade
-
-    include admin-pages/messageAdmin.jade
-
-    include admin-pages/onlineManage.jade
-
-    include admin-pages/peerManage.jade
-
-    include admin-pages/platformAdmin.jade
+    // 共享工具（极小，外壳侧栏渲染前需 PM_SECTIONS）；必须先于 loader 与页面 js 加载
+    script(src="/javascripts/admin-pages/pm-shared.js")
+    // 懒加载器：按 activeView.type 动态拉取对应页面 js（不再首屏 inline 全部页面代码）
+    script(src="/javascripts/admin-pages/loader.js")
+    // 默认页预加载：控制台(console→peerManage.js) / 运营后台(platform-admin.js)
+    // 用 <link rel=preload> 在渲染壳的同时并行拉取，消除首屏空白闪烁
+    if appMode === 'ops'
+      link(rel="preload" href="/javascripts/admin-pages/platformAdmin.js" as="script")
+    else
+      link(rel="preload" href="/javascripts/admin-pages/peerManage.js" as="script")
 
     script.
       const { useState, useEffect, useMemo, useCallback } = React;
@@ -130,6 +101,7 @@ html(lang="zh-CN")
       const ONLINE_MANAGE_CODES = ['PoleisOnlineManage'];
       const PEER_MANAGE_CODES = ['PoleisPeerManage'];
       const PLATFORM_ADMIN_CODES = ['PoleisPlatformAdmin'];
+      const RELAY_ADMIN_CODES = ['PoleisRelayAdmin', 'RelayAdmin'];
       const PERMISSION_ITEM_ADMIN_CODES = ['FrmPermissionItemAdmin'];
       const ROLE_PERMISSION_ADMIN_CODES = ['FrmRolePermissionAdmin'];
       const SEQUENCE_ADMIN_CODES = ['SequenceAdmin'];
@@ -170,6 +142,8 @@ html(lang="zh-CN")
       const isPeerManageNode = (node = {}) => matchNavUrl(node, PEER_MANAGE_CODES);
 
       const isPlatformAdminNode = (node = {}) => matchNavUrl(node, PLATFORM_ADMIN_CODES);
+
+      const isRelayAdminNode = (node = {}) => matchNavUrl(node, RELAY_ADMIN_CODES);
 
       const isRolePermissionAdminNode = (node = {}) => matchNavUrl(node, ROLE_PERMISSION_ADMIN_CODES);
 
@@ -292,158 +266,9 @@ html(lang="zh-CN")
         );
       };
 
-      const buildModuleHierarchy = (items = []) => {
-        const lookup = new Map();
-        items.forEach((item) => {
-          lookup.set(item.id, { ...item, children: [] });
-        });
-        const roots = [];
-        lookup.forEach((node) => {
-          if (node.parentId && lookup.has(node.parentId)) {
-            lookup.get(node.parentId).children.push(node);
-          } else {
-            roots.push(node);
-          }
-        });
-        const sortFn = (a, b) => (a.sortCode || 0) - (b.sortCode || 0);
-        lookup.forEach((node) => node.children.sort(sortFn));
-        return roots.sort(sortFn);
-      };
-      const ModuleTreeNode = ({ node, selectedId, onSelect, depth = 0 }) => {
-        const hasChildren = node.children && node.children.length > 0;
-        const [open, setOpen] = useState(depth < 1);
-        const handleClick = () => {
-          onSelect(node.id);
-          if (hasChildren) {
-            setOpen((prev) => !prev);
-          }
-        };
-        return React.createElement(React.Fragment, null,
-          React.createElement(ListItemButton, {
-            onClick: handleClick,
-            selected: selectedId === node.id,
-            sx: {
-              pl: 2 + depth * 1.5,
-              borderRadius: 1.5,
-              mb: 0.25,
-              '&.Mui-selected': { backgroundColor: 'rgba(99,102,241,0.15)' }
-            }
-          },
-        React.createElement(ListItemText, {
-            primary: node.fullName || node.fullname || node.code,
-            secondary: node.code
-          }),
-          ),
-          hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
-            React.createElement(List, { disablePadding: true },
-              node.children.map((child) =>
-                React.createElement(ModuleTreeNode, {
-                  key: child.id,
-                  node: child,
-                  selectedId,
-                  onSelect,
-                  depth: depth + 1
-                })
-              )
-            )
-          ) : null
-        );
-      };
-
-      const ModuleTree = ({ data = [], selectedId, onSelect }) => {
-        return React.createElement(List, { component: 'nav' },
-          React.createElement(ListItemButton, {
-            selected: selectedId === null,
-            onClick: () => onSelect(null),
-            sx: { borderRadius: 1.5, mb: 0.5 }
-          },
-          React.createElement(ListItemText, { primary: '全部模块' })
-          ),
-          data.map((node) =>
-            React.createElement(ModuleTreeNode, {
-              key: node.id,
-              node,
-              selectedId,
-              onSelect,
-              depth: 0
-            })
-          )
-        );
-      };
-
-      const moduleTypeMap = {
-        1: '系统',
-        2: '平台',
-        3: '应用',
-        4: '窗体',
-        5: '报表',
-        6: '菜单'
-      };
-
-      const createDefaultForm = (parentId = '') => ({
-        id: '',
-        parentId: parentId || '',
-        code: '',
-        fullName: '',
-        category: '',
-        moduleType: 6,
-        navigateUrl: '',
-        mvcNavigateUrl: '',
-        iconCss: '',
-        iconUrl: '',
-        description: '',
-        sortCode: '',
-        enabled: true,
-        isPublic: false,
-        isMenu: true,
-        allowEdit: true,
-        allowDelete: true,
-        expand: false
-      });
-
-      const mapRecordToFormValues = (record) =>
-        record
-          ? {
-              id: record.id,
-              parentId: record.parentId || '',
-              code: record.code || '',
-              fullName: record.fullName || '',
-              category: record.category || '',
-              moduleType: record.moduleType || 6,
-              navigateUrl: record.navigateUrl || '',
-              mvcNavigateUrl: record.mvcNavigateUrl || '',
-              iconCss: record.iconCss || '',
-              iconUrl: record.iconUrl || '',
-              description: record.description || '',
-              sortCode: record.sortCode ?? '',
-              enabled: !!record.enabled,
-              isPublic: !!record.isPublic,
-              isMenu: !!record.isMenu,
-              allowEdit: !!record.allowEdit,
-              allowDelete: !!record.allowDelete,
-              expand: !!record.expand
-            }
-          : createDefaultForm();
-
-      const serializeFormValues = (values) => ({
-        parentId: values.parentId || null,
-        code: values.code?.trim(),
-        fullName: values.fullName?.trim(),
-        category: values.category?.trim() || null,
-        moduleType: Number(values.moduleType) || 6,
-        navigateUrl: values.navigateUrl || '#',
-        mvcNavigateUrl: values.mvcNavigateUrl || '#',
-        iconCss: values.iconCss || null,
-        iconUrl: values.iconUrl || null,
-        description: values.description || null,
-        sortCode: values.sortCode === '' ? null : Number(values.sortCode),
-        enabled: !!values.enabled,
-        isPublic: !!values.isPublic,
-        isMenu: !!values.isMenu,
-        allowEdit: !!values.allowEdit,
-        allowDelete: !!values.allowDelete,
-        expand: !!values.expand
-      });
+      // 模块管理共享符号（buildModuleHierarchy / ModuleTree / ModuleTreeNode /
+      // moduleTypeMap / createDefaultForm / mapRecordToFormValues / serializeFormValues）
+      // 已移至 pm-shared.js（window 全局），供外壳与 moduleAdmin.js 共用。
       const AdminApp = () => {
         const data = window.__APP_DATA__ || {};
         const user = data.user || {};
@@ -512,6 +337,8 @@ html(lang="zh-CN")
             setActiveView({ type: 'online-manage', node });
           } else if (isPlatformAdminNode(node)) {
             setActiveView({ type: 'platform-admin', node });
+          } else if (isRelayAdminNode(node)) {
+            setActiveView({ type: 'relay-admin', node });
           } else if (isPeerManageNode(node)) {
             setActiveView({ type: 'console', section: 'overview' });
             setActiveNavId('console:overview');
@@ -556,68 +383,63 @@ html(lang="zh-CN")
           }
         };
 
+        // PageHost：按 activeView 异步懒加载页面组件。
+        // 各页面 js 由 loader.js 在首次切换时动态拉取并缓存，二次切换零网络开销。
+        // dashboard 类型无需加载（内联在壳里）。
+        const PageHost = ({ activeView, user }) => {
+          const type = activeView.type;
+          const [PageComp, setPageComp] = useState(null);
+          const [loadError, setLoadError] = useState('');
+          const [retryToken, setRetryToken] = useState(0);
+
+          useEffect(() => {
+            // dashboard 直接用内联组件，不走加载器
+            if (type === 'dashboard') {
+              setPageComp(function DashboardWrap() {
+                return React.createElement(DashboardOverview, { user, activeNode: activeView.node });
+              });
+              setLoadError('');
+              return;
+            }
+            let cancelled = false;
+            setLoadError('');
+            setPageComp(null);
+            AdminPageLoader.load(type).then(function (comp) {
+              if (!cancelled) setPageComp(function () { return comp; });
+            }).catch(function (err) {
+              if (!cancelled) {
+                console.error('[PageHost] 加载页面失败', type, err);
+                setLoadError(err && err.message ? err.message : '加载页面失败');
+              }
+            });
+            return function () { cancelled = true; };
+          }, [type, retryToken]);
+
+          if (loadError) {
+            return React.createElement(Box, {
+              sx: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 360, gap: 2 }
+            },
+              React.createElement(Alert, { severity: 'error' }, loadError),
+              React.createElement(Button, {
+                variant: 'outlined', size: 'small',
+                onClick: function () { setRetryToken(function (t) { return t + 1; }); }
+              }, '重试')
+            );
+          }
+          if (!PageComp) {
+            return React.createElement(Box, {
+              sx: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 360 }
+            }, React.createElement(CircularProgress, { size: 36 }));
+          }
+          // console 类型透传 section；其余类型无 props
+          if (type === 'console') {
+            return React.createElement(PageComp, { section: activeView.section || 'overview' });
+          }
+          return React.createElement(PageComp, null);
+        };
+
         const renderContent = () => {
-          if (activeView.type === 'module-admin') {
-            return React.createElement(ModuleAdminPage, null);
-          }
-          if (activeView.type === 'staff-admin') {
-            return React.createElement(StaffAdminPage, null);
-          }
-          if (activeView.type === 'user-admin') {
-            return React.createElement(UserAdminPage, null);
-          }
-          if (activeView.type === 'organize-admin') {
-            return React.createElement(OrganizeAdminPage, null);
-          }
-          if (activeView.type === 'role-admin') {
-            return React.createElement(RoleAdminPage, null);
-          }
-          if (activeView.type === 'post-admin') {
-            return React.createElement(PostAdminPage, null);
-          }
-          if (activeView.type === 'user-permission-admin') {
-            return React.createElement(UserPermissionAdminPage, null);
-          }
-          if (activeView.type === 'permission-item-admin') {
-            return React.createElement(PermissionItemAdminPage, null);
-          }
-          if (activeView.type === 'online-manage') {
-            return React.createElement(OnlineManagePage, null);
-          }
-          if (activeView.type === 'console') {
-            return React.createElement(PeerManagePage, { section: activeView.section || 'overview' });
-          }
-          if (activeView.type === 'platform-admin') {
-            return React.createElement(PlatformAdminPage, null);
-          }
-          if (activeView.type === 'sequence-admin') {
-            return React.createElement(SequenceAdminPage, null);
-          }
-          if (activeView.type === 'table-field-admin') {
-            return React.createElement(TableFieldAdminPage, null);
-          }
-          if (activeView.type === 'sys-config-admin') {
-            return React.createElement(SysConfigAdminPage, null);
-          }
-          if (activeView.type === 'parameter-admin') {
-            return React.createElement(ParameterAdminPage, null);
-          }
-          if (activeView.type === 'log-admin') {
-            return React.createElement(LogAdminPage, null);
-          }
-          if (activeView.type === 'exception-admin') {
-            return React.createElement(ExceptionAdminPage, null);
-          }
-          if (activeView.type === 'data-item-admin') {
-            return React.createElement(DataItemAdminPage, null);
-          }
-          if (activeView.type === 'message-admin') {
-            return React.createElement(MessageAdminPage, null);
-          }
-          if (activeView.type === 'role-permission-admin') {
-            return React.createElement(RolePermissionAdminPage, null);
-          }
-          return React.createElement(DashboardOverview, { user, activeNode: activeView.node });
+          return React.createElement(PageHost, { activeView, user });
         };
 
         const handleConsoleSelect = (key) => {
@@ -634,7 +456,7 @@ html(lang="zh-CN")
         // 企业空间 = owner/admin 看全部；普通成员仅看 总览/设备/会话/工单（读+自助）。
         const PERSONAL_SECTION_KEYS = ['overview', 'devices', 'sessions'];
         const ENTERPRISE_MEMBER_SECTION_KEYS = ['overview', 'devices', 'sessions', 'tickets'];
-        const consoleSections = (typeof PM_SECTIONS !== 'undefined' ? PM_SECTIONS : [])
+        const consoleSections = (window.PM_SECTIONS || [])
           .filter((s) => {
             if (isPersonalWorkspace) return PERSONAL_SECTION_KEYS.includes(s.key);
             if (isTenantAdmin) return true;
@@ -677,6 +499,14 @@ html(lang="zh-CN")
                     },
                       React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'platform-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'business')),
                       React.createElement(ListItemText, { primary: '平台管理', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'platform-admin' ? 700 : 500 } })
+                    ),
+                    React.createElement(ListItemButton, {
+                      selected: activeView.type === 'relay-admin',
+                      onClick: () => { setActiveView({ type: 'relay-admin' }); setActiveNavId('relay-admin'); if (mobileOpen) setMobileOpen(false); },
+                      sx: { borderRadius: 2, mb: 0.5, px: 1.5, py: 1, color: activeView.type === 'relay-admin' ? '#312e81' : '#475467', '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' }, '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' } }
+                    },
+                      React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'relay-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'dns')),
+                      React.createElement(ListItemText, { primary: '中继节点', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'relay-admin' ? 700 : 500 } })
                     )
                   )
                 )
@@ -777,6 +607,8 @@ html(lang="zh-CN")
               ? 'Poleis 控制台'
               : activeView.type === 'platform-admin'
               ? '平台管理'
+              : activeView.type === 'relay-admin'
+              ? '中继节点管理'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
               : activeView.type === 'table-field-admin'
