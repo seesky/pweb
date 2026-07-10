@@ -5,6 +5,8 @@ const { PrismaClient } = require('@prisma/client');
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const { SocketTokenService } = require('../services/realtime/token_service');
 const { PresenceService } = require('../services/realtime/presence_service');
+const { platformService } = require('../services/management/platform_service');
+const { resolveTenantId } = require('../services/management/tenant_context');
 
 const prisma = new PrismaClient();
 const tokenService = new SocketTokenService();
@@ -31,6 +33,15 @@ exports.issueToken = async (req, res) => {
   const user = ensureUser(req, res);
   if (!user) return;
   try {
+    const terminalId = String(req.body?.terminalId || req.body?.terminal_id || req.body?.deviceId || '').trim();
+    const deviceInfo = req.body?.deviceInfo && typeof req.body.deviceInfo === 'object'
+      ? req.body.deviceInfo
+      : {};
+    if (!deviceInfo.os) {
+      const userAgent = String(req.headers['user-agent'] || '');
+      if (/android/i.test(userAgent)) deviceInfo.os = 'Android';
+      else if (/(iphone|ipad|ios)/i.test(userAgent)) deviceInfo.os = 'iOS';
+    }
     // Resolve the registered username/email for display in clients. Fall back to
     // the session values if the profile lookup fails (e.g. the super-admin login).
     let username = user.UserName || '';
@@ -44,7 +55,26 @@ exports.issueToken = async (req, res) => {
     } catch (lookupError) {
       console.error('[SocketController.issueToken] profile lookup failed', lookupError);
     }
-    const token = tokenService.issue(user.Id, null, SOCKET_TOKEN_EXPIRES_SECONDS, { username, email });
+    const token = tokenService.issue(user.Id, terminalId || null, SOCKET_TOKEN_EXPIRES_SECONDS, { username, email });
+    if (terminalId) {
+      try {
+        const tenantId = await resolveTenantId(user);
+        if (tenantId) {
+          const scopedPlatform = platformService.forTenant(tenantId);
+          const existingDevice = await scopedPlatform.getDeviceByTerminal(terminalId);
+          await scopedPlatform.upsertDeviceFromPresence({
+            userId: user.Id,
+            terminalId,
+            ip: req.ip || '',
+            os: deviceInfo.os || '',
+            deviceInfo,
+            status: existingDevice?.status === 'online' ? 'online' : 'offline'
+          });
+        }
+      } catch (deviceError) {
+        console.error('[SocketController.issueToken] device registration failed', deviceError);
+      }
+    }
     res.json({ success: true, token, expiresIn: SOCKET_TOKEN_EXPIRES_SECONDS, username, email });
   } catch (error) {
     console.error('[SocketController.issueToken]', error);

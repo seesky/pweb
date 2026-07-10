@@ -63,6 +63,12 @@ const normalizeNullable = (value) => {
   return String(value);
 };
 
+const classifyDeviceOs = (value) => {
+  const os = String(value || '').trim().toLowerCase();
+  if (/(android|\bios\b|iphone|ipad|ipados|mobile|harmonyos)/.test(os)) return 'handheld';
+  return 'pc';
+};
+
 const parseDateOrNull = (value) => {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -647,7 +653,7 @@ class PlatformService {
   // = 个人空间自有(owner) 设备 ∪ 各企业内被授权(assignment：user/member_role,
   //   含设备组展开,含时间窗) 的设备。每条带 workspace 标签 + 在线状态 + terminalId。
   // 这是 isAuthorized 的「列举」反向版，给 GUI 控制端按 workspace 分组展示。
-  async listAccessibleDevices(userId) {
+  async listAccessibleDevices(userId, currentTerminalId = '') {
     if (!userId) return [];
     await this.ensureSchema();
     const tenants = await this.listTenantsForUser(userId);
@@ -685,6 +691,9 @@ class PlatformService {
       for (const r of rows) {
         if (seen.has(r.ID)) continue; // 同设备只出现一次（个人优先于企业）
         seen.add(r.ID);
+        const deviceClass = classifyDeviceOs(r.OS);
+        const currentDevice = r.TERMINALID === currentTerminalId;
+        const online = r.STATUS === 'online';
         out.push({
           id: r.ID,
           terminalId: r.TERMINALID,
@@ -693,7 +702,10 @@ class PlatformService {
           name: r.ALIAS || r.HOSTNAME || r.TERMINALID,
           os: r.OS || '',
           status: r.STATUS || 'offline',
-          online: r.STATUS === 'online',
+          online,
+          deviceClass,
+          currentDevice,
+          controllable: online && !currentDevice && deviceClass === 'pc',
           lastSeen: r.LASTSEEN,
           ownerUserId: r.OWNERUSERID || '',
           tenantId: t.id,
@@ -703,10 +715,15 @@ class PlatformService {
         });
       }
     }
+    const rank = (device) => device.currentDevice ? 0
+      : device.deviceClass === 'pc' ? (device.online ? 1 : 2)
+        : (device.online ? 3 : 4);
+    out.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
     return out;
   }
 
   formatDevice(row) {
+    const deviceClass = classifyDeviceOs(row.OS);
     return {
       id: row.ID,
       tenantId: row.TENANTID,
@@ -716,6 +733,8 @@ class PlatformService {
       alias: row.ALIAS || '',
       hostname: row.HOSTNAME || '',
       os: row.OS || '',
+      deviceClass,
+      controllable: deviceClass === 'pc',
       osVersion: row.OSVERSION || '',
       clientVersion: row.CLIENTVERSION || '',
       lastIp: row.LASTIP || '',
@@ -2313,5 +2332,6 @@ class PlatformService {
 module.exports = {
   PlatformService,
   platformService: new PlatformService(),
-  DEFAULT_TENANT_ID
+  DEFAULT_TENANT_ID,
+  classifyDeviceOs
 };

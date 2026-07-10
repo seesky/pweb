@@ -7,7 +7,7 @@ const { SocketTokenService } = require('./token_service');
 const { PresenceService } = require('./presence_service');
 const { AuditService } = require('./audit_service');
 const { AssistanceService } = require('./assistance_service');
-const { platformService } = require('../management/platform_service');
+const { platformService, classifyDeviceOs } = require('../management/platform_service');
 const { resolveTenantId } = require('../management/tenant_context');
 const { relayRegistry } = require('./relay_registry');
 const socketControl = require('./socket_control');
@@ -234,7 +234,18 @@ const buildSocketServer = (httpServer, options = {}) => {
 
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
-    const deviceInfo = socket.handshake.auth?.deviceInfo || {};
+    const rawDeviceInfo = socket.handshake.auth?.deviceInfo;
+    let deviceInfo = rawDeviceInfo && typeof rawDeviceInfo === 'object' ? rawDeviceInfo : {};
+    if (typeof rawDeviceInfo === 'string') {
+      try {
+        const parsed = JSON.parse(rawDeviceInfo);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) deviceInfo = parsed;
+      } catch {
+        deviceInfo = {};
+      }
+    }
+    if (!deviceInfo.os && socket.handshake.query?.os) deviceInfo.os = String(socket.handshake.query.os);
+    if (!deviceInfo.ua && socket.handshake.query?.ua) deviceInfo.ua = String(socket.handshake.query.ua);
     const terminalIdFromClient = socket.handshake.auth?.terminalId || socket.handshake.query?.terminalId;
     const payload = tokenService.verify(token);
     if (!payload) {
@@ -281,7 +292,8 @@ const buildSocketServer = (httpServer, options = {}) => {
     const userRoom = `user:${userId}`;
     const ua = socket.data.deviceInfo?.ua || socket.handshake.headers['user-agent'] || '';
     const ip = socket.handshake.address || '';
-    const os = socket.data.deviceInfo?.os || '';
+    const os = socket.data.deviceInfo?.os ||
+      (/android/i.test(ua) ? 'Android' : /(iphone|ipad|ios)/i.test(ua) ? 'iOS' : '');
     socket.join(userRoom);
     socketIndex.set(socket.id, { userId, terminalId });
     if (!terminalIndex.has(terminalId)) terminalIndex.set(terminalId, new Set());
@@ -308,7 +320,7 @@ const buildSocketServer = (httpServer, options = {}) => {
     }
     const devicePlatform = deviceTenantId ? platformService.forTenant(deviceTenantId) : null;
     if (devicePlatform) {
-      devicePlatform.upsertDeviceFromPresence({
+      await devicePlatform.upsertDeviceFromPresence({
         userId,
         terminalId,
         ip,
@@ -340,7 +352,7 @@ const buildSocketServer = (httpServer, options = {}) => {
     socket.on(SOCKET_EVENTS.HEARTBEAT, async () => {
       await presence.updateLastSeen(terminalId, socket.id);
       if (devicePlatform) {
-        devicePlatform.upsertDeviceFromPresence({
+        await devicePlatform.upsertDeviceFromPresence({
           userId,
           terminalId,
           ip,
@@ -361,7 +373,7 @@ const buildSocketServer = (httpServer, options = {}) => {
     socket.on(SOCKET_EVENTS.LIST_ACCESSIBLE, async (cb = () => {}) => {
       if (socket.data.isDevice) { cb({ success: false, message: 'device endpoint' }); return; }
       try {
-        const data = await platformService.listAccessibleDevices(userId);
+        const data = await platformService.listAccessibleDevices(userId, terminalId);
         cb({ success: true, data });
       } catch (err) {
         console.error('[socket.io] list_accessible_devices failed:', err);
@@ -399,6 +411,19 @@ const buildSocketServer = (httpServer, options = {}) => {
         delivered += 1;
       }
       return delivered > 0;
+    };
+
+    const controlTargetError = async (targetTerminalId) => {
+      if (targetTerminalId === terminalId) return 'cannot connect to current device';
+      const asset = await platformService.getDeviceByTerminal(targetTerminalId).catch(() => null);
+      let osHint = asset?.os || '';
+      if (!osHint) {
+        const endpoint = await presence.getEndpoint(targetTerminalId).catch(() => null);
+        osHint = endpoint?.os || endpoint?.ua || '';
+      }
+      return classifyDeviceOs(osHint) === 'handheld'
+        ? 'handheld devices cannot be controlled'
+        : '';
     };
 
     socket.on(SOCKET_EVENTS.SEND_TERMINAL, async (payload, cb = () => {}) => {
@@ -503,6 +528,12 @@ const buildSocketServer = (httpServer, options = {}) => {
         return;
       }
 
+      const assistTargetError = await controlTargetError(partner.terminalId);
+      if (assistTargetError) {
+        cb({ success: false, code: 'NOT_CONTROLLABLE', message: assistTargetError });
+        return;
+      }
+
       assistance.clearFailures(partnerId, userId);
       const grantToken = await assistance.issueGrant({
         hostTerminalId: partner.terminalId,
@@ -554,6 +585,11 @@ const buildSocketServer = (httpServer, options = {}) => {
       const targetTerminalId = payload?.toTerminalId;
       if (!targetTerminalId) {
         cb({ success: false, message: 'missing target terminal' });
+        return;
+      }
+      const targetError = await controlTargetError(targetTerminalId);
+      if (targetError) {
+        cb({ success: false, message: targetError });
         return;
       }
       // 转发连接请求到目标终端
@@ -781,6 +817,11 @@ const buildSocketServer = (httpServer, options = {}) => {
       let connectAuthz = null;
       let validGrant = false;
       if (eventType === 'POLEIS_NAT_CONNECT_REQUEST') {
+        const targetError = await controlTargetError(targetTerminalId);
+        if (targetError) {
+          cb({ success: false, message: targetError });
+          return;
+        }
         if (payload?.grantToken) {
           const grant = await assistance.consumeGrant(payload.grantToken);
           validGrant = !!(

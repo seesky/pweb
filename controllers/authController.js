@@ -12,6 +12,8 @@ const { getSecret } = require('../middleware/security');
 const NetHelper = require('../utilities/publiclibrary/net_helper');
 const UserInfo = require('../utilities/publiclibrary/user_info');
 const { logOnService } = require('../services/base/log_on_service');
+const { platformService } = require('../services/management/platform_service');
+const { resolveTenantId } = require('../services/management/tenant_context');
 
 const prisma = new PrismaClient();
 const JWT_SECRET = getSecret('AUTH_JWT_SECRET');
@@ -44,9 +46,43 @@ const verifyPassword = async (plain, hashed) => {
   }
 };
 
-const buildTempToken = (userId) =>
+const requestDevice = (req) => {
+  const body = req.body || {};
+  const terminalId = String(body.terminalId || body.terminal_id || body.deviceId || '').trim();
+  if (!terminalId) return null;
+  const supplied = body.deviceInfo && typeof body.deviceInfo === 'object' ? body.deviceInfo : {};
+  const userAgent = String(req.headers['user-agent'] || '');
+  const os = supplied.os || body.os ||
+    (/android/i.test(userAgent) ? 'Android' : /(iphone|ipad|ios)/i.test(userAgent) ? 'iOS' : '');
+  return {
+    terminalId,
+    info: {
+      os: String(os || ''),
+      name: String(supplied.name || supplied.hostname || body.deviceName || ''),
+      clientVersion: String(supplied.clientVersion || body.clientVersion || '')
+    }
+  };
+};
+
+const registerLoginDevice = async (userInfo, device, req) => {
+  if (!userInfo?.Id || !device?.terminalId) return;
+  const tenantId = await resolveTenantId(userInfo);
+  if (!tenantId) return;
+  const scopedPlatform = platformService.forTenant(tenantId);
+  const existing = await scopedPlatform.getDeviceByTerminal(device.terminalId);
+  await scopedPlatform.upsertDeviceFromPresence({
+    userId: userInfo.Id,
+    terminalId: device.terminalId,
+    ip: NetHelper.getIpAddress(req) || req.ip || '',
+    os: device.info.os,
+    deviceInfo: device.info,
+    status: existing?.status === 'online' ? 'online' : 'offline'
+  });
+};
+
+const buildTempToken = (userId, device = null) =>
   jwt.sign(
-    { uid: userId, step: '2fa' },
+    { uid: userId, step: '2fa', device },
     JWT_SECRET,
     { expiresIn: TEMP_TOKEN_EXPIRES_SECONDS, algorithm: 'HS256', issuer: 'poleis-auth' }
   );
@@ -284,11 +320,14 @@ exports.login = async (req, res) => {
     });
     const userInfo = await convertToUserInfo(user, logon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
+    const device = requestDevice(req);
     if (is2faEnabled(logon)) {
-      const tempToken = buildTempToken(user.ID);
+      const tempToken = buildTempToken(user.ID, device);
       return res.json({ success: true, need2fa: true, tempToken });
     }
     await establishSession(req, res, userInfo);
+    await registerLoginDevice(userInfo, device, req).catch((error) =>
+      console.error('[Auth.login] device registration failed', error));
     return res.json({ success: true, needSetup2fa: true, redirect: '/admin' });
   } catch (error) {
     console.error('[Auth.login]', error);
@@ -339,6 +378,8 @@ exports.verify2fa = async (req, res) => {
     const userInfo = await convertToUserInfo(user, logon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
     await establishSession(req, res, userInfo);
+    await registerLoginDevice(userInfo, payload.device, req).catch((error) =>
+      console.error('[Auth.verify2fa] device registration failed', error));
     return res.json({ success: true, redirect: '/admin' });
   } catch (error) {
     console.error('[Auth.verify2fa]', error);
