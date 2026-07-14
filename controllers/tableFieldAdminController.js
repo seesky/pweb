@@ -151,10 +151,10 @@ exports.list = async (req, res) => {
   }
   if (keyword) {
     where.OR = [
-      { COLUMNCODE: { contains: keyword, mode: 'insensitive' } },
-      { COLUMNNAME: { contains: keyword, mode: 'insensitive' } },
-      { TABLENAME: { contains: keyword, mode: 'insensitive' } },
-      { DATATYPE: { contains: keyword, mode: 'insensitive' } }
+      { COLUMNCODE: { contains: keyword } },
+      { COLUMNNAME: { contains: keyword } },
+      { TABLENAME: { contains: keyword } },
+      { DATATYPE: { contains: keyword } }
     ];
   }
   try {

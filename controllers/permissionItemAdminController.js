@@ -173,9 +173,9 @@ exports.list = async (req, res) => {
   }
   if (keyword) {
     where.OR = [
-      { FULLNAME: { contains: keyword, mode: 'insensitive' } },
-      { CODE: { contains: keyword, mode: 'insensitive' } },
-      { DESCRIPTION: { contains: keyword, mode: 'insensitive' } }
+      { FULLNAME: { contains: keyword } },
+      { CODE: { contains: keyword } },
+      { DESCRIPTION: { contains: keyword } }
     ];
   }
   try {

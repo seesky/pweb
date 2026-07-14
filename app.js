@@ -38,6 +38,7 @@ var relayAdminRouter = require('./routes/relayAdmin');
 var managementPlatformRouter = require('./routes/managementPlatform');
 var saasOnboardingRouter = require('./routes/saasOnboarding');
 var platformAdminRouter = require('./routes/platformAdmin');
+var platformPluginAdminRouter = require('./routes/platformPluginAdmin');
 
 var app = express();
 var isProduction = process.env.NODE_ENV === 'production';
@@ -177,6 +178,7 @@ app.use('/message-admin', security.requirePlatformAdmin, messageAdminRouter);
 app.use('/socket', socketRouter);
 app.use('/realtime-admin', realtimeAdminRouter);
 app.use('/relay-admin', relayAdminRouter);
+app.use('/platform-plugin-admin', security.requirePlatformAdmin, platformPluginAdminRouter);
 app.use('/', managementPlatformRouter);
 // 企业注册/邮箱验证 + 平台超管控制台（统一 SaaS 平台，始终加载）。
 app.use('/', saasOnboardingRouter);

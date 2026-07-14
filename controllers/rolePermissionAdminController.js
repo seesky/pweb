@@ -90,9 +90,9 @@ exports.list = async (req, res) => {
   const where = { DELETEMARK: 0 };
   if (keyword) {
     where.OR = [
-      { REALNAME: { contains: keyword, mode: 'insensitive' } },
-      { CODE: { contains: keyword, mode: 'insensitive' } },
-      { DESCRIPTION: { contains: keyword, mode: 'insensitive' } }
+      { REALNAME: { contains: keyword } },
+      { CODE: { contains: keyword } },
+      { DESCRIPTION: { contains: keyword } }
     ];
   }
 

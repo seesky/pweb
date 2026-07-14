@@ -34,6 +34,8 @@
     'online-manage': { file: 'onlineManage.js', component: 'OnlineManagePage' },
     'console': { file: 'peerManage.js', component: 'PeerManagePage' },
     'platform-admin': { file: 'platformAdmin.js', component: 'PlatformAdminPage' },
+    'platform-plugin-admin': { file: 'platformPluginAdmin.js', component: 'PlatformPluginAdminPage' },
+    'sequence-admin': { file: 'sequenceAdmin.js', component: 'SequenceAdminPage' },
     'relay-admin': { file: 'relayAdmin.js', component: 'RelayAdminPage' }
   };
 

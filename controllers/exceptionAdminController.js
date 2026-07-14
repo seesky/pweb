@@ -52,11 +52,11 @@ exports.list = async (req, res) => {
   const where = {};
   if (keyword) {
     where.OR = [
-      { TITLE: { contains: keyword, mode: 'insensitive' } },
-      { MESSAGE: { contains: keyword, mode: 'insensitive' } },
-      { FORMATTEDMESSAGE: { contains: keyword, mode: 'insensitive' } },
-      { PROCESSNAME: { contains: keyword, mode: 'insensitive' } },
-      { SEVERITY: { contains: keyword, mode: 'insensitive' } }
+      { TITLE: { contains: keyword } },
+      { MESSAGE: { contains: keyword } },
+      { FORMATTEDMESSAGE: { contains: keyword } },
+      { PROCESSNAME: { contains: keyword } },
+      { SEVERITY: { contains: keyword } }
     ];
   }
 

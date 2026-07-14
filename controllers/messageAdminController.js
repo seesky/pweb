@@ -61,9 +61,9 @@ exports.list = async (req, res) => {
     where.AND = [
       {
         OR: [
-          { TITLE: { contains: keyword, mode: 'insensitive' } },
-          { MSGCONTENT: { contains: keyword, mode: 'insensitive' } },
-          { RECEIVERREALNAME: { contains: keyword, mode: 'insensitive' } }
+          { TITLE: { contains: keyword } },
+          { MSGCONTENT: { contains: keyword } },
+          { RECEIVERREALNAME: { contains: keyword } }
         ]
       }
     ];

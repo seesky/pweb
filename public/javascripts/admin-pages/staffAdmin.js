@@ -92,10 +92,7 @@ const StaffAdminPage = () => {
     }, [staffRows, selectedRow]);
 
     const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize) || 1);
-    const pagedRows = useMemo(() => {
-      const start = (page - 1) * pageSize;
-      return staffRows.slice(start, start + pageSize);
-    }, [staffRows, page, pageSize]);
+    const pagedRows = staffRows;
 
     const handleSearch = () => {
       setPage(1);

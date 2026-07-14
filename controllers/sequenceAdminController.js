@@ -78,10 +78,10 @@ exports.list = async (req, res) => {
   const where = { DELETEMARK: 0 };
   if (keyword) {
     where.OR = [
-      { FULLNAME: { contains: keyword, mode: 'insensitive' } },
-      { PREFIX: { contains: keyword, mode: 'insensitive' } },
-      { SEPARATE: { contains: keyword, mode: 'insensitive' } },
-      { DESCRIPTION: { contains: keyword, mode: 'insensitive' } }
+      { FULLNAME: { contains: keyword } },
+      { PREFIX: { contains: keyword } },
+      { SEPARATE: { contains: keyword } },
+      { DESCRIPTION: { contains: keyword } }
     ];
   }
   try {

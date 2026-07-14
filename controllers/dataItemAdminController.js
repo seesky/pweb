@@ -105,10 +105,10 @@ exports.itemDetails = async (req, res) => {
   if (itemId) where.ITEMID = itemId;
   if (keyword) {
     where.OR = [
-      { FULLNAME: { contains: keyword, mode: 'insensitive' } },
-      { CODE: { contains: keyword, mode: 'insensitive' } },
-      { ITEMVALUE: { contains: keyword, mode: 'insensitive' } },
-      { DESCRIPTION: { contains: keyword, mode: 'insensitive' } }
+      { FULLNAME: { contains: keyword } },
+      { CODE: { contains: keyword } },
+      { ITEMVALUE: { contains: keyword } },
+      { DESCRIPTION: { contains: keyword } }
     ];
   }
   try {

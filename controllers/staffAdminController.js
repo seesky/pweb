@@ -222,8 +222,8 @@ exports.detail = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ success: false, message: '员工不存在' });
     }
-    const relationMap = await buildStaffOrganizeMap([entity]);
-    res.json({ success: true, data: formatStaff(entity, relationMap) });
+    const relationMap = await buildStaffOrganizeMap([existing]);
+    res.json({ success: true, data: formatStaff(existing, relationMap) });
   } catch (error) {
     console.error('[StaffAdminController.detail]', error);
     res.status(500).json({ success: false, message: '获取员工信息失败' });

@@ -48,10 +48,10 @@ exports.list = async (req, res) => {
   const where = { DELETEMARK: 0 };
   if (keyword) {
     where.OR = [
-      { CATEGORYKEY: { contains: keyword, mode: 'insensitive' } },
-      { PARAMETERID: { contains: keyword, mode: 'insensitive' } },
-      { PARAMETERCODE: { contains: keyword, mode: 'insensitive' } },
-      { DESCRIPTION: { contains: keyword, mode: 'insensitive' } }
+      { CATEGORYKEY: { contains: keyword } },
+      { PARAMETERID: { contains: keyword } },
+      { PARAMETERCODE: { contains: keyword } },
+      { DESCRIPTION: { contains: keyword } }
     ];
   }
   try {

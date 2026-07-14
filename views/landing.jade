@@ -179,7 +179,34 @@ html(lang="zh-CN")
 
         const drawerContent = React.createElement(Box, { sx: { width: 250 } },
           React.createElement(Box, { sx: { p: 2 } },
-            React.createElement(Typography, { variant: 'h6', fontWeight: 700, color: 'primary.main' }, 'Poleis')
+            React.createElement(Box, {
+              sx: {
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'baseline'
+              }
+            },
+              React.createElement(Typography, { variant: 'h6', fontWeight: 700, color: 'primary.main' }, 'Poleis'),
+              React.createElement(Box, {
+                component: 'span',
+                sx: {
+                  display: 'inline-flex',
+                  alignSelf: 'flex-start',
+                  ml: 0.75,
+                  mt: 0.25,
+                  fontSize: '0.6rem',
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  px: 0.6,
+                  py: 0.15,
+                  borderRadius: 1,
+                  bgcolor: 'secondary.main',
+                  color: '#fff',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }
+              }, 'beta')
+            )
           ),
           React.createElement(Divider, null),
           React.createElement(List, null,
@@ -208,11 +235,13 @@ html(lang="zh-CN")
           }
         },
           React.createElement(Toolbar, { sx: { py: 1 } },
-            React.createElement(Typography, {
-              variant: 'h6',
+            React.createElement(Box, {
               component: 'a',
               href: '/',
               sx: {
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'baseline',
                 flexGrow: { xs: 1, md: 0 },
                 fontWeight: 800,
                 color: scrolled ? 'primary.main' : '#fff',
@@ -220,7 +249,28 @@ html(lang="zh-CN")
                 letterSpacing: '-0.02em',
                 fontSize: '1.5rem'
               }
-            }, 'Poleis'),
+            },
+              'Poleis',
+              React.createElement(Box, {
+                component: 'span',
+                sx: {
+                  display: 'inline-flex',
+                  alignSelf: 'flex-start',
+                  ml: 0.75,
+                  mt: 0.25,
+                  fontSize: '0.6rem',
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  px: 0.6,
+                  py: 0.15,
+                  borderRadius: 1,
+                  bgcolor: 'secondary.main',
+                  color: '#fff',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }
+              }, 'beta')
+            ),
             React.createElement(Box, {
               sx: {
                 display: { xs: 'none', md: 'flex' },

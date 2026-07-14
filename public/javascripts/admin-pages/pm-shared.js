@@ -240,6 +240,85 @@
     );
   };
 
+  window.buildOrganizeTree = window.buildOrganizeTree || function (records) {
+    records = records || [];
+    var nodes = new Map();
+    records.forEach(function (item) {
+      nodes.set(item.id, Object.assign({}, item, { children: [] }));
+    });
+    var roots = [];
+    var sortFn = function (a, b) { return (a.sortCode || 0) - (b.sortCode || 0); };
+    nodes.forEach(function (node) {
+      if (node.parentId && nodes.has(node.parentId)) {
+        nodes.get(node.parentId).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+    nodes.forEach(function (node) { node.children.sort(sortFn); });
+    return roots.sort(sortFn);
+  };
+
+  window.OrganizeTreeNode = window.OrganizeTreeNode || function (_a) {
+    var node = _a.node, selectedId = _a.selectedId, onSelect = _a.onSelect, depth = _a.depth === undefined ? 0 : _a.depth;
+    var hasChildren = node.children && node.children.length > 0;
+    var openState = useState(depth < 1);
+    var open = openState[0], setOpen = openState[1];
+    var handleClick = function () {
+      onSelect(node.id);
+      if (hasChildren) setOpen(function (prev) { return !prev; });
+    };
+    return React.createElement(React.Fragment, null,
+      React.createElement(ListItemButton, {
+        onClick: handleClick,
+        selected: selectedId === node.id,
+        sx: {
+          pl: 2 + depth * 1.5,
+          borderRadius: 1.5,
+          mb: 0.25,
+          '&.Mui-selected': { backgroundColor: 'rgba(99,102,241,0.15)' }
+        }
+      },
+        React.createElement(ListItemText, { primary: node.fullName || node.code, secondary: node.code })
+      ),
+      hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
+        React.createElement(List, { disablePadding: true },
+          node.children.map(function (child) {
+            return React.createElement(OrganizeTreeNode, {
+              key: child.id,
+              node: child,
+              selectedId: selectedId,
+              onSelect: onSelect,
+              depth: depth + 1
+            });
+          })
+        )
+      ) : null
+    );
+  };
+
+  window.OrganizeTree = window.OrganizeTree || function (_a) {
+    var data = _a.data === undefined ? [] : _a.data, selectedId = _a.selectedId, onSelect = _a.onSelect;
+    return React.createElement(List, { component: 'nav' },
+      React.createElement(ListItemButton, {
+        selected: selectedId === null,
+        onClick: function () { onSelect(null); },
+        sx: { borderRadius: 1.5, mb: 0.5 }
+      },
+        React.createElement(ListItemText, { primary: '全部组织' })
+      ),
+      data.map(function (node) {
+        return React.createElement(OrganizeTreeNode, {
+          key: node.id,
+          node: node,
+          selectedId: selectedId,
+          onSelect: onSelect,
+          depth: 0
+        });
+      })
+    );
+  };
+
   // 模块类型映射
   window.moduleTypeMap = { 1: '系统', 2: '平台', 3: '应用', 4: '窗体', 5: '报表', 6: '菜单' };
 

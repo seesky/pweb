@@ -102,6 +102,7 @@ html(lang="zh-CN")
       const PEER_MANAGE_CODES = ['PoleisPeerManage'];
       const PLATFORM_ADMIN_CODES = ['PoleisPlatformAdmin'];
       const RELAY_ADMIN_CODES = ['PoleisRelayAdmin', 'RelayAdmin'];
+      const PLATFORM_PLUGIN_ADMIN_CODES = ['PlatFormAddIn', 'PlatformAddIn', 'PlatformPlugin', 'PluginAdmin', 'AddInAdmin'];
       const PERMISSION_ITEM_ADMIN_CODES = ['FrmPermissionItemAdmin'];
       const ROLE_PERMISSION_ADMIN_CODES = ['FrmRolePermissionAdmin'];
       const SEQUENCE_ADMIN_CODES = ['SequenceAdmin'];
@@ -114,11 +115,13 @@ html(lang="zh-CN")
       const MESSAGE_ADMIN_CODES = ['MessageManagement'];
 
       const matchNavUrl = (node = {}, urls = []) => {
-        const url = (
-          node.code ||
-          ''
-        );
-        return urls.some((candidate) => url.includes(candidate));
+        const target = [
+          node.code,
+          node.title,
+          node.mvcNavigateUrl,
+          node.path
+        ].filter(Boolean).join(' ');
+        return urls.some((candidate) => target.includes(candidate));
       };
 
       const isModuleAdminNode = (node = {}) => matchNavUrl(node, MODULE_ADMIN_CODES);
@@ -145,6 +148,8 @@ html(lang="zh-CN")
 
       const isRelayAdminNode = (node = {}) => matchNavUrl(node, RELAY_ADMIN_CODES);
 
+      const isPlatformPluginAdminNode = (node = {}) => matchNavUrl(node, PLATFORM_PLUGIN_ADMIN_CODES) || ((node.title || '').includes('平台插件'));
+
       const isRolePermissionAdminNode = (node = {}) => matchNavUrl(node, ROLE_PERMISSION_ADMIN_CODES);
 
       const isSequenceAdminNode = (node = {}) => matchNavUrl(node, SEQUENCE_ADMIN_CODES);
@@ -163,36 +168,68 @@ html(lang="zh-CN")
 
       const isMessageAdminNode = (node = {}) => matchNavUrl(node, MESSAGE_ADMIN_CODES);
 
+      const resolveAdminNavMeta = (node = {}) => {
+        if (isModuleAdminNode(node)) return { type: 'module-admin', label: '模块管理', icon: 'widgets' };
+        if (isStaffAdminNode(node)) return { type: 'staff-admin', label: '员工管理', icon: 'badge' };
+        if (isOrganizeAdminNode(node)) return { type: 'organize-admin', label: '组织机构管理', icon: 'account_tree' };
+        if (isUserAdminNode(node)) return { type: 'user-admin', label: '用户管理', icon: 'person' };
+        if (isSequenceAdminNode(node)) return { type: 'sequence-admin', label: '序列管理', icon: 'format_list_numbered' };
+        if (isTableFieldAdminNode(node)) return { type: 'table-field-admin', label: '表字段管理', icon: 'view_column' };
+        if (isSysConfigAdminNode(node)) return { type: 'sys-config-admin', label: '系统配置管理', icon: 'settings' };
+        if (isParameterAdminNode(node)) return { type: 'parameter-admin', label: '系统参数管理', icon: 'tune' };
+        if (isLogAdminNode(node)) return { type: 'log-admin', label: '系统日志管理', icon: 'receipt_long' };
+        if (isExceptionAdminNode(node)) return { type: 'exception-admin', label: '系统异常管理', icon: 'bug_report' };
+        if (isDataItemAdminNode(node)) return { type: 'data-item-admin', label: '数据字典管理', icon: 'storage' };
+        if (isMessageAdminNode(node)) return { type: 'message-admin', label: '系统消息管理', icon: 'mail' };
+        if (isRolePermissionAdminNode(node)) return { type: 'role-permission-admin', label: '角色权限管理', icon: 'admin_panel_settings' };
+        if (isRoleAdminNode(node)) return { type: 'role-admin', label: '角色管理', icon: 'supervisor_account' };
+        if (isPostAdminNode(node)) return { type: 'post-admin', label: '岗位管理', icon: 'work' };
+        if (isUserPermissionAdminNode(node)) return { type: 'user-permission-admin', label: '用户权限管理', icon: 'manage_accounts' };
+        if (isPermissionItemAdminNode(node)) return { type: 'permission-item-admin', label: '权限项管理', icon: 'key' };
+        if (isOnlineManageNode(node)) return { type: 'online-manage', label: '在线管理', icon: 'online_prediction' };
+        if (isPlatformAdminNode(node)) return { type: 'platform-admin', label: '平台管理', icon: 'business' };
+        if (isRelayAdminNode(node)) return { type: 'relay-admin', label: '中继节点', icon: 'dns' };
+        if (isPlatformPluginAdminNode(node)) return { type: 'platform-plugin-admin', label: '平台插件管理', icon: 'extension' };
+        if (isPeerManageNode(node)) return { type: 'console', label: '控制台', icon: 'dashboard' };
+        return null;
+      };
+
       const NavItem = ({ node, onSelect, activeNodeId, depth = 0 }) => {
         const hasChildren = node.children && node.children.length > 0;
-        const [open, setOpen] = useState(false);
+        const [open, setOpen] = useState(depth < 1);
+        const meta = resolveAdminNavMeta(node);
         const handleClick = () => {
           if (hasChildren) {
             setOpen((prev) => !prev);
+            return;
           }
           onSelect?.(node);
         };
         const IndicatorIcon = hasChildren ? (open ? ExpandLess : ExpandMore) : null;
+        const selected = activeNodeId === node.id;
         return React.createElement(React.Fragment, null,
           React.createElement(ListItemButton, {
             onClick: handleClick,
-            selected: activeNodeId === node.id,
+            selected,
             sx: {
               borderRadius: 2,
-              my: 0.25,
+              mb: 0.5,
               pl: 1.5 + depth * 1.5,
               pr: 1.25,
-              color: '#1f2937',
-              gap: 1,
-              '&.Mui-selected': { backgroundColor: 'rgba(99,102,241,0.15)', color: '#312e81' }
+              py: 1,
+              color: selected ? '#312e81' : '#475467',
+              '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' },
+              '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' }
             }
           },
-            hasChildren
-              ? React.createElement(ListItemIcon, {
-                  sx: { minWidth: 32, color: '#9ca3af', ml: -0.5 }
-                }, React.createElement(IndicatorIcon, { fontSize: 'small' }))
-              : React.createElement(Box, { sx: { width: 24, minWidth: 24, ml: 0.25 } }),
-            React.createElement(ListItemText, { primary: node.title || node.code })
+            React.createElement(ListItemIcon, { sx: { minWidth: 34, color: selected ? '#6366f1' : '#98a2b3' } },
+              React.createElement(Icon, { fontSize: 'small' }, (meta && meta.icon) || node.icon || (hasChildren ? 'folder' : 'radio_button_unchecked'))
+            ),
+            React.createElement(ListItemText, {
+              primary: (meta && meta.label) || node.title || node.code,
+              primaryTypographyProps: { fontSize: 14, fontWeight: selected ? 700 : 500 }
+            }),
+            hasChildren ? React.createElement(IndicatorIcon, { fontSize: 'small', sx: { color: '#98a2b3' } }) : null
           ),
           hasChildren ? React.createElement(Collapse, { in: open, timeout: 'auto', unmountOnExit: true },
             React.createElement(NavigationTree, {
@@ -213,7 +250,7 @@ html(lang="zh-CN")
             sx: { px: 1 }
           }, '暂无导航');
         }
-        return React.createElement(List, { component: 'nav', disablePadding: depth > 0 },
+        return React.createElement(List, { component: 'nav', disablePadding: true, sx: depth > 0 ? { mt: 0.25 } : { mt: 0.5 } },
           nodes.map((node) =>
             React.createElement(NavItem, {
               key: node.id,
@@ -339,6 +376,8 @@ html(lang="zh-CN")
             setActiveView({ type: 'platform-admin', node });
           } else if (isRelayAdminNode(node)) {
             setActiveView({ type: 'relay-admin', node });
+          } else if (isPlatformPluginAdminNode(node)) {
+            setActiveView({ type: 'platform-plugin-admin', node });
           } else if (isPeerManageNode(node)) {
             setActiveView({ type: 'console', section: 'overview' });
             setActiveNavId('console:overview');
@@ -545,7 +584,7 @@ html(lang="zh-CN")
                   React.createElement(Divider, { sx: { mb: 1 } }),
                   React.createElement(ListItemButton, { onClick: () => { window.location.href = '/admin/ops'; }, sx: { borderRadius: 2, px: 1.5, py: 1, color: '#475467' } },
                     React.createElement(ListItemIcon, { sx: { minWidth: 34, color: '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'admin_panel_settings')),
-                    React.createElement(ListItemText, { primary: '运营后台', primaryTypographyProps: { fontSize: 14 } })
+                    React.createElement(ListItemText, { primary: '后台管理系统', primaryTypographyProps: { fontSize: 14 } })
                   )
                 )
               : null,
@@ -609,6 +648,8 @@ html(lang="zh-CN")
               ? '平台管理'
               : activeView.type === 'relay-admin'
               ? '中继节点管理'
+              : activeView.type === 'platform-plugin-admin'
+              ? '平台插件管理'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
               : activeView.type === 'table-field-admin'
