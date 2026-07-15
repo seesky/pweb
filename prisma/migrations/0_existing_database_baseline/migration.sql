@@ -1,0 +1,4 @@
+-- Baseline marker for Poleis databases that existed before Prisma Migrate.
+-- The legacy schema is managed outside this migration history.
+-- Mark this migration as applied on an existing database before running
+-- `prisma migrate deploy`; this file intentionally makes no schema changes.

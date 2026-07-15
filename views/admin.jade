@@ -546,6 +546,14 @@ html(lang="zh-CN")
                     },
                       React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'relay-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'dns')),
                       React.createElement(ListItemText, { primary: '中继节点', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'relay-admin' ? 700 : 500 } })
+                    ),
+                    React.createElement(ListItemButton, {
+                      selected: activeView.type === 'release-admin',
+                      onClick: () => { setActiveView({ type: 'release-admin' }); setActiveNavId('release-admin'); if (mobileOpen) setMobileOpen(false); },
+                      sx: { borderRadius: 2, mb: 0.5, px: 1.5, py: 1, color: activeView.type === 'release-admin' ? '#312e81' : '#475467', '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' }, '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' } }
+                    },
+                      React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'release-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'system_update_alt')),
+                      React.createElement(ListItemText, { primary: '版本发布', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'release-admin' ? 700 : 500 } })
                     )
                   )
                 )
@@ -650,6 +658,8 @@ html(lang="zh-CN")
               ? '中继节点管理'
               : activeView.type === 'platform-plugin-admin'
               ? '平台插件管理'
+              : activeView.type === 'release-admin'
+              ? '版本发布管理'
               : activeView.type === 'sequence-admin'
               ? '序列管理'
               : activeView.type === 'table-field-admin'

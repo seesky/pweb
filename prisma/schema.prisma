@@ -890,6 +890,35 @@ model piplatformaddin {
   MODIFIEDBY     String?  @db.VarChar(50)
 }
 
+model poleis_app_release {
+  ID                      String    @id @db.VarChar(40)
+  PLATFORM                String    @db.VarChar(20)
+  ARCHITECTURE            String    @default("universal") @db.VarChar(20)
+  CHANNEL                 String    @default("stable") @db.VarChar(20)
+  VERSIONNAME             String    @db.VarChar(40)
+  VERSIONCODE             Int       @db.UnsignedInt
+  MINSUPPORTEDVERSIONCODE Int       @default(0) @db.UnsignedInt
+  MANDATORY               Int       @default(0) @db.TinyInt
+  FILENAME                String    @db.VarChar(255)
+  ORIGINALNAME            String    @db.VarChar(255)
+  MIMETYPE                String?   @db.VarChar(100)
+  FILESIZE                BigInt    @default(0) @db.UnsignedBigInt
+  SHA256                  String    @db.Char(64)
+  RELEASENOTES            String?   @db.Text
+  PUBLISHED               Int       @default(1) @db.TinyInt
+  DOWNLOADCOUNT           Int       @default(0) @db.UnsignedInt
+  PUBLISHEDON             DateTime? @db.DateTime(0)
+  CREATEON                DateTime  @db.DateTime(0)
+  CREATEUSERID            String?   @db.VarChar(50)
+  CREATEBY                String?   @db.VarChar(50)
+  MODIFIEDON              DateTime  @db.DateTime(0)
+  MODIFIEDUSERID          String?   @db.VarChar(50)
+  MODIFIEDBY              String?   @db.VarChar(50)
+
+  @@unique([PLATFORM, ARCHITECTURE, CHANNEL, VERSIONCODE], map: "uq_poleis_release_version")
+  @@index([PLATFORM, CHANNEL, PUBLISHED, VERSIONCODE], map: "idx_poleis_release_latest")
+}
+
 model pirole {
   ID             String   @id @default("") @db.VarChar(40)
   ORGANIZEID     String?  @db.VarChar(40)

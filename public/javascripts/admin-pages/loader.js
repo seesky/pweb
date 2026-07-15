@@ -35,6 +35,7 @@
     'console': { file: 'peerManage.js', component: 'PeerManagePage' },
     'platform-admin': { file: 'platformAdmin.js', component: 'PlatformAdminPage' },
     'platform-plugin-admin': { file: 'platformPluginAdmin.js', component: 'PlatformPluginAdminPage' },
+    'release-admin': { file: 'releaseAdmin.js', component: 'ReleaseAdminPage' },
     'sequence-admin': { file: 'sequenceAdmin.js', component: 'SequenceAdminPage' },
     'relay-admin': { file: 'relayAdmin.js', component: 'RelayAdminPage' }
   };

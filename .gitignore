@@ -4,4 +4,6 @@
 build/
 /Poleis/*
 /public/poleis/poleis.exe
+/storage/releases/
+/tmp/*.log
 /dist/

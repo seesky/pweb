@@ -171,6 +171,7 @@ html(lang="zh-CN")
         }, []);
 
         const navItems = [
+          { label: '客户端下载', href: '#downloads' },
           { label: '功能特性', href: '#features' },
           { label: '系统架构', href: '#architecture' },
           { label: '应用场景', href: '#usecases' },
@@ -519,6 +520,71 @@ html(lang="zh-CN")
         );
       };
 
+      const DownloadSection = () => {
+        const [releases, setReleases] = useState({});
+        const platforms = [
+          { key: 'windows', name: 'Windows', icon: 'window', description: '适用于 Windows 10/11' },
+          { key: 'android', name: 'Android', icon: 'android', description: '适用于 Android 7.0 及以上' },
+          { key: 'macos', name: 'macOS', icon: 'laptop_mac', description: '适用于 Intel 与 Apple 芯片' },
+          { key: 'ios', name: 'iOS', icon: 'phone_iphone', description: '适用于 iPhone 与 iPad' }
+        ];
+
+        useEffect(() => {
+          fetch('/api/releases/downloads')
+            .then((response) => response.ok ? response.json() : Promise.reject(new Error('load failed')))
+            .then((result) => {
+              const items = result.data || [];
+              setReleases(items.reduce((map, item) => ({ ...map, [item.platform]: item }), {}));
+            })
+            .catch(() => setReleases({}));
+        }, []);
+
+        return React.createElement(Box, {
+          id: 'downloads',
+          sx: { py: { xs: 8, md: 10 }, bgcolor: '#fff' }
+        },
+          React.createElement(Container, { maxWidth: 'lg' },
+            React.createElement(Box, { sx: { textAlign: 'center', mb: 6 } },
+              React.createElement(Chip, { label: '客户端下载', color: 'primary', variant: 'outlined', sx: { mb: 2 } }),
+              React.createElement(Typography, { variant: 'h3', sx: { mb: 2 } }, '在你的设备上使用 Poleis'),
+              React.createElement(Typography, { color: 'text.secondary' }, '选择对应平台，下载后台发布的最新稳定版本')
+            ),
+            React.createElement(Grid, { container: true, spacing: 3 },
+              platforms.map((platform) => {
+                const release = releases[platform.key];
+                return React.createElement(Grid, { item: true, xs: 12, sm: 6, md: 3, key: platform.key },
+                  React.createElement(Card, {
+                    variant: 'outlined',
+                    sx: { height: '100%', textAlign: 'center', transition: '0.25s', '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 } }
+                  },
+                    React.createElement(CardContent, { sx: { p: 3 } },
+                      React.createElement(Avatar, { sx: { width: 64, height: 64, mx: 'auto', mb: 2, bgcolor: 'primary.main' } },
+                        React.createElement(Icon, { sx: { fontSize: 34 } }, platform.icon)
+                      ),
+                      React.createElement(Typography, { variant: 'h5', sx: { mb: 1 } }, platform.name),
+                      React.createElement(Typography, { variant: 'body2', color: 'text.secondary', sx: { minHeight: 42, mb: 2 } }, platform.description),
+                      React.createElement(Chip, {
+                        size: 'small',
+                        color: release && release.channel === 'beta' ? 'secondary' : 'default',
+                        label: release ? `v${release.versionName}${release.channel === 'beta' ? ' · Beta' : ''}` : '暂无可用版本',
+                        sx: { mb: 2 }
+                      }),
+                      React.createElement(Button, {
+                        fullWidth: true,
+                        variant: release ? 'contained' : 'outlined',
+                        disabled: !release,
+                        href: release ? release.downloadUrl : undefined,
+                        startIcon: React.createElement(Icon, null, 'download')
+                      }, release ? '立即下载' : '敬请期待')
+                    )
+                  )
+                );
+              })
+            )
+          )
+        );
+      };
+
       // 功能特性区域
       const FeaturesSection = () => {
         const features = [
@@ -862,6 +928,12 @@ html(lang="zh-CN")
                 React.createElement(Typography, {
                   variant: 'body2',
                   component: 'a',
+                  href: 'mailto:support@poleis.com.cn',
+                  sx: { color: 'grey.400', textDecoration: 'none', '&:hover': { color: '#fff' } }
+                }, '联系我们：support@poleis.com.cn'),
+                React.createElement(Typography, {
+                  variant: 'body2',
+                  component: 'a',
                   href: '/login',
                   sx: { color: 'grey.400', textDecoration: 'none', '&:hover': { color: '#fff' } }
                 }, '登录'),
@@ -884,6 +956,7 @@ html(lang="zh-CN")
           React.createElement(Box, { sx: { minHeight: '100vh' } },
             React.createElement(NavBar, null),
             React.createElement(HeroSection, null),
+            React.createElement(DownloadSection, null),
             React.createElement(FeaturesSection, null),
             React.createElement(ArchitectureSection, null),
             React.createElement(UseCasesSection, null),
