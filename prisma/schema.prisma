@@ -1590,6 +1590,7 @@ model uprpeerinfo {
 
 model poleis_relay_node {
   ID               String    @id @default("uuid()") @db.VarChar(40)
+  SCOPE            String    @default("global") @db.VarChar(20)
   TENANTID         String    @default("default") @db.VarChar(40)
   NAME             String    @db.VarChar(100)
   HOST             String    @db.VarChar(200)
@@ -1617,6 +1618,7 @@ model poleis_relay_node {
   MODIFIEDBY       String?   @db.VarChar(50)
 
   @@index([TENANTID])
+  @@index([SCOPE, TENANTID])
   @@index([REGION])
   @@index([STATUS])
 }

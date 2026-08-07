@@ -97,6 +97,18 @@ const buildSocketServer = (httpServer, options = {}) => {
   // Linear-Linear where two predicted ports must line up in time). 0 disables.
   const punchStartCountdownMs = Math.max(0, Number(process.env.POLEIS_PUNCH_COUNTDOWN_MS || 0));
 
+  // A relay session inherits the managed target device's workspace. This is
+  // the authority boundary for personal and enterprise relay nodes.
+  const resolveRelayTenantId = async (targetTerminalId) => {
+    if (!targetTerminalId) return null;
+    const device = await prisma.poleis_device.findFirst({
+      where: { TERMINALID: targetTerminalId, ENABLED: 1, DELETEMARK: 0 },
+      orderBy: { LASTSEEN: 'desc' },
+      select: { TENANTID: true }
+    });
+    return device?.TENANTID || null;
+  };
+
   // 服务启动时清理旧的在线状态数据，防止重启后显示幽灵设备
   presence.clearAllEndpoints().then(() => {
     console.log('[socket.io] Cleared stale presence data on startup');
@@ -339,9 +351,17 @@ const buildSocketServer = (httpServer, options = {}) => {
 
     // 下发候选 relay 列表供终端 STUN 探测（延迟选择，见 §2.5）。
     // 周期刷新，使新增/下线节点及时同步到终端。
+    let relayTenantIds = [];
+    if (socket.data.isDevice) {
+      relayTenantIds = deviceTenantId ? [deviceTenantId] : [];
+    } else {
+      relayTenantIds = await platformService.listTenantsForUser(userId)
+        .then((tenants) => tenants.map((tenant) => tenant.id).filter(Boolean))
+        .catch(() => deviceTenantId ? [deviceTenantId] : []);
+    }
     const pushRelayList = async () => {
       try {
-        const nodes = await relayRegistry.listForProbe(10);
+        const nodes = await relayRegistry.listForProbe(10, { tenantIds: relayTenantIds });
         socket.emit(SOCKET_EVENTS.POLEIS_RELAY_LIST, { nodes });
       } catch (e) { /* ignore */ }
     };
@@ -672,7 +692,11 @@ const buildSocketServer = (httpServer, options = {}) => {
           entry = null;
         }
         if (!entry) {
-          const alloc = await relayRegistry.allocateForPair(terminalId, toTerminalId, pk, { ttlSeconds: 3600 });
+          const tenantId = await resolveRelayTenantId(toTerminalId);
+          const alloc = await relayRegistry.allocateForPair(terminalId, toTerminalId, pk, {
+            ttlSeconds: 3600,
+            tenantId
+          });
           if (alloc) {
             entry = {
               token: alloc.token || null,
@@ -851,9 +875,11 @@ const buildSocketServer = (httpServer, options = {}) => {
           return;
         }
         authorizePair(terminalId, targetTerminalId);
+        const relayTenantId = await resolveRelayTenantId(targetTerminalId);
         natSessions.set(sessionId, {
           clientTerminalId: terminalId,
           agentTerminalId: targetTerminalId,
+          relayTenantId,
           createdAt: Date.now(),
           state: 'requested'
         });
@@ -879,7 +905,10 @@ const buildSocketServer = (httpServer, options = {}) => {
       if (session && !session.relayAlloc) {
         try {
           const alloc = await relayRegistry.allocateForPair(
-            session.clientTerminalId, session.agentTerminalId, sessionId, { ttlSeconds: 3600 }
+            session.clientTerminalId, session.agentTerminalId, sessionId, {
+              ttlSeconds: 3600,
+              tenantId: session.relayTenantId
+            }
           );
           if (alloc) {
             session.relayAlloc = alloc;
@@ -1095,13 +1124,20 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'missing target terminal or sessionId' });
         return;
       }
+      // Never mint tenant relay credentials from a caller-supplied terminal ID.
+      // The pair must first have passed the normal device authorization flow.
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'relay pair not authorized' });
+        return;
+      }
       const existing = natSessions.get(sessionId);
       // 复用已为本会话分配的 relay（同一 sessionId 两端一致）
       let alloc = existing && existing.relayAlloc;
       if (!alloc) {
         try {
+          const relayTenantId = existing?.relayTenantId || await resolveRelayTenantId(targetTerminalId);
           alloc = await relayRegistry.allocateForPair(
-            terminalId, targetTerminalId, sessionId, { ttlSeconds: 3600 }
+            terminalId, targetTerminalId, sessionId, { ttlSeconds: 3600, tenantId: relayTenantId }
           );
         } catch (e) { alloc = null; }
       }

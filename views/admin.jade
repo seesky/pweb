@@ -586,6 +586,21 @@ html(lang="zh-CN")
                   )
                 )
               : null,
+            // 个人空间本人及企业 owner/admin 可管理当前工作区专属中继。
+            (!collapsed && !isOps && isTenantAdmin)
+              ? React.createElement(Box, { sx: { mb: 1 } },
+                  React.createElement(List, { disablePadding: true },
+                    React.createElement(ListItemButton, {
+                      selected: activeView.type === 'relay-admin',
+                      onClick: () => { setActiveView({ type: 'relay-admin' }); setActiveNavId('relay-admin'); if (mobileOpen) setMobileOpen(false); },
+                      sx: { borderRadius: 2, mb: 0.5, px: 1.5, py: 1, color: activeView.type === 'relay-admin' ? '#312e81' : '#475467', '&.Mui-selected': { bgcolor: 'rgba(99,102,241,.12)' }, '&.Mui-selected:hover': { bgcolor: 'rgba(99,102,241,.18)' } }
+                    },
+                      React.createElement(ListItemIcon, { sx: { minWidth: 34, color: activeView.type === 'relay-admin' ? '#6366f1' : '#98a2b3' } }, React.createElement(Icon, { fontSize: 'small' }, 'dns')),
+                      React.createElement(ListItemText, { primary: isPersonalWorkspace ? '我的中继服务器' : '企业中继服务器', primaryTypographyProps: { fontSize: 14, fontWeight: activeView.type === 'relay-admin' ? 700 : 500 } })
+                    )
+                  )
+                )
+              : null,
             // 跨页入口：客户端→运营后台（仅超管）；运营后台→返回控制台
             (!collapsed && !isOps && isPlatformAdmin)
               ? React.createElement(Box, { sx: { mt: 1 } },

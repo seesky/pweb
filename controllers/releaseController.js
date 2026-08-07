@@ -6,7 +6,9 @@ const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const releaseService = require('../services/release_service');
 
 const user = (req, res) => req.currentUser || CommonUtils.getCurrent(res, req);
-const downloadUrl = (req, id) => `${req.protocol}://${req.get('host')}/downloads/releases/${id}`;
+const publicBaseUrl = (req) =>
+  (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+const downloadUrl = (req, id) => `${publicBaseUrl(req)}/downloads/releases/${id}`;
 const withUrl = (req, release) => release ? { ...release, downloadUrl: downloadUrl(req, release.id) } : null;
 
 exports.list = async (req, res) => {

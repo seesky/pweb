@@ -58,11 +58,23 @@ const TTL = {
   heartbeatStale: 45     // 心跳超过此秒数视为过期
 };
 
+function relayNodeIsVisible(node, access = {}) {
+  if (!node || node.status !== 'online' || !node.enabled) return false;
+  if (node.scope === 'global' || !node.scope) return true;
+  const tenantIds = new Set(
+    (Array.isArray(access.tenantIds) ? access.tenantIds : [access.tenantId])
+      .filter(Boolean)
+      .map(String)
+  );
+  return node.scope === 'tenant' && tenantIds.has(String(node.tenantId));
+}
+
 /** 把 Prisma 行规整为对外的节点对象（去掉敏感字段，便于下发/序列化）。 */
 function toPublicNode(row) {
   if (!row) return null;
   return {
     id: row.ID,
+    scope: row.SCOPE || 'global',
     tenantId: row.TENANTID,
     name: row.NAME,
     host: row.HOST,
@@ -99,6 +111,7 @@ class RelayRegistry {
     const id = input.id || require('node:crypto').randomUUID();
     // 构建只含传入字段的更新数据（避免覆盖未传入的必填字段）
     const update = {};
+    if (input.scope != null) update.SCOPE = input.scope === 'tenant' ? 'tenant' : 'global';
     if (input.tenantId != null) update.TENANTID = input.tenantId;
     if (input.name != null) update.NAME = input.name;
     if (input.host != null) update.HOST = input.host;
@@ -119,6 +132,7 @@ class RelayRegistry {
     const create = {
       ID: id,
       CREATEON: new Date(),
+      SCOPE: update.SCOPE || 'global',
       TENANTID: update.TENANTID || TENANT(),
       NAME: update.NAME || 'unnamed-relay',
       HOST: update.HOST || '0.0.0.0',
@@ -170,9 +184,16 @@ class RelayRegistry {
     };
   }
 
-  async listAll() {
+  async listAll(access = {}) {
+    const where = { DELETEMARK: 0 };
+    if (access.scope === 'global') {
+      where.SCOPE = 'global';
+    } else if (access.tenantId) {
+      where.SCOPE = 'tenant';
+      where.TENANTID = access.tenantId;
+    }
     const rows = await prisma.poleis_relay_node.findMany({
-      where: { DELETEMARK: 0 },
+      where,
       orderBy: [{ REGION: 'asc' }, { NAME: 'asc' }]
     });
     return rows.map(toPublicNode);
@@ -277,7 +298,7 @@ class RelayRegistry {
   // ---------- 在线节点列举（热路径：Redis 优先） ----------
 
   /** 返回在线且启用的节点列表。可按 region 过滤。 */
-  async listOnline(region) {
+  async listOnline(region, access = {}) {
     let ids;
     if (this.redis) {
       ids = await this.redis.smembers(K.onlineSet());
@@ -295,15 +316,15 @@ class RelayRegistry {
     const nodes = await Promise.all(ids.map((id) => this.get(id)));
     // 过滤掉非 online 状态（draining / offline）和缓存过期后返回 null 的节点。
     // 这确保 chooseForPair / listForProbe 不会选中正在排空(draining)的节点。
-    let result = nodes.filter((n) => n && n.status === 'online' && n.enabled);
+    let result = nodes.filter((n) => relayNodeIsVisible(n, access));
     if (region) result = result.filter((n) => n.region === region);
     return result;
   }
 
   /** 返回供终端 STUN 探测用的候选列表（精简字段）。
    *  按设计文档 §2.5 第一层筛选：LASTLATENCYMS 升序、WEIGHT 降序取 Top-K。 */
-  async listForProbe(limit = 10) {
-    const nodes = await this.listOnline();
+  async listForProbe(limit = 10, access = {}) {
+    const nodes = await this.listOnline(null, access);
     return nodes
       .slice()
       .sort((a, b) => {
@@ -370,7 +391,7 @@ class RelayRegistry {
    */
   async chooseForPair(clientTerminalId, agentTerminalId, opts = {}) {
     const region = opts.region || null;
-    const candidates = await this.listOnline(region);
+    const candidates = await this.listOnline(region, { tenantId: opts.tenantId });
     if (!candidates.length) return null;
 
     const [clientRtt, agentRtt] = await Promise.all([
@@ -544,6 +565,9 @@ class RelayRegistry {
         default: n[k] = v;
       }
     }
+    // Redis hashes created before scoped relays did not contain this field;
+    // those nodes are legacy platform nodes and must remain globally visible.
+    if (!n.scope) n.scope = 'global';
     return n;
   }
 }
@@ -552,4 +576,4 @@ class RelayRegistry {
 const relayRegistry = new RelayRegistry();
 relayRegistry.startHealthCheck();
 
-module.exports = { RelayRegistry, relayRegistry };
+module.exports = { RelayRegistry, relayRegistry, relayNodeIsVisible };

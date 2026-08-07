@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Relay 节点管理控制器（平台超管）。
- * 对应设计文档 §2.3 / §4.1。跨租户的 relay 基础设施管理。
+ * Relay 节点管理控制器。平台超管管理全局节点；个人空间本人和企业
+ * owner/admin 仅管理当前工作区节点。
  */
 
 const { relayRegistry } = require('../services/realtime/relay_registry');
@@ -25,14 +25,28 @@ function normalizeInput(body, isCreate) {
   if (body.realm != null) out.realm = body.realm ? String(body.realm).trim() : null;
   if (body.status != null && ALLOWED_STATUS.includes(body.status)) out.status = body.status;
   if (body.enabled != null) out.enabled = !!body.enabled;
-  if (body.tenantId != null) out.tenantId = String(body.tenantId);
   return out;
+}
+
+function ownsNode(node, access) {
+  if (!node || !access) return false;
+  if (access.scope === 'global') return node.scope === 'global';
+  return node.scope === 'tenant' && node.tenantId === access.tenantId;
+}
+
+async function getOwnedNode(id, req, res) {
+  const node = await relayRegistry.get(id);
+  if (!node || !ownsNode(node, req.relayAccess)) {
+    res.status(404).json({ success: false, message: 'relay node not found' });
+    return null;
+  }
+  return node;
 }
 
 exports.listNodes = async (req, res) => {
   try {
-    const data = await relayRegistry.listAll();
-    res.json({ success: true, data });
+    const data = await relayRegistry.listAll(req.relayAccess);
+    res.json({ success: true, data, context: req.relayAccess });
   } catch (error) {
     console.error('[RelayAdmin.listNodes]', error);
     res.status(500).json({ success: false, message: 'Failed to load relay nodes' });
@@ -48,7 +62,11 @@ exports.createNode = async (req, res) => {
     return res.status(400).json({ success: false, message: 'port 非法' });
   }
   try {
-    const node = await relayRegistry.upsert(input);
+    const node = await relayRegistry.upsert({
+      ...input,
+      scope: req.relayAccess.scope,
+      tenantId: req.relayAccess.tenantId || 'default'
+    });
     res.json({ success: true, data: node });
   } catch (error) {
     console.error('[RelayAdmin.createNode]', error);
@@ -61,8 +79,8 @@ exports.updateNode = async (req, res) => {
   if (!id) return res.status(400).json({ success: false, message: 'missing id' });
   const input = normalizeInput(req.body || {}, false);
   try {
-    const existing = await relayRegistry.get(id);
-    if (!existing) return res.status(404).json({ success: false, message: 'relay node not found' });
+    const existing = await getOwnedNode(id, req, res);
+    if (!existing) return;
     const node = await relayRegistry.upsert({ id, ...input });
     if (!node) return res.status(404).json({ success: false, message: 'relay node not found' });
     res.json({ success: true, data: node });
@@ -76,6 +94,8 @@ exports.deleteNode = async (req, res) => {
   const id = req.params.id;
   if (!id) return res.status(400).json({ success: false, message: 'missing id' });
   try {
+    const existing = await getOwnedNode(id, req, res);
+    if (!existing) return;
     await relayRegistry.remove(id);
     res.json({ success: true });
   } catch (error) {
@@ -89,8 +109,8 @@ exports.drainNode = async (req, res) => {
   const id = req.params.id;
   if (!id) return res.status(400).json({ success: false, message: 'missing id' });
   try {
-    const existing = await relayRegistry.get(id);
-    if (!existing) return res.status(404).json({ success: false, message: 'relay node not found' });
+    const existing = await getOwnedNode(id, req, res);
+    if (!existing) return;
     const node = await relayRegistry.upsert({ id, status: 'draining' });
     if (!node) return res.status(404).json({ success: false, message: 'relay node not found' });
     res.json({ success: true, data: node });
@@ -105,8 +125,8 @@ exports.metrics = async (req, res) => {
   const id = req.params.id;
   if (!id) return res.status(400).json({ success: false, message: 'missing id' });
   try {
-    const node = await relayRegistry.get(id);
-    if (!node) return res.status(404).json({ success: false, message: 'relay node not found' });
+    const node = await getOwnedNode(id, req, res);
+    if (!node) return;
     res.json({
       success: true,
       data: {
@@ -131,6 +151,10 @@ exports.heartbeat = async (req, res) => {
   const id = req.params.id || req.body?.id;
   if (!id) return res.status(400).json({ success: false, message: 'missing id' });
   try {
+    if (!req.relayNodeAuthenticated) {
+      const existing = await getOwnedNode(id, req, res);
+      if (!existing) return;
+    }
     const node = await relayRegistry.heartbeat(id, {
       activeSessions: req.body?.activeSessions,
       totalBytes: req.body?.totalBytes

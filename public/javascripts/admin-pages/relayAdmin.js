@@ -37,6 +37,7 @@
 
   const RelayAdminPage = () => {
     const [nodes, setNodes] = useState([]);
+    const [relayContext, setRelayContext] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [editing, setEditing] = useState(null); // node | null
@@ -53,10 +54,11 @@
       try {
         const resp = await fetch('/relay-admin/nodes');
         if (resp.status === 401) { window.location.href = '/login'; return; }
-        if (resp.status === 403) { setError('仅平台超级管理员可访问'); setNodes([]); return; }
+        if (resp.status === 403) { setError('当前账号没有管理此工作区中继服务器的权限'); setNodes([]); return; }
         const json = await resp.json();
         if (!resp.ok) throw new Error(json.message || '加载中继节点失败');
         setNodes(json.data || []);
+        setRelayContext(json.context || null);
       } catch (err) { setError(err.message || '加载失败'); }
       finally { setLoading(false); }
     }, []);
@@ -89,6 +91,15 @@
       offline: nodes.filter((n) => n.status === 'offline' || !n.enabled).length,
       sessions: nodes.reduce((s, n) => s + (n.activeSessions || 0), 0)
     }), [nodes]);
+
+    const scopeLabel = relayContext?.scope === 'global'
+      ? '全局共享'
+      : relayContext?.workspaceType === 'enterprise' ? '企业专属' : '个人专属';
+    const scopeDescription = relayContext?.scope === 'global'
+      ? '这些节点可供平台所有用户和终端使用。'
+      : relayContext?.workspaceType === 'enterprise'
+        ? '这些节点仅供当前企业管理的终端及其授权控制端使用。'
+        : '这些节点仅供当前账号个人空间内的终端使用。';
 
     const doCreate = async () => {
       if (!createForm.name.trim() || !createForm.host.trim()) { toast('warning', '节点名称与地址必填'); return; }
@@ -202,7 +213,10 @@
     return PM_H(MaterialUI.Box, { sx: { maxWidth: 1400, mx: 'auto' } },
       PM_H(MaterialUI.Box, { sx: { mb: 2.5 } },
         PM_H(MaterialUI.Typography, { sx: { fontSize: 22, fontWeight: 800, color: '#101828' } }, '中继节点管理'),
-        PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3', mt: 0.25 } }, 'TURN/coturn 中继服务器：注册、区域、权重、心跳与实时指标。基于延迟自动择优，P2P 不通时自动回退到中继。')
+        PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1, alignItems: 'center', sx: { mt: 0.5 } },
+          PM_H(MaterialUI.Chip, { size: 'small', color: relayContext?.scope === 'global' ? 'primary' : 'secondary', label: scopeLabel }),
+          PM_H(MaterialUI.Typography, { variant: 'body2', sx: { color: '#98a2b3' } }, scopeDescription)
+        )
       ),
       error ? PM_H(MaterialUI.Alert, { severity: 'error', sx: { mb: 2, borderRadius: 2 } }, error) : null,
       PM_H(MaterialUI.Box, { sx: { display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', mb: 2.5 } },

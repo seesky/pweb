@@ -7,8 +7,36 @@ const router = express.Router();
 const security = require('../middleware/security');
 const controller = require('../controllers/relayAdminController');
 const { relayRegistry } = require('../services/realtime/relay_registry');
+const { resolveTenantContext } = require('../services/management/tenant_context');
 
-// Relay 节点管理为平台超管能力（跨租户基础设施）。
+const resolveRelayAccess = async (req, res, next) => {
+  try {
+    const user = security.getCurrentUser(req, res);
+    if (!user) return res.status(401).json({ success: false, message: 'Not authenticated' });
+    if (security.isPlatformAdmin(user)) {
+      req.relayAccess = { scope: 'global', tenantId: null, workspaceType: 'platform', canManage: true };
+      return next();
+    }
+    const context = await resolveTenantContext(req, user);
+    const tenant = context?.tenant;
+    if (!tenant?.id) return res.status(403).json({ success: false, message: 'No active workspace' });
+    const canManage = tenant.type === 'personal' || context.role === 'owner' || context.role === 'admin';
+    if (!canManage) return res.status(403).json({ success: false, message: 'Enterprise administrator permission required' });
+    req.relayAccess = {
+      scope: 'tenant',
+      tenantId: tenant.id,
+      workspaceType: tenant.type,
+      workspaceName: tenant.name,
+      canManage: true
+    };
+    return next();
+  } catch (error) {
+    console.error('[RelayAdmin.resolveAccess]', error);
+    return res.status(500).json({ success: false, message: 'Failed to resolve relay scope' });
+  }
+};
+
+// Relay 节点按管理者上下文分层：平台超管=global，个人空间本人/企业管理员=tenant。
 // 注意：心跳上报接口允许「节点静态密钥签名」认证（供 coturn sidecar 直接调用），
 // 因此心跳路由挂载在 requireAuthenticated 之前；其余管理路由需会话 + 平台超管。
 
@@ -42,6 +70,7 @@ const heartbeatAuth = async (req, res, next) => {
       if (gotBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(gotBuf, expectedBuf)) {
         return res.status(401).json({ success: false, message: 'Invalid signature' });
       }
+      req.relayNodeAuthenticated = true;
       return next();
     } catch (e) {
       return res.status(500).json({ success: false, message: 'Auth error' });
@@ -51,20 +80,21 @@ const heartbeatAuth = async (req, res, next) => {
   if (!security.getCurrentUser(req, res)) {
     return res.status(401).json({ success: false, message: 'Not authenticated' });
   }
-  return next();
+  return resolveRelayAccess(req, res, next);
 };
 
 // 心跳路由（自定义认证，不走全局 requireAuthenticated）
 router.post('/nodes/:id/heartbeat', heartbeatAuth, controller.heartbeat);
 
-// 其余管理路由：需会话 + 平台超管
+// 其余管理路由：需会话，并解析 global / 当前工作区作用域。
 router.use(security.requireAuthenticated);
 
-router.get('/nodes', security.requirePlatformAdmin, controller.listNodes);
-router.post('/nodes', security.requirePlatformAdmin, controller.createNode);
-router.put('/nodes/:id', security.requirePlatformAdmin, controller.updateNode);
-router.delete('/nodes/:id', security.requirePlatformAdmin, controller.deleteNode);
-router.post('/nodes/:id/drain', security.requirePlatformAdmin, controller.drainNode);
-router.get('/nodes/:id/metrics', security.requirePlatformAdmin, controller.metrics);
+router.use(resolveRelayAccess);
+router.get('/nodes', controller.listNodes);
+router.post('/nodes', controller.createNode);
+router.put('/nodes/:id', controller.updateNode);
+router.delete('/nodes/:id', controller.deleteNode);
+router.post('/nodes/:id/drain', controller.drainNode);
+router.get('/nodes/:id/metrics', controller.metrics);
 
 module.exports = router;
