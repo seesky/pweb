@@ -174,6 +174,19 @@
       } catch (err) { toast('error', err.message || '操作失败'); }
     };
 
+    const doResume = async (n) => {
+      try {
+        const resp = await fetch('/relay-admin/nodes/' + encodeURIComponent(n.id), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'offline', enabled: true })
+        });
+        const json = await resp.json();
+        if (!resp.ok) throw new Error(json.message || '操作失败');
+        toast('success', '节点已恢复探测，UDP STUN 成功后将自动上线');
+        await loadAll();
+      } catch (err) { toast('error', err.message || '操作失败'); }
+    };
+
     const doToggleEnabled = async (n) => {
       try {
         const resp = await fetch('/relay-admin/nodes/' + encodeURIComponent(n.id), {
@@ -202,8 +215,11 @@
     const statusActions = (n) => {
       const btns = [];
       btns.push(PM_H(MaterialUI.Button, { key: 'e', size: 'small', startIcon: pmIcon('tune'), onClick: () => openEdit(n) }, '编辑'));
-      if (n.status === 'online' || n.status === 'draining') {
+      if (n.status === 'online') {
         btns.push(PM_H(MaterialUI.Button, { key: 'd', size: 'small', color: 'warning', startIcon: pmIcon('pause_circle'), onClick: () => doDrain(n) }, '排空'));
+      }
+      if (n.status === 'draining') {
+        btns.push(PM_H(MaterialUI.Button, { key: 'r', size: 'small', color: 'success', startIcon: pmIcon('play_circle'), onClick: () => doResume(n) }, '恢复'));
       }
       btns.push(PM_H(MaterialUI.Button, { key: 't', size: 'small', color: n.enabled ? 'inherit' : 'success', onClick: () => doToggleEnabled(n) }, n.enabled ? '停用' : '启用'));
       btns.push(PM_H(MaterialUI.Button, { key: 'x', size: 'small', color: 'error', startIcon: pmIcon('delete'), onClick: () => setConfirmDelete(n) }, '删除'));
@@ -290,16 +306,16 @@
             PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
               PM_H(MaterialUI.TextField, { label: '主机地址 *', value: createForm.host, onChange: (e) => setCreateForm((p) => ({ ...p, host: e.target.value })), fullWidth: true, placeholder: 'relay.example.com 或 IP' }),
               PM_H(MaterialUI.TextField, { label: '端口', type: 'number', value: createForm.port, onChange: (e) => setCreateForm((p) => ({ ...p, port: e.target.value })), sx: { width: 120 } }),
-              PM_H(MaterialUI.TextField, { label: 'TLS 端口', type: 'number', value: createForm.tlsPort, onChange: (e) => setCreateForm((p) => ({ ...p, tlsPort: e.target.value })), sx: { width: 120 } })
+              PM_H(MaterialUI.TextField, { label: 'TLS 端口', type: 'number', value: createForm.tlsPort, onChange: (e) => setCreateForm((p) => ({ ...p, tlsPort: e.target.value })), sx: { width: 120 }, helperText: '预留；当前客户端使用 UDP' })
             ),
             PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
               PM_H(MaterialUI.TextField, { select: true, label: '区域', value: createForm.region, onChange: (e) => setCreateForm((p) => ({ ...p, region: e.target.value })), sx: { minWidth: 160 } },
                 RELAY_REGIONS.map((r) => PM_H(MaterialUI.MenuItem, { key: r, value: r }, r))
               ),
               PM_H(MaterialUI.TextField, { label: '权重', type: 'number', value: createForm.weight, onChange: (e) => setCreateForm((p) => ({ ...p, weight: e.target.value })), sx: { width: 120 }, helperText: '越高越优先' }),
-              PM_H(MaterialUI.TextField, { label: '带宽上限(Kbps)', type: 'number', value: createForm.maxBandwidthKbps, onChange: (e) => setCreateForm((p) => ({ ...p, maxBandwidthKbps: e.target.value })), sx: { width: 180 }, helperText: '0=不限' })
+              PM_H(MaterialUI.TextField, { label: '带宽上限(Kbps)', type: 'number', value: createForm.maxBandwidthKbps, onChange: (e) => setCreateForm((p) => ({ ...p, maxBandwidthKbps: e.target.value })), sx: { width: 180 }, helperText: '展示字段；实际限速请配置 coturn' })
             ),
-            PM_H(MaterialUI.TextField, { label: '静态密钥 (static secret)', value: createForm.staticSecret, onChange: (e) => setCreateForm((p) => ({ ...p, staticSecret: e.target.value })), fullWidth: true, helperText: '对应 coturn 的 use-auth-secret/static-auth-secret；留空则使用平台默认密钥', placeholder: '可留空' }),
+            PM_H(MaterialUI.TextField, { label: '静态密钥 (static secret)', type: 'password', value: createForm.staticSecret, onChange: (e) => setCreateForm((p) => ({ ...p, staticSecret: e.target.value })), fullWidth: true, helperText: '至少 16 位；仅当服务端配置 RELAY_DEFAULT_STATIC_SECRET 时可留空', placeholder: '与 coturn static-auth-secret 一致' }),
             PM_H(MaterialUI.TextField, { label: 'Realm', value: createForm.realm, onChange: (e) => setCreateForm((p) => ({ ...p, realm: e.target.value })), fullWidth: true, helperText: 'coturn turnserver.conf 的 realm= 值；留空则使用默认 poleis', placeholder: '如 poleis.io' })
           )
         ),
@@ -317,16 +333,16 @@
             PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
               PM_H(MaterialUI.TextField, { label: '主机地址', value: form.host, onChange: (e) => setForm((p) => ({ ...p, host: e.target.value })), fullWidth: true }),
               PM_H(MaterialUI.TextField, { label: '端口', type: 'number', value: form.port, onChange: (e) => setForm((p) => ({ ...p, port: e.target.value })), sx: { width: 120 } }),
-              PM_H(MaterialUI.TextField, { label: 'TLS 端口', type: 'number', value: form.tlsPort, onChange: (e) => setForm((p) => ({ ...p, tlsPort: e.target.value })), sx: { width: 120 } })
+              PM_H(MaterialUI.TextField, { label: 'TLS 端口', type: 'number', value: form.tlsPort, onChange: (e) => setForm((p) => ({ ...p, tlsPort: e.target.value })), sx: { width: 120 }, helperText: '预留；当前客户端使用 UDP' })
             ),
             PM_H(MaterialUI.Stack, { direction: 'row', spacing: 1 },
               PM_H(MaterialUI.TextField, { select: true, label: '区域', value: form.region, onChange: (e) => setForm((p) => ({ ...p, region: e.target.value })), sx: { minWidth: 160 } },
                 RELAY_REGIONS.map((r) => PM_H(MaterialUI.MenuItem, { key: r, value: r }, r))
               ),
               PM_H(MaterialUI.TextField, { label: '权重', type: 'number', value: form.weight, onChange: (e) => setForm((p) => ({ ...p, weight: e.target.value })), sx: { width: 120 } }),
-              PM_H(MaterialUI.TextField, { label: '带宽上限(Kbps)', type: 'number', value: form.maxBandwidthKbps, onChange: (e) => setForm((p) => ({ ...p, maxBandwidthKbps: e.target.value })), sx: { width: 180 } })
+              PM_H(MaterialUI.TextField, { label: '带宽上限(Kbps)', type: 'number', value: form.maxBandwidthKbps, onChange: (e) => setForm((p) => ({ ...p, maxBandwidthKbps: e.target.value })), sx: { width: 180 }, helperText: '展示字段；实际限速请配置 coturn' })
             ),
-            PM_H(MaterialUI.TextField, { label: '静态密钥（留空则不修改）', value: form.staticSecret, onChange: (e) => setForm((p) => ({ ...p, staticSecret: e.target.value })), fullWidth: true, helperText: '对应 coturn 的 static-auth-secret' }),
+            PM_H(MaterialUI.TextField, { label: '静态密钥（留空则不修改）', type: 'password', value: form.staticSecret, onChange: (e) => setForm((p) => ({ ...p, staticSecret: e.target.value })), fullWidth: true, helperText: '至少 16 位，对应 coturn 的 static-auth-secret' }),
             PM_H(MaterialUI.TextField, { label: 'Realm', value: form.realm, onChange: (e) => setForm((p) => ({ ...p, realm: e.target.value })), fullWidth: true, helperText: 'coturn turnserver.conf 的 realm= 值', placeholder: '如 poleis.io' }),
             PM_H(MaterialUI.FormControlLabel, { control: PM_H(MaterialUI.Switch, { checked: !!form.enabled, onChange: (e) => setForm((p) => ({ ...p, enabled: e.target.checked })) }), label: '启用（停用后不参与分配）' })
           )
@@ -341,7 +357,7 @@
         PM_H(MaterialUI.DialogTitle, null, '确认删除'),
         PM_H(MaterialUI.DialogContent, null,
           PM_H(MaterialUI.Typography, { variant: 'body2' },
-            '确定要删除中继节点「' + (confirmDelete ? confirmDelete.name : '') + '」吗？该操作不可恢复，已连接的中继会话会立即中断。')
+            '确定要删除中继节点「' + (confirmDelete ? confirmDelete.name : '') + '」吗？删除后不再分配新会话；已获得凭证的存量会话会在断开或凭证过期后结束。')
         ),
         PM_H(MaterialUI.DialogActions, { sx: { px: 3, pb: 2 } },
           PM_H(MaterialUI.Button, { onClick: () => setConfirmDelete(null) }, '取消'),

@@ -25,7 +25,11 @@ const { relayRegistry } = require('./services/realtime/relay_registry');
 const WEB_HOST = '127.0.0.1';
 const WEB_PORT = 3000;
 const ADMIN_ACCOUNT = 'Administrator';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '123456'; // ← 改成你的管理员密码
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  console.error('请通过 ADMIN_PASSWORD 环境变量提供测试账号密码；脚本不再内置默认密码。');
+  process.exit(2);
+}
 
 // 复用 HTTP 连接 + cookie jar
 const cookieJar = new Map(); // name -> value

@@ -13,6 +13,7 @@
 const dgram = require('node:dgram');
 const net = require('node:net');
 const crypto = require('node:crypto');
+const { resolveRelayProbeTarget } = require('./relay_host_policy');
 
 const STUN_MAGIC_COOKIE = 0x2112A442;
 
@@ -102,12 +103,21 @@ function probeTcp(host, port, timeoutMs = 3000) {
  * 综合探测：先 UDP STUN（精确延迟），失败则 TCP 连接回退（仅判定可达）。
  * coturn 默认 3478 同时监听 UDP+TCP，因此 TCP 回退对判定 online/offline 完全有效。
  */
-async function probeReachable(host, port, timeoutMs = 3000) {
-  const udp = await probeOnce(host, port, timeoutMs);
+async function probeReachable(host, port, timeoutMs = 3000, options = {}) {
+  let target;
+  try {
+    target = await resolveRelayProbeTarget(host, options);
+  } catch (_) {
+    return { ok: false, rttMs: null, reason: 'host_not_allowed' };
+  }
+  const udp = await (options.probeUdp || probeOnce)(target.address, port, timeoutMs);
   if (udp.ok) return udp;
-  // UDP 不通，回退 TCP
-  const tcp = await probeTcp(host, port, timeoutMs);
-  return tcp; // ok=true 时 rttMs 为 TCP 握手近似延迟
+  // Poleis clients currently use TURN/UDP only. A successful TCP handshake is
+  // not evidence that the node can relay a Poleis session.
+  if (options.allowTcpFallback === true) {
+    return (options.probeTcp || probeTcp)(target.address, port, timeoutMs);
+  }
+  return { ok: false, rttMs: null, reason: 'udp_unreachable' };
 }
 
 /**
@@ -145,7 +155,10 @@ class RelayStunProber {
       const nodes = await this.registry.listAllForProbe();
       if (!nodes || !nodes.length) return;
       // 并发探测，但限制并发数避免端口耗尽
-      const CONCURRENCY = 8;
+      const configured = Number(process.env.RELAY_PROBE_CONCURRENCY || 8);
+      const CONCURRENCY = Number.isInteger(configured) && configured > 0
+        ? Math.min(configured, 32)
+        : 8;
       for (let i = 0; i < nodes.length; i += CONCURRENCY) {
         const batch = nodes.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map((n) => this._probeNode(n)));

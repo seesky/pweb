@@ -128,20 +128,27 @@ const buildSocketServer = (httpServer, options = {}) => {
   const natSessions = new Map(); // sessionId -> { clientTerminalId, agentTerminalId, createdAt, state }
   const platformSessionIndex = new Map(); // signaling session/pair -> poleis_session.ID
   const relayPairTokens = new Map(); // sorted "termA|termB" -> { token, createdAt }
-  const authorizedPairs = new Map(); // sorted terminal pair -> expiry timestamp
+  const authorizedPairs = new Map(); // sorted terminal pair -> authorization context
   const pairKey = (a, b) => [String(a || ''), String(b || '')].sort().join('|');
-  const authorizePair = (a, b, ttlMs = 10 * 60 * 1000) => {
-    if (a && b) authorizedPairs.set(pairKey(a, b), Date.now() + ttlMs);
-  };
-  const isPairAuthorized = (a, b) => {
-    const key = pairKey(a, b);
-    const expiresAt = authorizedPairs.get(key) || 0;
-    if (expiresAt <= Date.now()) {
-      authorizedPairs.delete(key);
-      return false;
+  const authorizePair = (a, b, context = {}, ttlMs = 10 * 60 * 1000) => {
+    if (a && b) {
+      authorizedPairs.set(pairKey(a, b), {
+        expiresAt: Date.now() + ttlMs,
+        targetTerminalId: context.targetTerminalId || b,
+        relayTenantId: context.relayTenantId || null
+      });
     }
-    return true;
   };
+  const getPairAuthorization = (a, b) => {
+    const key = pairKey(a, b);
+    const entry = authorizedPairs.get(key);
+    if (!entry || entry.expiresAt <= Date.now()) {
+      authorizedPairs.delete(key);
+      return null;
+    }
+    return entry;
+  };
+  const isPairAuthorized = (a, b) => !!getPairAuthorization(a, b);
 
   const forgetPlatformSession = (sessionId) => {
     if (!sessionId) return;
@@ -642,7 +649,8 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: authz.reason || 'forbidden' });
         return;
       }
-      authorizePair(terminalId, targetTerminalId);
+      const relayTenantId = await resolveRelayTenantId(targetTerminalId);
+      authorizePair(terminalId, targetTerminalId, { targetTerminalId, relayTenantId });
       const connectPlatformSessionId = await platformService.createSession({
         controllerUserId: userId,
         controllerTerminal: terminalId,
@@ -691,16 +699,22 @@ const buildSocketServer = (httpServer, options = {}) => {
           relayPairTokens.delete(pk);
           entry = null;
         }
+        const pairAuthorization = getPairAuthorization(terminalId, toTerminalId);
+        if (!pairAuthorization) return sdpB64;
+        if (entry?.alloc && entry.relayTenantId !== pairAuthorization.relayTenantId) {
+          relayPairTokens.delete(pk);
+          entry = null;
+        }
         if (!entry) {
-          const tenantId = await resolveRelayTenantId(toTerminalId);
           const alloc = await relayRegistry.allocateForPair(terminalId, toTerminalId, pk, {
             ttlSeconds: 3600,
-            tenantId
+            tenantId: pairAuthorization.relayTenantId
           });
           if (alloc) {
             entry = {
               token: alloc.token || null,
               createdAt: Date.now(),
+              relayTenantId: pairAuthorization.relayTenantId,
               alloc  // 缓存分配结果，同一终端对复用
             };
             relayPairTokens.set(pk, entry);
@@ -874,8 +888,8 @@ const buildSocketServer = (httpServer, options = {}) => {
           cb({ success: false, message: connectAuthz.reason || 'forbidden' });
           return;
         }
-        authorizePair(terminalId, targetTerminalId);
         const relayTenantId = await resolveRelayTenantId(targetTerminalId);
+        authorizePair(terminalId, targetTerminalId, { targetTerminalId, relayTenantId });
         natSessions.set(sessionId, {
           clientTerminalId: terminalId,
           agentTerminalId: targetTerminalId,
@@ -1126,16 +1140,26 @@ const buildSocketServer = (httpServer, options = {}) => {
       }
       // Never mint tenant relay credentials from a caller-supplied terminal ID.
       // The pair must first have passed the normal device authorization flow.
-      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+      const pairAuthorization = getPairAuthorization(terminalId, targetTerminalId);
+      if (!pairAuthorization) {
         cb({ success: false, message: 'relay pair not authorized' });
         return;
       }
       const existing = natSessions.get(sessionId);
+      if (existing) {
+        const validParticipants =
+          (existing.clientTerminalId === terminalId && existing.agentTerminalId === targetTerminalId) ||
+          (existing.agentTerminalId === terminalId && existing.clientTerminalId === targetTerminalId);
+        if (!validParticipants) {
+          cb({ success: false, message: 'relay session participants mismatch' });
+          return;
+        }
+      }
       // 复用已为本会话分配的 relay（同一 sessionId 两端一致）
       let alloc = existing && existing.relayAlloc;
       if (!alloc) {
         try {
-          const relayTenantId = existing?.relayTenantId || await resolveRelayTenantId(targetTerminalId);
+          const relayTenantId = existing?.relayTenantId || pairAuthorization.relayTenantId;
           alloc = await relayRegistry.allocateForPair(
             terminalId, targetTerminalId, sessionId, { ttlSeconds: 3600, tenantId: relayTenantId }
           );
@@ -1256,6 +1280,9 @@ const buildSocketServer = (httpServer, options = {}) => {
           if (relay && entry.token) relay.revokeSession(entry.token);
           relayPairTokens.delete(pairKey);
         }
+      }
+      for (const key of authorizedPairs.keys()) {
+        if (key.split('|').includes(terminalId)) authorizedPairs.delete(key);
       }
       if (!terminalIndex.has(terminalId)) {
         platformService.completeActiveSessionsForTerminal(terminalId, 'ended', {

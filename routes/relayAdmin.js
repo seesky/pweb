@@ -2,6 +2,7 @@
 
 const express = require('express');
 const crypto = require('node:crypto');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const security = require('../middleware/security');
@@ -44,16 +45,31 @@ const resolveRelayAccess = async (req, res, next) => {
  * 心跳上报：节点 sidecar 上报。
  * 认证方式二选一：
  *   1) 节点静态密钥签名（供 coturn sidecar）：sidecar 用与 coturn static-auth-secret
- *      相同的密钥，对 `${nodeId}:${timestamp}` 做 HMAC-SHA1，放在头：
+ *      相同的密钥，对节点、时间戳、nonce 和指标做 HMAC-SHA256，放在头：
  *        X-Relay-Timestamp: <秒级时间戳>
+ *        X-Relay-Nonce: <16-128 位随机字符串>
  *        X-Relay-Signature: <hex hmac>
  *      时间戳允许 ±300s 偏差防重放。
  *   2) 浏览器会话（已登录超管）。
  */
+const canonicalHeartbeatBody = (body = {}) => {
+  const activeSessions = body.activeSessions == null ? '' : String(body.activeSessions);
+  const totalBytes = body.totalBytes == null ? '' : String(body.totalBytes);
+  return `${activeSessions}:${totalBytes}`;
+};
+
+const secureHexEqual = (a, b) => {
+  if (!/^[0-9a-f]+$/i.test(String(a || '')) || !/^[0-9a-f]+$/i.test(String(b || ''))) return false;
+  const left = Buffer.from(String(a), 'hex');
+  const right = Buffer.from(String(b), 'hex');
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+};
+
 const heartbeatAuth = async (req, res, next) => {
   const nodeId = req.params.id;
   const sig = req.get('X-Relay-Signature');
   const ts = req.get('X-Relay-Timestamp');
+  const nonce = req.get('X-Relay-Nonce');
   // 路径 A：节点静态密钥签名
   if (sig && ts) {
     try {
@@ -62,13 +78,23 @@ const heartbeatAuth = async (req, res, next) => {
       const now = Math.floor(Date.now() / 1000);
       if (Math.abs(now - tsNum) > 300) return res.status(401).json({ success: false, message: 'Timestamp expired' });
       const node = await relayRegistry.getNodeRaw(nodeId);
-      if (!node || !node.staticSecret) return res.status(401).json({ success: false, message: 'Node secret not configured' });
-      const expected = crypto.createHmac('sha1', node.staticSecret).update(`${nodeId}:${ts}`).digest('hex');
-      const got = String(sig).toLowerCase();
-      const expectedBuf = Buffer.from(expected);
-      const gotBuf = Buffer.from(got);
-      if (gotBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(gotBuf, expectedBuf)) {
+      if (!node || node.deleted || !node.enabled || !node.staticSecret) return res.status(401).json({ success: false, message: 'Node unavailable or secret not configured' });
+      let expected;
+      let nonceToClaim = null;
+      if (nonce && /^[A-Za-z0-9._~-]{16,128}$/.test(nonce)) {
+        nonceToClaim = nonce;
+        const signed = `${nodeId}:${ts}:${nonce}:${canonicalHeartbeatBody(req.body)}`;
+        expected = crypto.createHmac('sha256', node.staticSecret).update(signed).digest('hex');
+      } else if (String(process.env.RELAY_ALLOW_LEGACY_HEARTBEAT_AUTH || '').toLowerCase() === 'true') {
+        expected = crypto.createHmac('sha1', node.staticSecret).update(`${nodeId}:${ts}`).digest('hex');
+      } else {
+        return res.status(401).json({ success: false, message: 'Valid nonce required' });
+      }
+      if (!secureHexEqual(sig, expected)) {
         return res.status(401).json({ success: false, message: 'Invalid signature' });
+      }
+      if (nonceToClaim && !(await relayRegistry.claimHeartbeatNonce(nodeId, nonceToClaim))) {
+        return res.status(401).json({ success: false, message: 'Nonce already used' });
       }
       req.relayNodeAuthenticated = true;
       return next();
@@ -90,11 +116,19 @@ router.post('/nodes/:id/heartbeat', heartbeatAuth, controller.heartbeat);
 router.use(security.requireAuthenticated);
 
 router.use(resolveRelayAccess);
+const configuredMutationLimit = Number(process.env.RELAY_ADMIN_RATE_LIMIT || 60);
+const mutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Number.isInteger(configuredMutationLimit) && configuredMutationLimit > 0 ? configuredMutationLimit : 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many relay management requests' }
+});
 router.get('/nodes', controller.listNodes);
-router.post('/nodes', controller.createNode);
-router.put('/nodes/:id', controller.updateNode);
-router.delete('/nodes/:id', controller.deleteNode);
-router.post('/nodes/:id/drain', controller.drainNode);
+router.post('/nodes', mutationLimiter, controller.createNode);
+router.put('/nodes/:id', mutationLimiter, controller.updateNode);
+router.delete('/nodes/:id', mutationLimiter, controller.deleteNode);
+router.post('/nodes/:id/drain', mutationLimiter, controller.drainNode);
 router.get('/nodes/:id/metrics', controller.metrics);
 
 module.exports = router;

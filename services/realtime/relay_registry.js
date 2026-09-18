@@ -21,6 +21,14 @@ const prisma = new PrismaClient();
 
 let lastRedisErrorLog = 0;
 
+function logRedisFallback(error) {
+  const now = Date.now();
+  if (now - lastRedisErrorLog >= 30000) {
+    console.error(`[relay-registry] Redis unavailable, using memory/DB fallback: ${error.message}`);
+    lastRedisErrorLog = now;
+  }
+}
+
 const buildRedis = () => {
   const url = process.env.REDIS_URL || process.env.REDIS_CONNECTION || '';
   if (!url) return null;
@@ -40,6 +48,7 @@ const K = {
   node: (id) => `relay:node:${id}`,                 // hash: 缓存单节点快照
   onlineSet: () => 'relay:nodes:online',            // set:  在线节点 ID
   latency: (terminalId) => `relay:latency:${terminalId}`, // hash: nodeId -> rttMs
+  heartbeatNonce: (nodeId, nonce) => `relay:heartbeat:nonce:${nodeId}:${nonce}`,
   probeSet: () => 'relay:nodes:probe'               // set:  需要被探测的节点 ID（online+enabled）
 };
 
@@ -49,8 +58,10 @@ const memoryState = {
   online: new Set(),     // id
   latency: new Map()     // terminalId -> Map(nodeId -> rttMs)
 };
+memoryState.heartbeatNonces = new Map();
 
 const TENANT = () => process.env.POLEIS_DEFAULT_TENANT || 'default';
+const effectiveSecret = (row) => (row && row.STATICSECRET) || process.env.RELAY_DEFAULT_STATIC_SECRET || '';
 
 const TTL = {
   nodeCache: 90,         // 节点快照缓存秒数
@@ -93,7 +104,7 @@ function toPublicNode(row) {
     // 前端 fmtBytes 需先 Number(n) 转换。
     totalBytes: row.TOTALBYTES != null ? row.TOTALBYTES.toString() : '0',
     enabled: row.ENABLED === 1,
-    hasSecret: !!row.STATICSECRET,
+    hasSecret: !!effectiveSecret(row),
     realm: row.REALM || null
   };
 }
@@ -159,8 +170,14 @@ class RelayRegistry {
 
   async get(id) {
     if (this.redis) {
-      const raw = await this.redis.hgetall(K.node(id));
-      if (raw && raw.id) return this._decodeNode(raw);
+      try {
+        const raw = await this.redis.hgetall(K.node(id));
+        if (raw && raw.id) return this._decodeNode(raw);
+      } catch (error) {
+        logRedisFallback(error);
+        const cached = memoryState.nodes.get(id);
+        if (cached) return cached;
+      }
     }
     const row = await prisma.poleis_relay_node.findUnique({ where: { ID: id } });
     if (row) await this._cacheNode(row);
@@ -171,16 +188,17 @@ class RelayRegistry {
   async getNodeRaw(id) {
     const row = await prisma.poleis_relay_node.findUnique({
       where: { ID: id },
-      select: { ID: true, HOST: true, PORT: true, STATICSECRET: true, ENABLED: true, STATUS: true }
+      select: { ID: true, HOST: true, PORT: true, STATICSECRET: true, ENABLED: true, STATUS: true, DELETEMARK: true }
     });
     if (!row) return null;
     return {
       id: row.ID,
       host: row.HOST,
       port: row.PORT,
-      staticSecret: row.STATICSECRET,
+      staticSecret: effectiveSecret(row),
       enabled: row.ENABLED === 1,
-      status: row.STATUS
+      status: row.STATUS,
+      deleted: row.DELETEMARK !== 0
     };
   }
 
@@ -197,6 +215,39 @@ class RelayRegistry {
       orderBy: [{ REGION: 'asc' }, { NAME: 'asc' }]
     });
     return rows.map(toPublicNode);
+  }
+
+  async countAll(access = {}) {
+    const where = { DELETEMARK: 0 };
+    if (access.scope === 'global') {
+      where.SCOPE = 'global';
+    } else if (access.tenantId) {
+      where.SCOPE = 'tenant';
+      where.TENANTID = access.tenantId;
+    }
+    return prisma.poleis_relay_node.count({ where });
+  }
+
+  /** Atomically reserve a heartbeat nonce across Web instances. */
+  async claimHeartbeatNonce(nodeId, nonce, ttlSeconds = 600) {
+    const key = K.heartbeatNonce(nodeId, nonce);
+    const now = Date.now();
+    if ((memoryState.heartbeatNonces.get(key) || 0) > now) return false;
+    if (this.redis) {
+      try {
+        const claimed = await this.redis.set(key, '1', 'EX', ttlSeconds, 'NX');
+        if (claimed !== 'OK') return false;
+      } catch (error) {
+        logRedisFallback(error);
+      }
+    }
+    memoryState.heartbeatNonces.set(key, now + ttlSeconds * 1000);
+    if (memoryState.heartbeatNonces.size > 10000) {
+      for (const [storedKey, expiresAt] of memoryState.heartbeatNonces) {
+        if (expiresAt <= now) memoryState.heartbeatNonces.delete(storedKey);
+      }
+    }
+    return true;
   }
 
   // ---------- 心跳 / 健康探测 ----------
@@ -301,7 +352,12 @@ class RelayRegistry {
   async listOnline(region, access = {}) {
     let ids;
     if (this.redis) {
-      ids = await this.redis.smembers(K.onlineSet());
+      try {
+        ids = await this.redis.smembers(K.onlineSet());
+      } catch (error) {
+        logRedisFallback(error);
+        ids = Array.from(memoryState.online);
+      }
     } else {
       ids = Array.from(memoryState.online);
     }
@@ -361,25 +417,46 @@ class RelayRegistry {
       }
     }
     if (!pairs.length) return;
+    let m = memoryState.latency.get(terminalId);
+    if (!m) { m = new Map(); memoryState.latency.set(terminalId, m); }
+    const expiresAt = Date.now() + TTL.latency * 1000;
+    for (let i = 0; i < pairs.length; i += 2) {
+      m.set(pairs[i], { value: Number(pairs[i + 1]), expiresAt });
+    }
     if (this.redis) {
-      const key = K.latency(terminalId);
-      await this.redis.hset(key, ...pairs);
-      await this.redis.expire(key, TTL.latency);
-    } else {
-      let m = memoryState.latency.get(terminalId);
-      if (!m) { m = new Map(); memoryState.latency.set(terminalId, m); }
-      for (let i = 0; i < pairs.length; i += 2) m.set(pairs[i], Number(pairs[i + 1]));
+      try {
+        const key = K.latency(terminalId);
+        await this.redis.hset(key, ...pairs);
+        await this.redis.expire(key, TTL.latency);
+      } catch (error) {
+        logRedisFallback(error);
+      }
     }
   }
 
   async _getLatencyMap(terminalId) {
     if (this.redis) {
-      const obj = await this.redis.hgetall(K.latency(terminalId));
-      const m = new Map();
-      for (const k of Object.keys(obj)) m.set(k, Number(obj[k]));
-      return m;
+      try {
+        const obj = await this.redis.hgetall(K.latency(terminalId));
+        const m = new Map();
+        for (const k of Object.keys(obj)) m.set(k, Number(obj[k]));
+        if (m.size) return m;
+      } catch (error) {
+        logRedisFallback(error);
+      }
     }
-    return memoryState.latency.get(terminalId) || new Map();
+    const stored = memoryState.latency.get(terminalId);
+    if (!stored) return new Map();
+    const now = Date.now();
+    const result = new Map();
+    for (const [nodeId, sample] of stored.entries()) {
+      const value = typeof sample === 'number' ? sample : sample?.value;
+      const expiresAt = typeof sample === 'number' ? now + 1 : sample?.expiresAt;
+      if (typeof value === 'number' && expiresAt > now) result.set(nodeId, value);
+      else stored.delete(nodeId);
+    }
+    if (!stored.size) memoryState.latency.delete(terminalId);
+    return result;
   }
 
   // ---------- 选择（核心） ----------
@@ -445,10 +522,11 @@ class RelayRegistry {
    */
   async signCredentials(nodeId, sessionId, ttlSeconds = 3600) {
     const row = await prisma.poleis_relay_node.findUnique({ where: { ID: nodeId } });
-    if (!row || !row.STATICSECRET || row.ENABLED !== 1) return null;
+    const secret = effectiveSecret(row);
+    if (!row || !secret || row.ENABLED !== 1 || row.DELETEMARK !== 0 || row.STATUS !== 'online') return null;
     const expiry = Math.floor(Date.now() / 1000) + ttlSeconds;
     const username = `${expiry}:${sessionId}`;
-    const credential = createHmac('sha1', row.STATICSECRET)
+    const credential = createHmac('sha1', secret)
       .update(username)
       .digest('base64');
     // realm 必须与 coturn turnserver.conf 中 realm= 配置一致，
@@ -467,21 +545,9 @@ class RelayRegistry {
     const node = await this.chooseForPair(clientTerminalId, agentTerminalId, opts);
     if (!node) return null;
     const creds = await this.signCredentials(node.id, sessionId, opts.ttlSeconds || 3600);
-    if (!creds) {
-      // 节点未配 secret：阶段 A 过渡期，返回 PRLY 风格占位（host/port + token）
-      // 阶段 C 上线后 secret 必配，此处会拿到真凭证。
-      return {
-        nodeId: node.id,
-        host: node.host,
-        port: node.port,
-        token: require('node:crypto').randomBytes(16).toString('hex'),
-        username: null,
-        credential: null,
-        realm: null,
-        expiresAt: null,
-        legacy: true
-      };
-    }
+    // Registry nodes are standard coturn nodes. PRLY is available only through
+    // the explicitly enabled local RelayServer fallback in socket_server.js.
+    if (!creds) return null;
     return {
       nodeId: node.id,
       host: node.host,
@@ -500,43 +566,55 @@ class RelayRegistry {
 
   async _cacheNode(row) {
     const pub = toPublicNode(row);
+    memoryState.nodes.set(row.ID, pub);
+    if (pub.status === 'online' && pub.enabled) memoryState.online.add(row.ID);
+    else memoryState.online.delete(row.ID);
     if (this.redis) {
-      const flat = this._encodeNode(pub);
-      await this.redis.hset(K.node(row.ID), ...flat);
-      await this.redis.expire(K.node(row.ID), TTL.nodeCache);
-      if (pub.status === 'online' && pub.enabled) {
-        await this.redis.sadd(K.onlineSet(), row.ID);
-        await this.redis.sadd(K.probeSet(), row.ID);
-      } else {
-        await this.redis.srem(K.onlineSet(), row.ID);
-        await this.redis.srem(K.probeSet(), row.ID);
+      try {
+        const flat = this._encodeNode(pub);
+        await this.redis.hset(K.node(row.ID), ...flat);
+        await this.redis.expire(K.node(row.ID), TTL.nodeCache);
+        if (pub.status === 'online' && pub.enabled) {
+          await this.redis.sadd(K.onlineSet(), row.ID);
+          await this.redis.sadd(K.probeSet(), row.ID);
+        } else {
+          await this.redis.srem(K.onlineSet(), row.ID);
+          await this.redis.srem(K.probeSet(), row.ID);
+        }
+      } catch (error) {
+        logRedisFallback(error);
       }
-    } else {
-      memoryState.nodes.set(row.ID, pub);
-      if (pub.status === 'online' && pub.enabled) memoryState.online.add(row.ID);
-      else memoryState.online.delete(row.ID);
     }
   }
 
   async _evictNode(id) {
+    memoryState.nodes.delete(id);
+    memoryState.online.delete(id);
     if (this.redis) {
-      await this.redis.del(K.node(id));
-      await this.redis.srem(K.onlineSet(), id);
-      await this.redis.srem(K.probeSet(), id);
-    } else {
-      memoryState.nodes.delete(id);
-      memoryState.online.delete(id);
+      try {
+        await this.redis.del(K.node(id));
+        await this.redis.srem(K.onlineSet(), id);
+        await this.redis.srem(K.probeSet(), id);
+      } catch (error) {
+        logRedisFallback(error);
+      }
     }
   }
 
   async _markOnline(id) {
-    if (this.redis) { await this.redis.sadd(K.onlineSet(), id); await this.redis.sadd(K.probeSet(), id); }
-    else memoryState.online.add(id);
+    memoryState.online.add(id);
+    if (this.redis) {
+      try { await this.redis.sadd(K.onlineSet(), id); await this.redis.sadd(K.probeSet(), id); }
+      catch (error) { logRedisFallback(error); }
+    }
   }
 
   async _markOffline(id) {
-    if (this.redis) { await this.redis.srem(K.onlineSet(), id); await this.redis.srem(K.probeSet(), id); }
-    else memoryState.online.delete(id);
+    memoryState.online.delete(id);
+    if (this.redis) {
+      try { await this.redis.srem(K.onlineSet(), id); await this.redis.srem(K.probeSet(), id); }
+      catch (error) { logRedisFallback(error); }
+    }
   }
 
   _encodeNode(n) {
