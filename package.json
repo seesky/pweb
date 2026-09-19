@@ -2,9 +2,15 @@
   "name": "pweb",
   "version": "0.0.0",
   "private": true,
+  "engines": {
+    "node": "22.22.0",
+    "npm": "10.9.4"
+  },
+  "packageManager": "npm@10.9.4",
   "scripts": {
     "start": "node ./bin/www",
     "test": "node --test test/*.test.js",
+    "verify": "npm test",
     "security:reset-admin": "node ./scripts/reset-admin-password.js",
     "prisma:generate": "prisma generate",
     "postinstall": "prisma generate"
