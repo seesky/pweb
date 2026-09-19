@@ -71,31 +71,31 @@ function requestedTenantId(req) {
   );
 }
 
-async function ensureUserPersonalTenant(user) {
+async function ensureUserPersonalTenant(user, service = platformService) {
   if (!user) return null;
-  return platformService.ensurePersonalTenant(user.Id, user.RealName || user.UserName);
+  return service.ensurePersonalTenant(user.Id, user.RealName || user.UserName);
 }
 
-async function listUserTenants(user) {
+async function listUserTenants(user, service = platformService) {
   if (!user) return [];
-  await ensureUserPersonalTenant(user);
-  return platformService.listTenantsForUser(user.Id);
+  await ensureUserPersonalTenant(user, service);
+  return service.listTenantsForUser(user.Id);
 }
 
 // 解析「设备/信令归属」用的默认租户：优先个人空间。
 // 个人 client 自动注册到个人空间；企业设备走 enrollment token 归属企业空间。
-async function resolveTenantId(user) {
+async function resolveTenantId(user, service = platformService) {
   if (!user) return null;
-  const tenants = await listUserTenants(user);
+  const tenants = await listUserTenants(user, service);
   const personal = tenants.find((tenant) => normalizeTenantType(tenant) === 'personal');
   return (personal || tenants[0])?.id || null;
 }
 
 // 解析当前请求的工作区上下文：可访问租户列表 + 当前选中租户 + 能力表。
-async function resolveTenantContext(req, user) {
+async function resolveTenantContext(req, user, service = platformService) {
   if (!user) return null;
 
-  const tenants = await listUserTenants(user);
+  const tenants = await listUserTenants(user, service);
   const requested = requestedTenantId(req);
   const selected =
     (requested && tenants.find((tenant) => tenant.id === requested)) ||
@@ -130,5 +130,7 @@ module.exports = {
   resolveTenantId,
   resolveTenantContext,
   featuresForTenant,
+  normalizeTenantType,
+  requestedTenantId,
   DEFAULT_TENANT_ID
 };
