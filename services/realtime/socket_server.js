@@ -292,6 +292,21 @@ const buildSocketServer = (httpServer, options = {}) => {
       if (!device) return next(new Error('unauthorized'));
       return next();
     }
+    if (payload.kind === 'automation') {
+      // MCP / automation controller: user-scoped token that authenticates as the
+      // user (so isAuthorized applies) and carries an optional device allowlist.
+      if (!payload.uid) return next(new Error('unauthorized'));
+      const user = await prisma.piuser.findFirst({
+        where: { ID: payload.uid, ENABLED: 1, DELETEMARK: 0 },
+        select: { ID: true }
+      });
+      if (!user) return next(new Error('unauthorized'));
+      socket.data.isAutomation = true;
+      socket.data.automationScope = Array.isArray(payload.devices) ? payload.devices : null;
+      socket.data.userId = payload.uid;
+      socket.data.terminalId = terminalIdFromClient || payload.tid || randomUUID();
+      return next();
+    }
     if (!payload.uid) {
       return next(new Error('unauthorized'));
     }
@@ -617,6 +632,20 @@ const buildSocketServer = (httpServer, options = {}) => {
       const targetError = await controlTargetError(targetTerminalId);
       if (targetError) {
         cb({ success: false, message: targetError });
+        return;
+      }
+      // 自动化 token 的设备白名单：限制可连接的 target terminal。
+      if (socket.data.isAutomation && Array.isArray(socket.data.automationScope) &&
+          socket.data.automationScope.length &&
+          !socket.data.automationScope.includes(targetTerminalId)) {
+        audit.log({
+          category: 'authz',
+          action: 'automation_scope_denied',
+          userId,
+          ip,
+          description: `to:${targetTerminalId}`
+        });
+        cb({ success: false, message: 'forbidden: target outside automation scope' });
         return;
       }
       // 转发连接请求到目标终端

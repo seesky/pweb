@@ -86,6 +86,8 @@ router.patch('/management-platform/permission-profiles/:id', controller.updatePr
 router.delete('/management-platform/permission-profiles/:id', controller.deleteProfile);
 // Automation audit sink for poleis-mcp (Bearer token auth, no browser session).
 router.post('/management-platform/automation-audit', controller.automationAudit);
+// Admin: mint an automation token for poleis-mcp (optional device allowlist / TTL).
+router.post('/management-platform/automation-tokens', controller.createAutomationToken);
 router.get('/management-platform/users', controller.users);
 router.get('/management-platform/assignments', controller.assignments);
 router.post('/management-platform/assignments', controller.createAssignment);

@@ -48,6 +48,31 @@ class SocketTokenService {
     });
   }
 
+  // 自动化 token：供 poleis-mcp 等无头控制端使用。以用户身份鉴权（isAuthorized 生效），
+  // 携带可选设备白名单（devices=terminalId 列表）与较短有效期。
+  issueAutomationToken(userId, options = {}) {
+    if (!userId) {
+      throw new Error('userId is required to issue automation token');
+    }
+    const { tenantId = null, devices = null, profile = {},
+            expiresInSeconds = 60 * 60 * 24 * 7 } = options;
+    const payload = {
+      kind: 'automation',
+      uid: userId,
+      tid: null,
+      scope: ['automation']
+    };
+    if (tenantId) payload.tenant = tenantId;
+    if (Array.isArray(devices) && devices.length) payload.devices = devices;
+    if (profile.username) payload.username = profile.username;
+    if (profile.email) payload.email = profile.email;
+    return jwt.sign(payload, this.secret, {
+      expiresIn: expiresInSeconds,
+      algorithm: 'HS256',
+      issuer: 'poleis-socket'
+    });
+  }
+
   verify(token) {
     try {
       return jwt.verify(token, this.secret, {

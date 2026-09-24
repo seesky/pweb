@@ -104,6 +104,35 @@ exports.automationAudit = async (req, res) => {
   }
 };
 
+// 管理员签发自动化 token（供 poleis-mcp 使用）。可限定设备白名单与有效期。
+exports.createAutomationToken = async (req, res) => {
+  const user = ensureAdmin(req, res);
+  if (!user) return;
+  try {
+    const devices = Array.isArray(req.body?.devices) ? req.body.devices.filter((d) => typeof d === 'string') : undefined;
+    const expiresInSeconds = Number(req.body?.expiresInSeconds) || undefined;
+    const token = tokenService.issueAutomationToken(user.Id, {
+      tenantId: req.tenantId,
+      devices,
+      expiresInSeconds,
+      profile: { username: user.RealName, email: user.Email }
+    });
+    await platformService.forTenant(req.tenantId).writeAudit({
+      actorId: user.Id,
+      actorName: user.RealName,
+      category: 'automation',
+      action: 'issue_automation_token',
+      target: (devices && devices.join(',')) || 'all',
+      ip: req.ip,
+      detail: { expiresInSeconds: expiresInSeconds || 604800, devices: devices || null }
+    });
+    res.json({ success: true, data: { token } });
+  } catch (error) {
+    console.error('[ManagementPlatform.createAutomationToken]', error);
+    res.status(500).json({ success: false, message: 'Failed to issue automation token' });
+  }
+};
+
 exports.devices = async (req, res) => {
   const user = ensureUser(req, res);
   if (!user) return;
