@@ -76,6 +76,34 @@ const ensureAdmin = (req, res) => {
   return user;
 };
 
+// 自动化审计：poleis-mcp 用其 socket/automation token 上报进程/Shell/窗口操作。
+// 鉴权走 Bearer token（SocketTokenService.verify），不依赖浏览器会话。
+exports.automationAudit = async (req, res) => {
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : (req.body && req.body.token);
+  const payload = token ? tokenService.verify(token) : null;
+  if (!payload) {
+    return res.status(401).json({ success: false, message: 'Invalid or missing token' });
+  }
+  const tenantId = payload.tenant || (payload.uid ? `u:${payload.uid}` : null) || req.tenantId;
+  const body = req.body || {};
+  try {
+    await platformService.forTenant(tenantId).writeAudit({
+      actorId: payload.uid || payload.did || '',
+      actorName: payload.username || '',
+      category: 'automation',
+      action: String(body.action || 'automation'),
+      target: String(body.device || ''),
+      ip: req.ip,
+      detail: body.detail || {}
+    });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[ManagementPlatform.automationAudit]', error);
+    res.status(500).json({ success: false, message: 'Failed to write automation audit' });
+  }
+};
+
 exports.devices = async (req, res) => {
   const user = ensureUser(req, res);
   if (!user) return;
