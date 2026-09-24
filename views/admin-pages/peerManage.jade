@@ -106,7 +106,11 @@ script.
     { key: 'gamepad', label: '游戏手柄', icon: 'videogame_asset' },
     { key: 'remoteReboot', label: '远程重启', icon: 'power_settings_new' },
     { key: 'privacyScreen', label: '隐私屏', icon: 'visibility_off' },
-    { key: 'recordSession', label: '会话录制', icon: 'videocam' }
+    { key: 'recordSession', label: '会话录制', icon: 'videocam' },
+    { key: 'automation', label: '自动化（进程/Shell/窗口）', icon: 'smart_toy' },
+    { key: 'runShell', label: 'Shell 执行', icon: 'terminal' },
+    { key: 'processControl', label: '进程控制', icon: 'memory' },
+    { key: 'windowControl', label: '窗口控制', icon: 'window' }
   ];
   // 会话事件类型 → 展示（图标 + 文案 + 颜色）
   const PM_EVENT_META = {
@@ -133,7 +137,8 @@ script.
   const pmEmptyProfileForm = () => ({
     name: '', controlInput: true, fileTransfer: false, clipboard: false, audio: false,
     multiMonitor: true, gamepad: false, remoteReboot: false, privacyScreen: false,
-    recordSession: false, requireConfirm: true, idleTimeoutSec: 0
+    recordSession: false, requireConfirm: true, idleTimeoutSec: 0,
+    automation: false, runShell: false, processControl: false, windowControl: false
   });
 
   const PeerManagePage = (props) => {
@@ -377,7 +382,9 @@ script.
         name: p.name || '', controlInput: !!p.controlInput, fileTransfer: !!p.fileTransfer,
         clipboard: !!p.clipboard, audio: !!p.audio, multiMonitor: !!p.multiMonitor, gamepad: !!p.gamepad,
         remoteReboot: !!p.remoteReboot, privacyScreen: !!p.privacyScreen, recordSession: !!p.recordSession,
-        requireConfirm: !!p.requireConfirm, idleTimeoutSec: p.idleTimeoutSec || 0
+        requireConfirm: !!p.requireConfirm, idleTimeoutSec: p.idleTimeoutSec || 0,
+        automation: !!p.automation, runShell: !!p.runShell,
+        processControl: !!p.processControl, windowControl: !!p.windowControl
       });
       setEditingProfile({ mode: 'edit', id: p.id });
     };

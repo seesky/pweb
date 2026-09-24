@@ -21,7 +21,13 @@ const OWNER_PROFILE = Object.freeze({
   privacyScreen: false,
   recordSession: false,
   requireConfirm: false,
-  idleTimeoutSec: 0
+  idleTimeoutSec: 0,
+  // Owner full control: automation allowed (still gated by the host-side
+  // POLEIS_AGENT_ALLOW_AUTOMATION opt-in and the MCP policy).
+  automation: true,
+  runShell: true,
+  processControl: true,
+  windowControl: true
 });
 
 const ALLOWED_MEMBER_ROLES = ['owner', 'admin', 'technician', 'auditor', 'member'];
@@ -272,6 +278,10 @@ class PlatformService {
         RECORD_SESSION int NOT NULL DEFAULT 0,
         REQUIRE_CONFIRM int NOT NULL DEFAULT 1,
         IDLE_TIMEOUT_SEC int NOT NULL DEFAULT 0,
+        AUTOMATION int NOT NULL DEFAULT 0,
+        RUN_SHELL int NOT NULL DEFAULT 0,
+        PROCESS_CONTROL int NOT NULL DEFAULT 0,
+        WINDOW_CONTROL int NOT NULL DEFAULT 0,
         ENABLED int NOT NULL DEFAULT 1,
         DELETEMARK int NOT NULL DEFAULT 0,
         CREATEON timestamp NULL DEFAULT CURRENT_TIMESTAMP,
@@ -410,7 +420,12 @@ class PlatformService {
     // 幂等迁移：给已存在的 poleis_tenant 补 SaaS 所需列（重复列报错忽略）。
     const migrations = [
       `ALTER TABLE poleis_tenant ADD COLUMN STATUS varchar(20) NOT NULL DEFAULT 'active'`,
-      `ALTER TABLE poleis_tenant ADD COLUMN OWNERUSERID varchar(40) NULL`
+      `ALTER TABLE poleis_tenant ADD COLUMN OWNERUSERID varchar(40) NULL`,
+      // 自动化能力位（进程/Shell/窗口）：给已存在的 profile 表补列。
+      `ALTER TABLE poleis_permission_profile ADD COLUMN AUTOMATION int NOT NULL DEFAULT 0`,
+      `ALTER TABLE poleis_permission_profile ADD COLUMN RUN_SHELL int NOT NULL DEFAULT 0`,
+      `ALTER TABLE poleis_permission_profile ADD COLUMN PROCESS_CONTROL int NOT NULL DEFAULT 0`,
+      `ALTER TABLE poleis_permission_profile ADD COLUMN WINDOW_CONTROL int NOT NULL DEFAULT 0`
     ];
     for (const sql of migrations) {
       try {
@@ -1157,7 +1172,11 @@ class PlatformService {
       privacyScreen: row.PRIVACY_SCREEN === 1,
       recordSession: row.RECORD_SESSION === 1,
       requireConfirm: row.REQUIRE_CONFIRM === 1,
-      idleTimeoutSec: row.IDLE_TIMEOUT_SEC || 0
+      idleTimeoutSec: row.IDLE_TIMEOUT_SEC || 0,
+      automation: row.AUTOMATION === 1,
+      runShell: row.RUN_SHELL === 1,
+      processControl: row.PROCESS_CONTROL === 1,
+      windowControl: row.WINDOW_CONTROL === 1
     }));
   }
 
@@ -1185,7 +1204,11 @@ class PlatformService {
       boolToInt(payload.privacyScreen, 0),
       boolToInt(payload.recordSession, 0),
       boolToInt(payload.requireConfirm, 1),
-      Number(payload.idleTimeoutSec || 0)
+      Number(payload.idleTimeoutSec || 0),
+      boolToInt(payload.automation, 0),
+      boolToInt(payload.runShell, 0),
+      boolToInt(payload.processControl, 0),
+      boolToInt(payload.windowControl, 0)
     ];
   }
 
@@ -1202,8 +1225,9 @@ class PlatformService {
       `INSERT INTO poleis_permission_profile
        (ID, TENANTID, NAME, ISBUILTIN, CONTROL_INPUT, FILE_TRANSFER, CLIPBOARD, AUDIO,
         MULTI_MONITOR, GAMEPAD, REMOTE_REBOOT, PRIVACY_SCREEN, RECORD_SESSION,
-        REQUIRE_CONFIRM, IDLE_TIMEOUT_SEC, CREATEON, CREATEUSERID, CREATEBY)
-       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
+        REQUIRE_CONFIRM, IDLE_TIMEOUT_SEC, AUTOMATION, RUN_SHELL, PROCESS_CONTROL, WINDOW_CONTROL,
+        CREATEON, CREATEUSERID, CREATEBY)
+       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)`,
       id,
       this.tenantId,
       name,
@@ -1227,6 +1251,7 @@ class PlatformService {
           SET NAME = ?, CONTROL_INPUT = ?, FILE_TRANSFER = ?, CLIPBOARD = ?, AUDIO = ?,
               MULTI_MONITOR = ?, GAMEPAD = ?, REMOTE_REBOOT = ?, PRIVACY_SCREEN = ?,
               RECORD_SESSION = ?, REQUIRE_CONFIRM = ?, IDLE_TIMEOUT_SEC = ?,
+              AUTOMATION = ?, RUN_SHELL = ?, PROCESS_CONTROL = ?, WINDOW_CONTROL = ?,
               MODIFIEDON = ?, MODIFIEDUSERID = ?, MODIFIEDBY = ?
         WHERE ID = ? AND TENANTID = ? AND DELETEMARK = 0`,
       name,
