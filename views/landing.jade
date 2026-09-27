@@ -171,6 +171,7 @@ html(lang="zh-CN")
         }, []);
 
         const navItems = [
+          { label: 'AI 远程调试', href: '#ai-debug' },
           { label: '客户端下载', href: '#downloads' },
           { label: '功能特性', href: '#features' },
           { label: '系统架构', href: '#architecture' },
@@ -390,7 +391,7 @@ html(lang="zh-CN")
                 React.createElement(Fade, { in: loaded, timeout: 800 },
                   React.createElement(Box, null,
                     React.createElement(Chip, {
-                      label: '高性能远程桌面软件',
+                      label: 'AI 驱动的自动化远程调试',
                       sx: {
                         mb: 3,
                         bgcolor: 'rgba(255,255,255,0.15)',
@@ -407,8 +408,8 @@ html(lang="zh-CN")
                         lineHeight: 1.2,
                         mb: 3
                       }
-                    }, '低延迟远程桌面，', React.createElement('br', null),
-                      React.createElement('span', { style: { color: '#a5b4fc' } }, '随时随地控制你的电脑')
+                    }, '让 AI 自动调试远程环境，', React.createElement('br', null),
+                      React.createElement('span', { style: { color: '#a5b4fc' } }, '低延迟远程桌面随手掌控')
                     ),
                     React.createElement(Typography, {
                       variant: 'h6',
@@ -419,7 +420,7 @@ html(lang="zh-CN")
                         mb: 4,
                         lineHeight: 1.7
                       }
-                    }, 'Poleis 是一款高性能远程桌面软件。基于硬件编码加速与智能 P2P 穿透技术，让你在任何地方都能获得如本地般的流畅操控体验。'),
+                    }, 'Poleis 是一款高性能远程桌面软件，也是面向 AI 辅助开发的远程调试底座。AI 编程助手可通过 Poleis MCP 直接连接受控设备，自动复现、采集与验证；配合硬件编码加速与智能 P2P 穿透，让你在任何地方都能获得如本地般的流畅操控体验。'),
                     React.createElement(Stack, {
                       direction: { xs: 'column', sm: 'row' },
                       spacing: 2,
@@ -485,14 +486,16 @@ html(lang="zh-CN")
                         mb: 2
                       }
                     },
-                      React.createElement(Typography, { variant: 'caption', color: 'rgba(255,255,255,0.6)' }, '核心技术'),
+                      React.createElement(Typography, { variant: 'caption', color: 'rgba(255,255,255,0.6)' }, '核心技术 · AI 调试'),
                       React.createElement(Box, { sx: { mt: 1.5, display: 'flex', flexWrap: 'wrap', gap: 1 } },
                         React.createElement(Chip, { label: 'H.264 / H.265', size: 'small', sx: { bgcolor: 'rgba(74,222,128,0.2)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.3)' } }),
                         React.createElement(Chip, { label: 'NVENC / AMF 硬件编码', size: 'small', sx: { bgcolor: 'rgba(96,165,250,0.2)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' } }),
                         React.createElement(Chip, { label: 'QUIC 加密传输', size: 'small', sx: { bgcolor: 'rgba(251,191,36,0.2)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' } }),
                         React.createElement(Chip, { label: 'P2P 智能穿透', size: 'small', sx: { bgcolor: 'rgba(167,139,250,0.2)', color: '#a78bfa', border: '1px solid rgba(167,139,250,0.3)' } }),
                         React.createElement(Chip, { label: '60FPS+ 高帧率', size: 'small', sx: { bgcolor: 'rgba(244,114,182,0.2)', color: '#f472b6', border: '1px solid rgba(244,114,182,0.3)' } }),
-                        React.createElement(Chip, { label: '4:4:4 真彩色', size: 'small', sx: { bgcolor: 'rgba(52,211,153,0.2)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' } })
+                        React.createElement(Chip, { label: '4:4:4 真彩色', size: 'small', sx: { bgcolor: 'rgba(52,211,153,0.2)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' } }),
+                        React.createElement(Chip, { label: 'Poleis MCP', size: 'small', sx: { bgcolor: 'rgba(129,140,248,0.2)', color: '#818cf8', border: '1px solid rgba(129,140,248,0.3)' } }),
+                        React.createElement(Chip, { label: 'AI Agent 接入', size: 'small', sx: { bgcolor: 'rgba(45,212,191,0.2)', color: '#2dd4bf', border: '1px solid rgba(45,212,191,0.3)' } })
                       )
                     ),
                     React.createElement(Stack, { direction: 'row', spacing: 1, justifyContent: 'center' },
@@ -513,6 +516,98 @@ html(lang="zh-CN")
                       })
                     )
                   )
+                )
+              )
+            )
+          )
+        );
+      };
+
+      // AI 自动化远程调试区域
+      const AIDebugSection = () => {
+        const steps = [
+          { icon: 'smart_toy', title: 'AI Agent 接入', desc: 'AI 编程助手通过 Poleis MCP 建立远程会话，无需人工切换工具，直接操作受控设备。' },
+          { icon: 'replay', title: '自动复现问题', desc: 'AI 自动启动目标程序并触发操作路径，在真实环境中稳定复现线上缺陷。' },
+          { icon: 'article', title: '自动采集证据', desc: '远程执行命令、拉取日志、截取屏幕与堆栈信息，回传给 AI 进行根因分析。' },
+          { icon: 'verified', title: '自动验证修复', desc: 'AI 部署新版本后再次远程验证，形成「改代码 → 部署 → 远程验证」的闭环。' }
+        ];
+
+        return React.createElement(Box, {
+          id: 'ai-debug',
+          sx: {
+            py: { xs: 8, md: 12 },
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 60%, #4c1d95 100%)'
+          }
+        },
+          React.createElement(Container, { maxWidth: 'lg' },
+            React.createElement(Box, { sx: { textAlign: 'center', mb: 8 } },
+              React.createElement(Typography, {
+                variant: 'overline',
+                sx: { color: '#a5b4fc', fontWeight: 600, letterSpacing: 2 }
+              }, 'AI DEBUG'),
+              React.createElement(Typography, {
+                variant: 'h2',
+                sx: { mt: 1, color: '#fff' }
+              }, 'AI 自动化远程调试'),
+              React.createElement(Typography, {
+                variant: 'h6',
+                sx: { mt: 2, maxWidth: 680, mx: 'auto', fontWeight: 400, color: 'rgba(255,255,255,0.7)' }
+              }, '让 AI 编程助手通过 Poleis MCP 直接连接受控设备，自动复现、采集与验证，把远程调试交给 AI 闭环完成。')
+            ),
+            React.createElement(Grid, { container: true, spacing: 3 },
+              steps.map((step, index) =>
+                React.createElement(Grid, { item: true, xs: 12, sm: 6, md: 3, key: index },
+                  React.createElement(Grow, { in: true, timeout: 600 + index * 120 },
+                    React.createElement(Paper, {
+                      elevation: 0,
+                      sx: {
+                        height: '100%',
+                        p: 3,
+                        borderRadius: 3,
+                        bgcolor: 'rgba(255,255,255,0.06)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        transition: 'all 0.3s ease',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.12)', transform: 'translateY(-4px)' }
+                      }
+                    },
+                      React.createElement(Stack, { direction: 'row', alignItems: 'center', spacing: 1.5, sx: { mb: 2 } },
+                        React.createElement(Box, {
+                          sx: {
+                            width: 44,
+                            height: 44,
+                            borderRadius: 2,
+                            bgcolor: 'primary.main',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff'
+                          }
+                        }, React.createElement(Icon, { sx: { fontSize: 24 } }, step.icon)),
+                        React.createElement(Typography, { variant: 'caption', sx: { color: '#a5b4fc', fontWeight: 700 } }, 'STEP ' + (index + 1))
+                      ),
+                      React.createElement(Typography, { variant: 'h6', fontWeight: 600, color: '#fff', gutterBottom: true }, step.title),
+                      React.createElement(Typography, { variant: 'body2', sx: { color: 'rgba(255,255,255,0.7)', lineHeight: 1.7 } }, step.desc)
+                    )
+                  )
+                )
+              )
+            ),
+            React.createElement(Box, { sx: { mt: 6, textAlign: 'center' } },
+              React.createElement(Stack, {
+                direction: 'row',
+                spacing: 1.5,
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                useFlexGap: true
+              },
+                ['Poleis MCP', 'AI Agent', '自动复现', '日志采集', '截图取证', '无人值守验证'].map((tag) =>
+                  React.createElement(Chip, {
+                    key: tag,
+                    label: tag,
+                    size: 'small',
+                    sx: { bgcolor: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.18)' }
+                  })
                 )
               )
             )
@@ -588,6 +683,11 @@ html(lang="zh-CN")
       // 功能特性区域
       const FeaturesSection = () => {
         const features = [
+          {
+            icon: 'smart_toy',
+            title: 'AI 自动化调试',
+            description: 'AI 编程助手通过 Poleis MCP 直接连接受控设备，自动复现问题、采集日志与截图，并远程验证修复结果，实现无人值守的调试闭环。'
+          },
           {
             icon: 'bolt',
             title: '超低延迟远程桌面',
@@ -684,7 +784,7 @@ html(lang="zh-CN")
                 variant: 'h6',
                 color: 'text.secondary',
                 sx: { mt: 2, maxWidth: 600, mx: 'auto', fontWeight: 400 }
-              }, '控制端与被控端通过信令服务建立 P2P 直连，硬件编码后经 QUIC 通道实时传输')
+              }, '控制端与被控端通过信令服务建立 P2P 直连，硬件编码后经 QUIC 通道实时传输；AI Agent 亦可经 Poleis MCP 复用同一通道自动调试')
             ),
             React.createElement(Box, {
               sx: {
@@ -753,6 +853,26 @@ html(lang="zh-CN")
                 }
               })
             ),
+            // AI 接入说明
+            React.createElement(Box, { sx: { mt: 5, textAlign: 'center' } },
+              React.createElement(Paper, {
+                elevation: 0,
+                sx: {
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 1,
+                  borderRadius: 2,
+                  bgcolor: 'primary.main',
+                  color: '#fff'
+                }
+              },
+                React.createElement(Icon, { sx: { fontSize: 20 } }, 'smart_toy'),
+                React.createElement(Typography, { variant: 'body2', fontWeight: 500 },
+                  'AI Agent / Poleis MCP 复用同一信令与 P2P 通道，自动连接受控端并完成调试')
+              )
+            ),
             // 技术栈
             React.createElement(Box, { sx: { mt: 8, textAlign: 'center' } },
               React.createElement(Typography, { variant: 'subtitle1', color: 'text.secondary', gutterBottom: true }, '技术栈'),
@@ -764,7 +884,7 @@ html(lang="zh-CN")
                 useFlexGap: true,
                 sx: { mt: 2 }
               },
-                ['C++17', 'Qt 6', 'QUIC', 'NVENC', 'DXGI', 'Node.js', 'Socket.io', 'React', 'MySQL', 'Redis'].map((tech) =>
+                ['C++17', 'Qt 6', 'QUIC', 'NVENC', 'DXGI', 'Node.js', 'Socket.io', 'React', 'MySQL', 'Redis', 'MCP', 'LLM Agent'].map((tech) =>
                   React.createElement(Chip, {
                     key: tech,
                     label: tech,
@@ -781,6 +901,11 @@ html(lang="zh-CN")
       // 应用场景区域
       const UseCasesSection = () => {
         const useCases = [
+          {
+            icon: 'smart_toy',
+            title: 'AI 辅助开发',
+            description: 'AI 编码助手远程连接真实设备，自动复现缺陷、采集日志与截图并验证修复，开发者只需审阅结论。'
+          },
           {
             icon: 'home_office',
             title: '远程办公',
@@ -823,7 +948,7 @@ html(lang="zh-CN")
               React.createElement(Typography, {
                 variant: 'h6',
                 sx: { mt: 2, maxWidth: 600, mx: 'auto', fontWeight: 400, color: 'rgba(255,255,255,0.7)' }
-              }, '覆盖个人到企业的完整远程控制需求')
+              }, '从 AI 辅助开发到企业运维，覆盖个人到企业的完整远程控制需求')
             ),
             React.createElement(Grid, { container: true, spacing: 3, justifyContent: 'center' },
               useCases.map((uc, index) =>
@@ -890,7 +1015,7 @@ html(lang="zh-CN")
                 variant: 'h6',
                 color: 'text.secondary',
                 sx: { mt: 3, fontWeight: 400, lineHeight: 1.8 }
-              }, 'Poleis 是一款面向企业与个人的高性能远程桌面软件。采用硬件编码加速、QUIC 加密传输与智能 NAT 穿透技术，致力于提供安全、流畅、易用的远程控制体验。支持远程办公、IT 运维、远程游戏等多种应用场景。'),
+              }, 'Poleis 是一款面向企业与个人的高性能远程桌面软件。采用硬件编码加速、QUIC 加密传输与智能 NAT 穿透技术，致力于提供安全、流畅、易用的远程控制体验。面向 AI 辅助开发，Poleis 提供 Poleis MCP 接入能力，让 AI 编程助手自动化完成远程调试；同时支持远程办公、IT 运维、远程游戏等多种应用场景。'),
               React.createElement(Box, { sx: { mt: 4 } },
                 React.createElement(Button, {
                   variant: 'contained',
@@ -957,6 +1082,7 @@ html(lang="zh-CN")
             React.createElement(NavBar, null),
             React.createElement(HeroSection, null),
             React.createElement(DownloadSection, null),
+            React.createElement(AIDebugSection, null),
             React.createElement(FeaturesSection, null),
             React.createElement(ArchitectureSection, null),
             React.createElement(UseCasesSection, null),
