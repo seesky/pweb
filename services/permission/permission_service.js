@@ -77,13 +77,6 @@ class PermissionService {
     if (!userEntity) {
       return false;
     }
-    if (
-      userEntity.ID === 'Administrator' ||
-      userEntity.CODE === 'Administrator' ||
-      userEntity.USERNAME === 'Administrator'
-    ) {
-      return true;
-    }
     const roleIds = await userRoleService.getRoleIds(userEntity.ID);
     for (const roleId of roleIds) {
       if (roleId === DefaultRole.Administrators) {

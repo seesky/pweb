@@ -21,6 +21,14 @@ test('user socket tokens preserve identity, terminal, and display profile', () =
   assert.equal(claims.iss, 'poleis-socket');
 });
 
+test('platform administration is carried only as a signed token claim', () => {
+  const service = new SocketTokenService(secret);
+  const token = service.issue('user-1', 'terminal-1', 60, { platformAdmin: true });
+  assert.equal(service.verify(token).platformAdmin, true);
+  const ordinary = service.issue('Administrator', 'terminal-2', 60);
+  assert.equal(service.verify(ordinary).platformAdmin, undefined);
+});
+
 test('device socket tokens are bound to device, terminal, and tenant', () => {
   const service = new SocketTokenService(secret);
   const claims = service.verify(service.issueDeviceToken('device-1', 'terminal-1', 'enterprise-a', 60));

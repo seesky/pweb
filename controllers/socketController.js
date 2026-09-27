@@ -7,6 +7,7 @@ const { SocketTokenService } = require('../services/realtime/token_service');
 const { PresenceService } = require('../services/realtime/presence_service');
 const { platformService } = require('../services/management/platform_service');
 const { resolveTenantId } = require('../services/management/tenant_context');
+const security = require('../middleware/security');
 
 const prisma = new PrismaClient();
 const tokenService = new SocketTokenService();
@@ -55,7 +56,11 @@ exports.issueToken = async (req, res) => {
     } catch (lookupError) {
       console.error('[SocketController.issueToken] profile lookup failed', lookupError);
     }
-    const token = tokenService.issue(user.Id, terminalId || null, SOCKET_TOKEN_EXPIRES_SECONDS, { username, email });
+    const token = tokenService.issue(user.Id, terminalId || null, SOCKET_TOKEN_EXPIRES_SECONDS, {
+      username,
+      email,
+      platformAdmin: security.isPlatformAdmin(user)
+    });
     if (terminalId) {
       try {
         const tenantId = await resolveTenantId(user);
@@ -97,7 +102,7 @@ exports.myEndpoints = async (req, res) => {
 exports.userEndpoints = async (req, res) => {
   const user = ensureUser(req, res);
   if (!user) return;
-  if (user.Id !== 'Administrator') {
+  if (!security.isPlatformAdmin(user)) {
     return res.status(403).json({ success: false, message: 'Forbidden' });
   }
   const { userId } = req.params;

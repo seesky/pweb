@@ -31,8 +31,10 @@ const requireAuthenticated = (req, res, next) => {
   return next();
 };
 
-const isPlatformAdmin = (user) =>
-  !!(user && (user.Id === 'Administrator' || user.IsAdministrator === true));
+// IsAdministrator is populated server-side from the Administrators role when
+// the session is created.  Never infer platform authority from a mutable
+// username or user id.
+const isPlatformAdmin = (user) => !!(user && user.IsAdministrator === true);
 
 const requirePlatformAdmin = (req, res, next) => {
   const user = getCurrentUser(req, res);

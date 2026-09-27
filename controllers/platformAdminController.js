@@ -4,6 +4,7 @@
 // 仅平台超级管理员（Administrator / IsAdministrator）可用，不走租户作用域。
 const { PrismaClient } = require('@prisma/client');
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
+const security = require('../middleware/security');
 const { platformService } = require('../services/management/platform_service');
 
 const prisma = new PrismaClient();
@@ -14,7 +15,7 @@ const ensurePlatformAdmin = (req, res) => {
     res.status(401).json({ success: false, message: 'Not authenticated' });
     return null;
   }
-  if (user.Id !== 'Administrator' && !user.IsAdministrator) {
+  if (!security.isPlatformAdmin(user)) {
     res.status(403).json({ success: false, message: 'Forbidden: platform admin only' });
     return null;
   }

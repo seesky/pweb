@@ -9,10 +9,10 @@ module.exports = {
   registerForceDisconnect(fn) {
     forceDisconnectImpl = fn;
   },
-  async forceDisconnectSession(sessionId) {
+  async forceDisconnectSession(sessionId, tenantId) {
     if (typeof forceDisconnectImpl !== 'function') {
       return { ok: false, reason: 'SOCKET_UNAVAILABLE' };
     }
-    return forceDisconnectImpl(sessionId);
+    return forceDisconnectImpl(sessionId, tenantId);
   }
 };

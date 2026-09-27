@@ -9,6 +9,7 @@ const { platformService } = require('../services/management/platform_service');
 const socketControl = require('../services/realtime/socket_control');
 const { sendMail } = require('../utilities/publiclibrary/mailer');
 const { SocketTokenService } = require('../services/realtime/token_service');
+const security = require('../middleware/security');
 
 const prisma = new PrismaClient();
 const tokenService = new SocketTokenService();
@@ -68,7 +69,7 @@ const ensureAdmin = (req, res) => {
   // 兼容直接调用（无中间件）时回退到平台超管判断。
   const ok = req.isTenantAdmin !== undefined
     ? req.isTenantAdmin
-    : (user.Id === 'Administrator' || user.IsAdministrator);
+    : security.isPlatformAdmin(user);
   if (!ok) {
     res.status(403).json({ success: false, message: 'Forbidden' });
     return null;
@@ -208,7 +209,7 @@ exports.disconnectSession = async (req, res) => {
   const user = ensureAdmin(req, res);
   if (!user) return;
   try {
-    const result = await socketControl.forceDisconnectSession(req.params.id);
+    const result = await socketControl.forceDisconnectSession(req.params.id, req.tenantId);
     if (!result.ok) {
       const messages = {
         NOT_FOUND: '会话不存在',
@@ -804,6 +805,12 @@ exports.createMember = async (req, res) => {
     if (error.code === 'QUOTA_EXCEEDED') {
       return res.status(409).json({ success: false, code: 'QUOTA_EXCEEDED', message: '成员数量已达企业配额上限' });
     }
+    if (error.code === 'ALREADY_IN_ENTERPRISE') {
+      return res.status(409).json({ success: false, code: error.code, message: '该账号已属于其它企业，无法加入' });
+    }
+    if (error.code === 'OWNER_REQUIRED') {
+      return res.status(403).json({ success: false, code: error.code, message: error.message });
+    }
     const status = error.code === 'INVALID_REQUEST' ? 400 : 500;
     res.status(status).json({ success: false, message: error.message || 'Failed to add member' });
   }
@@ -829,6 +836,12 @@ exports.updateMember = async (req, res) => {
     res.json({ success: true, data: member });
   } catch (error) {
     console.error('[ManagementPlatform.updateMember]', error);
+    if (error.code === 'LAST_OWNER') {
+      return res.status(409).json({ success: false, code: error.code, message: error.message });
+    }
+    if (error.code === 'OWNER_REQUIRED') {
+      return res.status(403).json({ success: false, code: error.code, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Failed to update member' });
   }
 };
@@ -849,6 +862,12 @@ exports.removeMember = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('[ManagementPlatform.removeMember]', error);
+    if (error.code === 'LAST_OWNER') {
+      return res.status(409).json({ success: false, code: error.code, message: error.message });
+    }
+    if (error.code === 'OWNER_REQUIRED') {
+      return res.status(403).json({ success: false, code: error.code, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Failed to remove member' });
   }
 };
@@ -892,12 +911,12 @@ exports.inviteMember = async (req, res) => {
         data: {
           ID: userId, USERNAME: email, REALNAME: email.split('@')[0], EMAIL: email,
           ENABLED: 1, DELETEMARK: 0, EMAILVERIFIED: false,
-          PASSWORDRESETTOKEN: inviteToken, PASSWORDRESETEXPIRES: new Date(Date.now() + INVITE_TTL_MS),
+          PASSWORDRESETTOKEN: `invite:${inviteToken}`, PASSWORDRESETEXPIRES: new Date(Date.now() + INVITE_TTL_MS),
           ...audit
         }
       });
       await prisma.piuserlogon.create({
-        data: { ID: userId, USERPASSWORD: await bcrypt.hash(randomBytes(18).toString('hex'), 10), PASSWORDERRORCOUNT: 0, IS2FAENABLED: false, ...audit }
+        data: { ID: userId, USERPASSWORD: await bcrypt.hash(randomBytes(18).toString('hex'), 12), PASSWORDERRORCOUNT: 0, IS2FAENABLED: false, ...audit }
       });
       target = { ID: userId };
     }

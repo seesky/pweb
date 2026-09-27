@@ -27,9 +27,13 @@ exports.setPasswordPage = (req, res) => {
 
 // POST /saas/register  申请企业账号
 exports.register = async (req, res) => {
-  const { companyName, username, email, password } = req.body || {};
+  const { companyName, email, password } = req.body || {};
+  const username = String(req.body?.username || '').trim();
   if (!companyName || !username || !email || !password) {
     return res.status(400).json({ success: false, message: '企业名称、用户名、邮箱、密码必填' });
+  }
+  if (username.toLowerCase() === 'administrator') {
+    return res.status(400).json({ success: false, message: '该用户名为系统保留名称' });
   }
   try {
     const existing = await prisma.piuser.findFirst({
@@ -41,7 +45,7 @@ exports.register = async (req, res) => {
 
     const now = new Date();
     const userId = randomUUID();
-    const pwdHash = await bcrypt.hash(password, 10);
+    const pwdHash = await bcrypt.hash(password, 12);
     const verifyToken = randomBytes(24).toString('hex');
     const verifyExpires = new Date(Date.now() + VERIFY_TTL_MS);
     const audit = {
@@ -54,7 +58,7 @@ exports.register = async (req, res) => {
       data: {
         ID: userId, USERNAME: username, REALNAME: username, EMAIL: email,
         ENABLED: 1, DELETEMARK: 0, EMAILVERIFIED: false,
-        PASSWORDRESETTOKEN: verifyToken, PASSWORDRESETEXPIRES: verifyExpires,
+        PASSWORDRESETTOKEN: `verify:${verifyToken}`, PASSWORDRESETEXPIRES: verifyExpires,
         ...audit
       }
     });
@@ -99,7 +103,7 @@ exports.verify = async (req, res) => {
   if (!token) return fail('缺少验证令牌');
   try {
     const user = await prisma.piuser.findFirst({
-      where: { PASSWORDRESETTOKEN: token, DELETEMARK: 0 }
+      where: { PASSWORDRESETTOKEN: `verify:${token}`, DELETEMARK: 0 }
     });
     if (!user) return fail('验证链接无效');
     if (user.PASSWORDRESETEXPIRES && new Date(user.PASSWORDRESETEXPIRES).getTime() < Date.now()) {

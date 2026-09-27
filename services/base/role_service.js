@@ -192,14 +192,19 @@ class RoleService {
   }
 
   async delete(id) {
-    let result = 0;
-    result += (await this.prisma.piuserrole.deleteMany({ where: { ROLEID: id } })).count;
-    result += (
-      await this.prisma.pirole.deleteMany({
-        where: { ID: id, ALLOWDELETE: 1 }
-      })
-    ).count;
-    return result;
+    const role = await this.prisma.pirole.findFirst({ where: { ID: id, ALLOWDELETE: 1 } });
+    if (!role) return 0;
+    return this.prisma.$transaction(async (tx) => {
+      await tx.piuserrole.deleteMany({ where: { ROLEID: id } });
+      await tx.pipermission.deleteMany({
+        where: { RESOURCECATEGORY: 'PIROLE', RESOURCEID: id }
+      });
+      await tx.pipermissionscope.deleteMany({
+        where: { RESOURCECATEGORY: 'PIROLE', RESOURCEID: id }
+      });
+      const deleted = await tx.pirole.deleteMany({ where: { ID: id, ALLOWDELETE: 1 } });
+      return deleted.count;
+    });
   }
 
   async batchDelete(ids = []) {

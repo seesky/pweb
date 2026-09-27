@@ -58,7 +58,15 @@ test('platform administration requires an administrator identity', () => {
   );
   assert.equal(forbidden.statusCode, 403);
 
-  for (const currentUser of [{ Id: 'Administrator' }, { Id: 'alice', IsAdministrator: true }]) {
+  const reservedName = responseRecorder();
+  requirePlatformAdmin(
+    request({}, { currentUser: { Id: 'Administrator', IsAdministrator: false } }),
+    reservedName,
+    () => assert.fail('reserved username must not grant administration')
+  );
+  assert.equal(reservedName.statusCode, 403);
+
+  for (const currentUser of [{ Id: 'alice', IsAdministrator: true }]) {
     let passed = false;
     requirePlatformAdmin(request({}, { currentUser }), responseRecorder(), () => { passed = true; });
     assert.equal(passed, true);

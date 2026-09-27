@@ -10,7 +10,18 @@ class AuditService {
 
   async log(event) {
     try {
-      await platformService.writeAudit({
+      let tenantId = event.tenantId || null;
+      if (!tenantId && event.targetTerminalId) {
+        const device = await platformService.getDeviceByTerminal(event.targetTerminalId);
+        tenantId = device?.tenantId || null;
+      }
+      // A user's own socket lifecycle belongs to the user's personal workspace.
+      // Never silently put realtime audit records in the shared legacy tenant.
+      if (!tenantId && event.userId && !String(event.userId).startsWith('device:')) {
+        tenantId = `u:${event.userId}`;
+      }
+      if (!tenantId) throw new Error('unable to resolve audit tenant');
+      await platformService.forTenant(tenantId).writeAudit({
         actorId: event.userId,
         actorName: event.userName,
         category: event.category || 'session',

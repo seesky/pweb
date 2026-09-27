@@ -22,6 +22,7 @@ class SocketTokenService {
     // without an extra request — including on cached-token startup.
     if (profile.username) payload.username = profile.username;
     if (profile.email) payload.email = profile.email;
+    if (profile.platformAdmin === true) payload.platformAdmin = true;
     return jwt.sign(payload, this.secret, {
       expiresIn: expiresInSeconds,
       algorithm: 'HS256',

@@ -41,7 +41,7 @@ class ModulePermission {
     await this.prisma.pipermission.create({
       data: {
         RESOURCEID: moduleId,
-        RESOURCECATEGORY: 'pipermission',
+        RESOURCECATEGORY: 'PIMODULE',
         ENABLED: 1,
         DELETEMARK: 0,
         PERMISSIONID: permissionItemId

@@ -2,6 +2,7 @@
 
 const { PrismaClient } = require('@prisma/client');
 const { randomBytes, randomUUID } = require('node:crypto');
+const net = require('node:net');
 
 const DEFAULT_TENANT_ID = process.env.POLEIS_TENANT_ID || 'default';
 const DEFAULT_TENANT_NAME = process.env.POLEIS_TENANT_NAME || 'Poleis';
@@ -101,6 +102,54 @@ const readJsonColumn = (value, fallback = null) => {
   } catch (error) {
     return fallback;
   }
+};
+
+const normalizeIp = (value) => {
+  let ip = String(value || '').trim();
+  if (ip.startsWith('::ffff:') && net.isIP(ip.slice(7)) === 4) ip = ip.slice(7);
+  const zone = ip.indexOf('%');
+  if (zone >= 0) ip = ip.slice(0, zone);
+  return ip;
+};
+
+const ipToBigInt = (value) => {
+  const ip = normalizeIp(value);
+  const family = net.isIP(ip);
+  if (family === 4) {
+    return { family, bits: 32, value: ip.split('.').reduce((n, part) => (n << 8n) | BigInt(part), 0n) };
+  }
+  if (family !== 6) return null;
+  const halves = ip.split('::');
+  if (halves.length > 2) return null;
+  const parseSide = (side) => side ? side.split(':').filter(Boolean) : [];
+  let left = parseSide(halves[0]);
+  let right = parseSide(halves[1]);
+  const expandV4 = (parts) => {
+    if (!parts.length || net.isIP(parts[parts.length - 1]) !== 4) return parts;
+    const bytes = parts.pop().split('.').map(Number);
+    return [...parts, ((bytes[0] << 8) | bytes[1]).toString(16), ((bytes[2] << 8) | bytes[3]).toString(16)];
+  };
+  left = expandV4(left);
+  right = expandV4(right);
+  const missing = 8 - left.length - right.length;
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) return null;
+  const parts = [...left, ...Array(missing).fill('0'), ...right];
+  if (parts.length !== 8 || parts.some((part) => !/^[0-9a-f]{1,4}$/i.test(part))) return null;
+  return { family, bits: 128, value: parts.reduce((n, part) => (n << 16n) | BigInt(`0x${part}`), 0n) };
+};
+
+const ipMatchesRule = (ip, rule) => {
+  const parsedIp = ipToBigInt(ip);
+  if (!parsedIp) return false;
+  const [networkText, prefixText] = String(rule || '').trim().split('/');
+  const parsedNetwork = ipToBigInt(networkText);
+  if (!parsedNetwork || parsedNetwork.family !== parsedIp.family) return false;
+  if (prefixText === undefined) return parsedNetwork.value === parsedIp.value;
+  const prefix = Number(prefixText);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > parsedIp.bits) return false;
+  if (prefix === 0) return true;
+  const shift = BigInt(parsedIp.bits - prefix);
+  return (parsedNetwork.value >> shift) === (parsedIp.value >> shift);
 };
 
 // 建表只需一次，跨所有（含 forTenant 派生的）实例共享。
@@ -305,6 +354,8 @@ class PlatformService {
         DURATIONSEC int NULL,
         TRANSPORT varchar(20) NULL,
         NATTYPE varchar(30) NULL,
+        RELAYNODEID varchar(40) NULL,
+        RELAYBYTES bigint NOT NULL DEFAULT 0,
         RESULT varchar(20) NOT NULL DEFAULT 'active',
         FAILREASON varchar(200) NULL,
         RECORDINGURL varchar(500) NULL,
@@ -425,7 +476,9 @@ class PlatformService {
       `ALTER TABLE poleis_permission_profile ADD COLUMN AUTOMATION int NOT NULL DEFAULT 0`,
       `ALTER TABLE poleis_permission_profile ADD COLUMN RUN_SHELL int NOT NULL DEFAULT 0`,
       `ALTER TABLE poleis_permission_profile ADD COLUMN PROCESS_CONTROL int NOT NULL DEFAULT 0`,
-      `ALTER TABLE poleis_permission_profile ADD COLUMN WINDOW_CONTROL int NOT NULL DEFAULT 0`
+      `ALTER TABLE poleis_permission_profile ADD COLUMN WINDOW_CONTROL int NOT NULL DEFAULT 0`,
+      `ALTER TABLE poleis_session ADD COLUMN RELAYNODEID varchar(40) NULL`,
+      `ALTER TABLE poleis_session ADD COLUMN RELAYBYTES bigint NOT NULL DEFAULT 0`
     ];
     for (const sql of migrations) {
       try {
@@ -864,8 +917,9 @@ class PlatformService {
   async getDeviceById(id) {
     await this.ensureSchema();
     const rows = await this.prisma.$queryRawUnsafe(
-      `SELECT * FROM poleis_device WHERE ID = ? AND DELETEMARK = 0 LIMIT 1`,
-      id
+      `SELECT * FROM poleis_device WHERE ID = ? AND TENANTID = ? AND DELETEMARK = 0 LIMIT 1`,
+      id,
+      this.tenantId
     );
     return rows[0] ? this.formatDevice(rows[0]) : null;
   }
@@ -954,8 +1008,13 @@ class PlatformService {
   async getSessionEvents(sessionId) {
     await this.ensureSchema();
     const rows = await this.prisma.$queryRawUnsafe(
-      `SELECT * FROM poleis_session_event WHERE SESSIONID = ? ORDER BY CREATEON ASC LIMIT 200`,
-      sessionId
+      `SELECT e.*
+         FROM poleis_session_event e
+         JOIN poleis_session s ON s.ID = e.SESSIONID
+        WHERE e.SESSIONID = ? AND s.TENANTID = ? AND s.DELETEMARK = 0
+        ORDER BY e.CREATEON ASC LIMIT 200`,
+      sessionId,
+      this.tenantId
     );
     return rows.map((row) => ({
       id: row.ID,
@@ -1870,14 +1929,14 @@ class PlatformService {
     if (!rows.length) {
       return { allowed: false, reason: 'NO_ASSIGNMENT', device };
     }
-    // CIDR enforcement is intentionally conservative for now: exact IP matches
-    // are enforced, CIDR ranges are recorded but not expanded until a network
-    // helper is added.
     const allowedCidr = rows[0].ALLOWEDCIDR;
-    if (allowedCidr && ip && !allowedCidr.split(',').map((v) => v.trim()).includes(ip)) {
+    if (allowedCidr && !allowedCidr.split(',').some((rule) => ipMatchesRule(ip, rule))) {
       return { allowed: false, reason: 'IP_NOT_ALLOWED', device };
     }
     const profile = await tsvc.resolveProfile(rows[0].PROFILEID);
+    if (!profile) {
+      return { allowed: false, reason: 'PROFILE_REQUIRED', device, assignment: rows[0] };
+    }
     const policy = await tsvc.resolveDevicePolicy(device);
     return {
       allowed: true,
@@ -1930,15 +1989,16 @@ class PlatformService {
 
   async getSession(id) {
     await this.ensureSchema();
-    // 会话 ID 全局唯一；信令侧强制断开走默认单例，按 ID 全局查询即可。
     const rows = await this.prisma.$queryRawUnsafe(
-      `SELECT * FROM poleis_session WHERE ID = ? LIMIT 1`,
-      id
+      `SELECT * FROM poleis_session WHERE ID = ? AND TENANTID = ? AND DELETEMARK = 0 LIMIT 1`,
+      id,
+      this.tenantId
     );
     if (!rows[0]) return null;
     const r = rows[0];
     return {
       id: r.ID,
+      tenantId: r.TENANTID,
       controllerUserId: r.CONTROLLERUSERID,
       controllerTerminal: r.CONTROLLERTERMINAL || '',
       targetTerminal: r.TARGETTERMINAL,
@@ -2223,6 +2283,28 @@ class PlatformService {
       throw error;
     }
     const role = ALLOWED_MEMBER_ROLES.includes(payload.role) ? payload.role : 'member';
+    const tenant = await this.getTenant(this.tenantId);
+    if (tenant?.edition !== 'personal' && !String(this.tenantId).startsWith('u:')) {
+      const otherTenant = await this.getUserOtherEnterpriseTenantId(userId, this.tenantId);
+      if (otherTenant) {
+        const error = new Error('user already belongs to another enterprise');
+        error.code = 'ALREADY_IN_ENTERPRISE';
+        error.tenant = otherTenant;
+        throw error;
+      }
+    }
+    const ownerRows = await this.prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS c FROM poleis_member
+        WHERE TENANTID = ? AND ROLE = 'owner' AND ENABLED = 1 AND DELETEMARK = 0`,
+      this.tenantId
+    );
+    const ownerCount = Number(ownerRows[0]?.c || 0);
+    const actorRole = user.Id ? await this.getMemberRole(this.tenantId, user.Id) : null;
+    if (role === 'owner' && ownerCount > 0 && actorRole !== 'owner' && user.IsAdministrator !== true) {
+      const error = new Error('only an owner can assign the owner role');
+      error.code = 'OWNER_REQUIRED';
+      throw error;
+    }
     const existing = await this.prisma.$queryRawUnsafe(
       `SELECT ID FROM poleis_member WHERE TENANTID = ? AND USERID = ? LIMIT 1`,
       this.tenantId,
@@ -2243,7 +2325,6 @@ class PlatformService {
       return this.getMemberById(existing[0].ID);
     }
     // 配额校验：新增成员不得超过租户 MAX_MEMBERS（0=不限）。
-    const tenant = await this.getTenant(this.tenantId);
     if (tenant && tenant.maxMembers > 0) {
       const count = await this.countMembers(this.tenantId);
       if (count >= tenant.maxMembers) {
@@ -2268,8 +2349,34 @@ class PlatformService {
 
   async updateMember(id, payload = {}, user = {}) {
     await this.ensureSchema();
+    const current = await this.getMemberById(id);
+    if (!current) return null;
     const role = ALLOWED_MEMBER_ROLES.includes(payload.role) ? payload.role : null;
     const enabled = payload.enabled === undefined ? null : boolToInt(payload.enabled, 1);
+    const actorRole = user.Id ? await this.getMemberRole(this.tenantId, user.Id) : null;
+    const platformAdmin = user.IsAdministrator === true;
+    if (role === 'owner' && actorRole !== 'owner' && !platformAdmin) {
+      const error = new Error('only an owner can assign the owner role');
+      error.code = 'OWNER_REQUIRED';
+      throw error;
+    }
+    if (current.role === 'owner' && actorRole !== 'owner' && !platformAdmin) {
+      const error = new Error('only an owner can modify another owner');
+      error.code = 'OWNER_REQUIRED';
+      throw error;
+    }
+    if (current.role === 'owner' && ((role && role !== 'owner') || enabled === 0)) {
+      const rows = await this.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*) AS c FROM poleis_member
+          WHERE TENANTID = ? AND ROLE = 'owner' AND ENABLED = 1 AND DELETEMARK = 0`,
+        this.tenantId
+      );
+      if (Number(rows[0]?.c || 0) <= 1) {
+        const error = new Error('cannot remove or demote the last owner');
+        error.code = 'LAST_OWNER';
+        throw error;
+      }
+    }
     await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_member
           SET ROLE = COALESCE(?, ROLE), ENABLED = COALESCE(?, ENABLED),
@@ -2288,6 +2395,27 @@ class PlatformService {
 
   async removeMember(id, user = {}) {
     await this.ensureSchema();
+    const current = await this.getMemberById(id);
+    if (!current) return false;
+    const actorRole = user.Id ? await this.getMemberRole(this.tenantId, user.Id) : null;
+    const platformAdmin = user.IsAdministrator === true;
+    if (current.role === 'owner' && actorRole !== 'owner' && !platformAdmin) {
+      const error = new Error('only an owner can remove another owner');
+      error.code = 'OWNER_REQUIRED';
+      throw error;
+    }
+    if (current.role === 'owner') {
+      const rows = await this.prisma.$queryRawUnsafe(
+        `SELECT COUNT(*) AS c FROM poleis_member
+          WHERE TENANTID = ? AND ROLE = 'owner' AND ENABLED = 1 AND DELETEMARK = 0`,
+        this.tenantId
+      );
+      if (Number(rows[0]?.c || 0) <= 1) {
+        const error = new Error('cannot remove the last owner');
+        error.code = 'LAST_OWNER';
+        throw error;
+      }
+    }
     await this.prisma.$executeRawUnsafe(
       `UPDATE poleis_member
           SET ENABLED = 0, DELETEMARK = 1, MODIFIEDON = ?, MODIFIEDUSERID = ?, MODIFIEDBY = ?
@@ -2298,6 +2426,7 @@ class PlatformService {
       id,
       this.tenantId
     );
+    return true;
   }
 
   // ---------- 网络 / 中继可观测 ----------
@@ -2358,5 +2487,6 @@ module.exports = {
   PlatformService,
   platformService: new PlatformService(),
   DEFAULT_TENANT_ID,
-  classifyDeviceOs
+  classifyDeviceOs,
+  _testing: { ipMatchesRule }
 };

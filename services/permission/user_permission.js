@@ -145,17 +145,16 @@ class UserPermission {
     return count;
   }
 
-  getScopeRoleIdsByUserId(userId, permissionItemCode) {
+  async getScopeRoleIdsByUserId(userId, permissionItemCode) {
+    const permissionIds = await this.prisma.pipermissionitem.findMany({
+      where: { CODE: permissionItemCode }, select: { ID: true }
+    }).then((rows) => rows.map((r) => r.ID));
     return this.prisma.pipermissionscope.findMany({
       where: {
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIROLE',
-        PERMISSIONID: {
-          in: this.prisma.pipermissionitem
-            .findMany({ where: { CODE: permissionItemCode }, select: { ID: true } })
-            .then((rows) => rows.map((r) => r.ID))
-        }
+        PERMISSIONID: { in: permissionIds }
       },
       select: { TARGETID: true }
     });
@@ -181,17 +180,16 @@ class UserPermission {
     return count;
   }
 
-  getScopePermissionItemIdsByUserId(userId, permissionItemCode) {
+  async getScopePermissionItemIdsByUserId(userId, permissionItemCode) {
+    const permissionIds = await this.prisma.pipermissionitem.findMany({
+      where: { CODE: permissionItemCode }, select: { ID: true }
+    }).then((rows) => rows.map((r) => r.ID));
     return this.prisma.pipermissionscope.findMany({
       where: {
         RESOURCECATEGORY: 'PIUSER',
         RESOURCEID: userId,
         TARGETCATEGORY: 'PIPERMISSIONITEM',
-        PERMISSIONID: {
-          in: this.prisma.pipermissionitem
-            .findMany({ where: { CODE: permissionItemCode }, select: { ID: true } })
-            .then((rows) => rows.map((r) => r.ID))
-        }
+        PERMISSIONID: { in: permissionIds }
       },
       select: { TARGETID: true }
     });

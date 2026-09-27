@@ -7,6 +7,7 @@ const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const controller = require('../controllers/managementPlatformController');
 const { resolveTenantContext } = require('../services/management/tenant_context');
 const { platformService } = require('../services/management/platform_service');
+const security = require('../middleware/security');
 
 const ensureAuthenticated = (req, res, next) => {
   const current = CommonUtils.getCurrent(res, req);
@@ -41,7 +42,7 @@ const resolveTenant = async (req, res, next) => {
       });
     }
 
-    const isSuper = !!(user && (user.Id === 'Administrator' || user.IsAdministrator));
+    const isSuper = security.isPlatformAdmin(user);
     if (isSuper) {
       req.isTenantAdmin = true;
     } else if (req.tenantType === 'personal') {
@@ -61,9 +62,28 @@ const resolveTenant = async (req, res, next) => {
   }
 };
 
+const requireFeature = (feature) => (req, res, next) => {
+  if (req.features && req.features[feature] === false) {
+    return res.status(404).json({ success: false, message: 'Feature is not available in this workspace' });
+  }
+  return next();
+};
+
 router.post('/api/devices/enroll', controller.enrollDevice);
+// Bearer-authenticated automation clients do not have a browser session.
+router.post('/management-platform/automation-audit', controller.automationAudit);
 
 router.use('/management-platform', ensureAuthenticated, resolveTenant);
+router.use('/management-platform/device-groups', requireFeature('deviceGroups'));
+router.use('/management-platform/device-policies', requireFeature('devicePolicies'));
+router.use('/management-platform/enrollment-tokens', requireFeature('enrollmentTokens'));
+router.use('/management-platform/permission-profiles', requireFeature('permissionProfiles'));
+router.use('/management-platform/assignments', requireFeature('assignments'));
+router.use('/management-platform/tickets', requireFeature('tickets'));
+router.use('/management-platform/client-builds', requireFeature('clientBuilds'));
+router.use('/management-platform/members', requireFeature('members'));
+router.use('/management-platform/network-overview', requireFeature('networkOverview'));
+router.use('/management-platform/audit-logs', requireFeature('auditLogs'));
 router.get('/management-platform/workspaces', controller.workspaces);
 router.post('/management-platform/workspaces/select', controller.selectWorkspace);
 router.get('/management-platform/devices', controller.devices);
@@ -84,8 +104,6 @@ router.get('/management-platform/permission-profiles', controller.profiles);
 router.post('/management-platform/permission-profiles', controller.createProfile);
 router.patch('/management-platform/permission-profiles/:id', controller.updateProfile);
 router.delete('/management-platform/permission-profiles/:id', controller.deleteProfile);
-// Automation audit sink for poleis-mcp (Bearer token auth, no browser session).
-router.post('/management-platform/automation-audit', controller.automationAudit);
 // Admin: mint an automation token for poleis-mcp (optional device allowlist / TTL).
 router.post('/management-platform/automation-tokens', controller.createAutomationToken);
 router.get('/management-platform/users', controller.users);

@@ -14,6 +14,7 @@ const UserInfo = require('../utilities/publiclibrary/user_info');
 const { logOnService } = require('../services/base/log_on_service');
 const { platformService } = require('../services/management/platform_service');
 const { resolveTenantId } = require('../services/management/tenant_context');
+const { sendMail } = require('../utilities/publiclibrary/mailer');
 
 const prisma = new PrismaClient();
 const JWT_SECRET = getSecret('AUTH_JWT_SECRET');
@@ -35,6 +36,8 @@ const TEMP_TOKEN_EXPIRES_SECONDS = envInt('AUTH_TEMP_TOKEN_TTL_SECONDS', 5 * 60)
 const MAX_PASSWORD_FAILURES = envInt('AUTH_MAX_PASSWORD_FAILURES', 5);
 const LOCK_MINUTES = envInt('AUTH_LOCK_MINUTES', 30);
 const PASSWORD_LOCK_ENABLED = envBool('AUTH_PASSWORD_LOCK_ENABLED', true);
+const baseUrl = (req) =>
+  (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
 
 const hashPassword = (plain) => bcrypt.hash(plain, 12);
 const verifyPassword = async (plain, hashed) => {
@@ -103,7 +106,7 @@ const generateRecoveryCodes = async () => {
   const codes = Array.from({ length: 8 }, () =>
     randomBytes(6).toString('base64url').toUpperCase()
   );
-  const hashes = await Promise.all(codes.map((c) => bcrypt.hash(c, 8)));
+  const hashes = await Promise.all(codes.map((c) => bcrypt.hash(c, 12)));
   return { codes, hashes };
 };
 
@@ -147,12 +150,16 @@ const convertToUserInfo = async (userEntity, logonEntity) => {
 };
 
 exports.register = async (req, res) => {
-  const { username, password, email } = req.body || {};
+  const { password, email } = req.body || {};
+  const username = String(req.body?.username || '').trim();
   if (!username || !password || !email) {
     return res.status(400).json({ success: false, message: '用户名、密码、邮箱必填' });
   }
   if (!passwordIsStrong(password)) {
     return res.status(400).json({ success: false, message: '密码至少12位，且需包含大小写字母和数字' });
+  }
+  if (username.toLowerCase() === 'administrator') {
+    return res.status(400).json({ success: false, message: '该用户名为系统保留名称' });
   }
   try {
     const existing = await prisma.piuser.findFirst({
@@ -308,6 +315,10 @@ exports.login = async (req, res) => {
       }
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
+    const tenants = await platformService.listTenantsForUser(user.ID);
+    if (tenants.some((tenant) => tenant.edition === 'enterprise') && user.EMAILVERIFIED !== true) {
+      return res.status(403).json({ success: false, code: 'EMAIL_NOT_VERIFIED', message: '请先完成邮箱验证' });
+    }
     await prisma.piuserlogon.update({
       where: { ID: user.ID },
       data: {
@@ -374,7 +385,16 @@ exports.verify2fa = async (req, res) => {
     if (!passed) {
       return res.status(401).json({ success: false, message: '2FA 验证失败' });
     }
-    const user = await prisma.piuser.findUnique({ where: { ID: userId } });
+    const user = await prisma.piuser.findFirst({
+      where: { ID: userId, ENABLED: 1, DELETEMARK: 0 }
+    });
+    if (!user) {
+      return res.status(401).json({ success: false, message: '账号已停用或不存在' });
+    }
+    const tenants = await platformService.listTenantsForUser(user.ID);
+    if (tenants.some((tenant) => tenant.edition === 'enterprise') && user.EMAILVERIFIED !== true) {
+      return res.status(403).json({ success: false, code: 'EMAIL_NOT_VERIFIED', message: '请先完成邮箱验证' });
+    }
     const userInfo = await convertToUserInfo(user, logon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
     await establishSession(req, res, userInfo);
@@ -491,10 +511,16 @@ exports.forgotPassword = async (req, res) => {
     const expires = new Date(Date.now() + 30 * 60 * 1000);
     await prisma.piuser.update({
       where: { ID: user.ID },
-      data: { PASSWORDRESETTOKEN: token, PASSWORDRESETEXPIRES: expires }
+      data: { PASSWORDRESETTOKEN: `reset:${token}`, PASSWORDRESETEXPIRES: expires }
     });
-    // TODO: 发送邮件
-    return res.json({ success: true, message: '已发送重置邮件（占位，无实发）' });
+    const link = `${baseUrl(req)}/set-password?token=${encodeURIComponent(token)}`;
+    await sendMail({
+      to: user.EMAIL,
+      subject: 'Poleis 密码重置',
+      text: `请点击以下链接重置密码（30 分钟内有效）：\n${link}`,
+      html: `<p>请点击以下链接重置密码（30 分钟内有效）：</p><p><a href="${link}">${link}</a></p>`
+    }).catch((error) => console.error('[Auth.forgotPassword] sendMail failed', error));
+    return res.json({ success: true, message: '如果邮箱存在，将发送重置邮件' });
   } catch (error) {
     console.error('[Auth.forgotPassword]', error);
     return res.status(500).json({ success: false, message: '请求失败，请稍后再试' });
@@ -512,7 +538,7 @@ exports.resetPassword = async (req, res) => {
   try {
     const user = await prisma.piuser.findFirst({
       where: {
-        PASSWORDRESETTOKEN: token,
+        PASSWORDRESETTOKEN: { in: [`reset:${token}`, `invite:${token}`] },
         PASSWORDRESETEXPIRES: { gte: new Date() }
       }
     });
@@ -524,10 +550,14 @@ exports.resetPassword = async (req, res) => {
       where: { ID: user.ID },
       data: { USERPASSWORD: hashed }
     });
+    const invited = String(user.PASSWORDRESETTOKEN || '').startsWith('invite:');
     await prisma.piuser.update({
       where: { ID: user.ID },
-      // 通过邮件链接设密即视为邮箱已验证（成员邀请与找回密码共用此入口）。
-      data: { PASSWORDRESETTOKEN: null, PASSWORDRESETEXPIRES: null, EMAILVERIFIED: true }
+      data: {
+        PASSWORDRESETTOKEN: null,
+        PASSWORDRESETEXPIRES: null,
+        ...(invited ? { EMAILVERIFIED: true } : {})
+      }
     });
     return res.json({ success: true, message: '密码已重置，请重新登录' });
   } catch (error) {

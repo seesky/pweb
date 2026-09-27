@@ -2,7 +2,7 @@
 
 const { Server } = require('socket.io');
 const { PrismaClient } = require('@prisma/client');
-const { randomUUID, randomBytes } = require('node:crypto');
+const { randomBytes, createHash } = require('node:crypto');
 const { SocketTokenService } = require('./token_service');
 const { PresenceService } = require('./presence_service');
 const { AuditService } = require('./audit_service');
@@ -127,6 +127,7 @@ const buildSocketServer = (httpServer, options = {}) => {
   const terminalIndex = new Map(); // terminalId -> Set<socketId>
   const natSessions = new Map(); // sessionId -> { clientTerminalId, agentTerminalId, createdAt, state }
   const platformSessionIndex = new Map(); // signaling session/pair -> poleis_session.ID
+  const pendingSessionTimeouts = new Map(); // poleis_session.ID -> timeout
   const relayPairTokens = new Map(); // sorted "termA|termB" -> { token, createdAt }
   const authorizedPairs = new Map(); // sorted terminal pair -> authorization context
   const pairKey = (a, b) => [String(a || ''), String(b || '')].sort().join('|');
@@ -152,6 +153,9 @@ const buildSocketServer = (httpServer, options = {}) => {
 
   const forgetPlatformSession = (sessionId) => {
     if (!sessionId) return;
+    const timer = pendingSessionTimeouts.get(sessionId);
+    if (timer) clearTimeout(timer);
+    pendingSessionTimeouts.delete(sessionId);
     for (const [key, value] of platformSessionIndex.entries()) {
       if (value === sessionId) platformSessionIndex.delete(key);
     }
@@ -238,14 +242,16 @@ const buildSocketServer = (httpServer, options = {}) => {
   };
 
   // 管理员从 Web 强制断开一个进行中的会话：通知双方终端并把会话标记为结束。
-  socketControl.registerForceDisconnect(async (sessionId) => {
-    const session = await platformService.getSession(sessionId);
+  socketControl.registerForceDisconnect(async (sessionId, tenantId) => {
+    if (!tenantId) return { ok: false, reason: 'NOT_FOUND' };
+    const scopedPlatform = platformService.forTenant(tenantId);
+    const session = await scopedPlatform.getSession(sessionId);
     if (!session) return { ok: false, reason: 'NOT_FOUND' };
     if (session.result !== 'active') return { ok: false, reason: 'NOT_ACTIVE' };
     const msg = { type: 'POLEIS_DISCONNECT', fromTerminalId: 'system', reason: 'admin_force' };
     await serverEmitToTerminal(session.targetTerminal, msg);
     await serverEmitToTerminal(session.controllerTerminal, msg);
-    await platformService.completeSession(sessionId, 'ended', { failReason: '管理员强制断开' })
+    await scopedPlatform.completeSession(sessionId, 'ended', { failReason: '管理员强制断开' })
       .catch((err) => console.error('[socket.io] force-disconnect complete failed:', err));
     forgetPlatformSession(sessionId);
     return { ok: true };
@@ -304,7 +310,10 @@ const buildSocketServer = (httpServer, options = {}) => {
       socket.data.isAutomation = true;
       socket.data.automationScope = Array.isArray(payload.devices) ? payload.devices : null;
       socket.data.userId = payload.uid;
-      socket.data.terminalId = terminalIdFromClient || payload.tid || randomUUID();
+      // Automation tokens do not represent a managed endpoint.  Derive a
+      // stable server-controlled terminal identity from the signed token.
+      socket.data.terminalId = payload.tid ||
+        `automation:${payload.uid}:${createHash('sha256').update(token).digest('hex').slice(0, 24)}`;
       return next();
     }
     if (!payload.uid) {
@@ -315,8 +324,12 @@ const buildSocketServer = (httpServer, options = {}) => {
       select: { ID: true }
     });
     if (!user) return next(new Error('unauthorized'));
+    if (!payload.tid || (terminalIdFromClient && terminalIdFromClient !== payload.tid)) {
+      return next(new Error('terminal identity mismatch'));
+    }
     socket.data.userId = payload.uid;
-    socket.data.terminalId = terminalIdFromClient || payload.tid || randomUUID();
+    socket.data.isPlatformAdmin = payload.platformAdmin === true;
+    socket.data.terminalId = payload.tid;
     return next();
   });
 
@@ -424,8 +437,7 @@ const buildSocketServer = (httpServer, options = {}) => {
     });
 
     socket.on(SOCKET_EVENTS.LIST_USER, async (payload, cb = () => {}) => {
-      // basic admin check: only userId === 'Administrator' can list others
-      if (userId !== 'Administrator') {
+      if (!socket.data.isPlatformAdmin) {
         cb({ success: false, message: 'forbidden' });
         return;
       }
@@ -467,6 +479,13 @@ const buildSocketServer = (httpServer, options = {}) => {
         ? 'handheld devices cannot be controlled'
         : '';
     };
+
+    const automationTargetAllowed = (targetTerminalId) => !(
+      socket.data.isAutomation &&
+      Array.isArray(socket.data.automationScope) &&
+      socket.data.automationScope.length &&
+      !socket.data.automationScope.includes(targetTerminalId)
+    );
 
     socket.on(SOCKET_EVENTS.SEND_TERMINAL, async (payload, cb = () => {}) => {
       const targetTerminalId = payload?.toTerminalId;
@@ -575,6 +594,24 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, code: 'NOT_CONTROLLABLE', message: assistTargetError });
         return;
       }
+      if (!automationTargetAllowed(partner.terminalId)) {
+        cb({ success: false, code: 'FORBIDDEN', message: 'target outside automation scope' });
+        return;
+      }
+      const assistAuthz = await platformService.isAuthorized({
+        controllerUserId: userId,
+        targetTerminalId: partner.terminalId,
+        ip
+      }).catch(() => ({ allowed: false, reason: 'AUTHZ_ERROR' }));
+      if (!assistAuthz.allowed) {
+        audit.log({
+          category: 'authz', action: 'assist_connect_denied', userId,
+          targetTerminalId: partner.terminalId, ip,
+          description: `partner:${partnerId} reason:${assistAuthz.reason}`
+        });
+        cb({ success: false, code: 'FORBIDDEN', message: assistAuthz.reason || 'forbidden' });
+        return;
+      }
 
       assistance.clearFailures(partnerId, userId);
       const grantToken = await assistance.issueGrant({
@@ -587,6 +624,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         controllerUserId: userId,
         controllerTerminal: terminalId,
         targetTerminal: partner.terminalId,
+        profileId: assistAuthz.profileId,
         transport: 'assist'
       }).catch((err) => {
         console.error('[socket.io] failed to create assist session:', err);
@@ -607,6 +645,7 @@ const buildSocketServer = (httpServer, options = {}) => {
       audit.log({
         action: granted ? 'assist_connect' : 'assist_connect_host_unreachable',
         userId,
+        targetTerminalId: partner.terminalId,
         description: `partner:${partnerId} host:${partner.terminalId}`
       });
       if (!granted) {
@@ -635,13 +674,12 @@ const buildSocketServer = (httpServer, options = {}) => {
         return;
       }
       // 自动化 token 的设备白名单：限制可连接的 target terminal。
-      if (socket.data.isAutomation && Array.isArray(socket.data.automationScope) &&
-          socket.data.automationScope.length &&
-          !socket.data.automationScope.includes(targetTerminalId)) {
+      if (!automationTargetAllowed(targetTerminalId)) {
         audit.log({
           category: 'authz',
           action: 'automation_scope_denied',
           userId,
+          targetTerminalId,
           ip,
           description: `to:${targetTerminalId}`
         });
@@ -667,7 +705,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         console.error('[socket.io] authorization check failed:', err);
         return { allowed: false, reason: 'AUTHZ_ERROR' };
       });
-      if (!authz.allowed && !validGrant) {
+      if (!authz.allowed) {
         audit.log({
           category: 'authz',
           action: 'poleis_connect_denied',
@@ -692,6 +730,14 @@ const buildSocketServer = (httpServer, options = {}) => {
       });
       if (connectPlatformSessionId) {
         platformSessionIndex.set(`${terminalId}|${targetTerminalId}`, connectPlatformSessionId);
+        const timeout = setTimeout(() => {
+          platformService.completeSession(connectPlatformSessionId, 'failed', {
+            failReason: 'connection request timeout'
+          }).catch((err) => console.error('[socket.io] failed to timeout connect session:', err));
+          forgetPlatformSession(connectPlatformSessionId);
+        }, 2 * 60 * 1000);
+        timeout.unref();
+        pendingSessionTimeouts.set(connectPlatformSessionId, timeout);
       }
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_CONNECT_REQUEST',
@@ -703,7 +749,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         // 生效的设备策略（客户端运行配置：码率/帧率/传输偏好/自动更新/日志保留）
         policy: authz.policy || null
       });
-      audit.log({ action: 'poleis_connect', userId, description: `request to:${targetTerminalId}` });
+      audit.log({ action: 'poleis_connect', userId, targetTerminalId, description: `request to:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -807,7 +853,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         fromTerminalId: terminalId,
         sdp: await augmentSdpWithRelay(targetTerminalId, sdp)
       });
-      audit.log({ action: 'poleis_sdp_offer', userId, description: `to:${targetTerminalId}` });
+      audit.log({ action: 'poleis_sdp_offer', userId, targetTerminalId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -828,7 +874,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         fromTerminalId: terminalId,
         sdp: await augmentSdpWithRelay(targetTerminalId, sdp)
       });
-      audit.log({ action: 'poleis_sdp_answer', userId, description: `to:${targetTerminalId}` });
+      audit.log({ action: 'poleis_sdp_answer', userId, targetTerminalId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -849,6 +895,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         fromTerminalId: terminalId,
         candidate
       });
+      audit.log({ action: 'poleis_ice_candidate', userId, targetTerminalId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -889,6 +936,10 @@ const buildSocketServer = (httpServer, options = {}) => {
           cb({ success: false, message: targetError });
           return;
         }
+        if (!automationTargetAllowed(targetTerminalId)) {
+          cb({ success: false, message: 'forbidden: target outside automation scope' });
+          return;
+        }
         if (payload?.grantToken) {
           const grant = await assistance.consumeGrant(payload.grantToken);
           validGrant = !!(
@@ -906,7 +957,7 @@ const buildSocketServer = (httpServer, options = {}) => {
           console.error('[socket.io] authorization check failed:', err);
           return { allowed: false, reason: 'AUTHZ_ERROR' };
         });
-        if (!connectAuthz.allowed && !validGrant) {
+        if (!connectAuthz.allowed) {
           audit.log({
             category: 'authz',
             action: 'poleis_nat_connect_denied',
@@ -1046,7 +1097,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         }).catch((err) => console.error('[socket.io] failed to fallback-complete failed nat session:', err));
         closeNatSession(sessionId);
       }
-      audit.log({ action: eventType.toLowerCase(), userId, description: `session:${sessionId} to:${targetTerminalId}` });
+      audit.log({ action: eventType.toLowerCase(), userId, targetTerminalId, description: `session:${sessionId} to:${targetTerminalId}` });
       cb({ success: sent });
     };
 
@@ -1070,6 +1121,10 @@ const buildSocketServer = (httpServer, options = {}) => {
       const targetTerminalId = payload?.toTerminalId;
       if (!targetTerminalId) {
         cb({ success: false, message: 'missing target terminal' });
+        return;
+      }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
         return;
       }
       const sent = await sendToTerminal(targetTerminalId, {
@@ -1096,6 +1151,9 @@ const buildSocketServer = (httpServer, options = {}) => {
         if (samePair) session.state = 'connected';
       }
       if (connectedPlatformSessionId) {
+        const pendingTimeout = pendingSessionTimeouts.get(connectedPlatformSessionId);
+        if (pendingTimeout) clearTimeout(pendingTimeout);
+        pendingSessionTimeouts.delete(connectedPlatformSessionId);
         await platformService.addSessionEventOnce(connectedPlatformSessionId, 'connected', {
           targetTerminalId
         }).catch((err) => console.error('[socket.io] failed to record connected event:', err));
@@ -1103,7 +1161,7 @@ const buildSocketServer = (httpServer, options = {}) => {
       await platformService.addSessionEventToActiveBetween(terminalId, targetTerminalId, 'connected', {
         targetTerminalId
       }).catch((err) => console.error('[socket.io] failed to fallback-record connected event:', err));
-      audit.log({ action: 'poleis_connected', userId, description: `with:${targetTerminalId}` });
+      audit.log({ action: 'poleis_connected', userId, targetTerminalId, description: `with:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -1113,6 +1171,10 @@ const buildSocketServer = (httpServer, options = {}) => {
       const sessionId = payload?.sessionId;
       if (!targetTerminalId) {
         cb({ success: false, message: 'missing target terminal' });
+        return;
+      }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
         return;
       }
       if (sessionId) {
@@ -1137,7 +1199,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         failReason: payload?.reason || null,
         targetTerminalId
       }).catch((err) => console.error('[socket.io] failed to end session:', err));
-      audit.log({ action: 'poleis_disconnect', userId, description: `from:${targetTerminalId}` });
+      audit.log({ action: 'poleis_disconnect', userId, targetTerminalId, description: `from:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -1148,12 +1210,16 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'missing target terminal' });
         return;
       }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
+        return;
+      }
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_NAT_RETRY',
         fromTerminalId: terminalId,
         fromUserId: userId
       });
-      audit.log({ action: 'poleis_nat_retry', userId, description: `to:${targetTerminalId}` });
+      audit.log({ action: 'poleis_nat_retry', userId, targetTerminalId, description: `to:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -1165,6 +1231,10 @@ const buildSocketServer = (httpServer, options = {}) => {
       const sessionId = payload?.sessionId;
       if (!targetTerminalId || !sessionId) {
         cb({ success: false, message: 'missing target terminal or sessionId' });
+        return;
+      }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
         return;
       }
       // Never mint tenant relay credentials from a caller-supplied terminal ID.
@@ -1241,7 +1311,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         fromUserId: userId,
         relay: relayInfo
       });
-      audit.log({ action: 'poleis_relay_request', userId, description: `session:${sessionId} to:${targetTerminalId} node:${alloc.nodeId || 'legacy'}` });
+      audit.log({ action: 'poleis_relay_request', userId, targetTerminalId, description: `session:${sessionId} to:${targetTerminalId} node:${alloc.nodeId || 'legacy'}` });
       cb({ success: true, relay: relayInfo });
     });
 
@@ -1253,6 +1323,10 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'missing target terminal or sessionId' });
         return;
       }
+      if (!isPairAuthorized(terminalId, targetTerminalId)) {
+        cb({ success: false, message: 'forbidden' });
+        return;
+      }
       const sent = await sendToTerminal(targetTerminalId, {
         type: 'POLEIS_RELAY_ANSWER',
         sessionId,
@@ -1260,6 +1334,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         fromUserId: userId,
         ok: payload?.ok !== false
       });
+      audit.log({ action: 'poleis_relay_answer', userId, targetTerminalId, description: `session:${sessionId} to:${targetTerminalId}` });
       cb({ success: sent });
     });
 
@@ -1267,7 +1342,10 @@ const buildSocketServer = (httpServer, options = {}) => {
     socket.on(SOCKET_EVENTS.POLEIS_RELAY_LATENCY, async (payload, cb = () => {}) => {
       const samples = Array.isArray(payload?.samples) ? payload.samples : [];
       try {
-        await relayRegistry.recordLatency(terminalId, samples);
+        const allowedNodes = await relayRegistry.listForProbe(100, { tenantIds: relayTenantIds });
+        const allowedNodeIds = new Set(allowedNodes.map((node) => node.id));
+        const accepted = samples.filter((sample) => allowedNodeIds.has(sample?.nodeId)).slice(0, 100);
+        await relayRegistry.recordLatency(terminalId, accepted);
         cb({ success: true });
       } catch (e) {
         cb({ success: false, message: 'failed to record latency' });

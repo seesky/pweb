@@ -296,22 +296,20 @@ class LogOnService {
       return { returnStatusCode: StatusCode.DbError, userInfo: null };
     }
 
-    if (userEntity.USERNAME !== 'Administrator') {
-      if (userLogOnEntity.ALLOWSTARTTIME && new Date() < userLogOnEntity.ALLOWSTARTTIME) {
+    if (userLogOnEntity.ALLOWSTARTTIME && new Date() < userLogOnEntity.ALLOWSTARTTIME) {
+      return { returnStatusCode: StatusCode.UserLocked, userInfo: null };
+    }
+    if (userLogOnEntity.ALLOWENDTIME && new Date() > userLogOnEntity.ALLOWENDTIME) {
+      return { returnStatusCode: StatusCode.UserLocked, userInfo: null };
+    }
+    if (userLogOnEntity.LOCKSTARTDATE && userLogOnEntity.LOCKENDDATE) {
+      const now = new Date();
+      if (now > userLogOnEntity.LOCKSTARTDATE && (!userLogOnEntity.LOCKENDDATE || now < userLogOnEntity.LOCKENDDATE)) {
         return { returnStatusCode: StatusCode.UserLocked, userInfo: null };
-      }
-      if (userLogOnEntity.ALLOWENDTIME && new Date() > userLogOnEntity.ALLOWENDTIME) {
-        return { returnStatusCode: StatusCode.UserLocked, userInfo: null };
-      }
-      if (userLogOnEntity.LOCKSTARTDATE && userLogOnEntity.LOCKENDDATE) {
-        const now = new Date();
-        if (now > userLogOnEntity.LOCKSTARTDATE && (!userLogOnEntity.LOCKENDDATE || now < userLogOnEntity.LOCKENDDATE)) {
-          return { returnStatusCode: StatusCode.UserLocked, userInfo: null };
-        }
       }
     }
 
-    if (SystemInfo.EnableCheckIPAddress && userLogOnEntity.CHECKIPADDRESS === 1 && userEntity.USERNAME !== 'Administrator') {
+    if (SystemInfo.EnableCheckIPAddress && userLogOnEntity.CHECKIPADDRESS === 1) {
       if (ipAddress && !(await parameterService.exists(userEntity.ID, 'IPAddress'))) {
         const allowed = await checkIPAddressService.checkIPAddress(ipAddress, userEntity.ID);
         if (!allowed) {
@@ -354,7 +352,7 @@ class LogOnService {
     userInfo = await this.convertToUserInfo(new UserInfo(), userEntity, userLogOnEntity);
     userInfo.IPAddress = ipAddress;
     userInfo.MACAddress = macAddress;
-    userInfo.IsAdministrator = userEntity.USERNAME === 'Administrator';
+    userInfo.IsAdministrator = await this.isPlatformAdministrator(userEntity);
 
     if (returnStatusCode === StatusCode.OK) {
       if (!userInfo.OpenId || createNewOpenId) {
@@ -390,8 +388,31 @@ class LogOnService {
     if (userEntity.ROLEID) {
       userInfo.RoleId = userEntity.ROLEID;
     }
-    userInfo.IsAdministrator = userEntity.USERNAME === 'Administrator';
+    userInfo.IsAdministrator = await this.isPlatformAdministrator(userEntity);
     return userInfo;
+  }
+
+  async isPlatformAdministrator(userEntity) {
+    if (!userEntity?.ID) return false;
+    const roleIds = [userEntity.ROLEID].filter(Boolean);
+    const relations = await this.prisma.piuserrole.findMany({
+      where: { USERID: userEntity.ID, ENABLED: 1, DELETEMARK: 0 },
+      select: { ROLEID: true }
+    });
+    for (const relation of relations) {
+      if (relation.ROLEID) roleIds.push(relation.ROLEID);
+    }
+    if (!roleIds.length) return false;
+    const role = await this.prisma.pirole.findFirst({
+      where: {
+        ID: { in: [...new Set(roleIds)] },
+        CODE: 'Administrators',
+        ENABLED: 1,
+        DELETEMARK: 0
+      },
+      select: { ID: true }
+    });
+    return !!role;
   }
 
   async updateVisitDate(userId, createOpenId = false) {

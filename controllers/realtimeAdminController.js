@@ -2,6 +2,7 @@
 
 const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const { PresenceService } = require('../services/realtime/presence_service');
+const security = require('../middleware/security');
 const presenceService = new PresenceService();
 
 const ensureUser = (req, res) => {
@@ -16,7 +17,7 @@ const ensureUser = (req, res) => {
 const ensureAdmin = (req, res) => {
   const user = ensureUser(req, res);
   if (!user) return null;
-  if (user.Id !== 'Administrator' && !user.IsAdministrator) {
+  if (!security.isPlatformAdmin(user)) {
     res.status(403).json({ success: false, message: 'Forbidden' });
     return null;
   }

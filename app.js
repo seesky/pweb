@@ -137,7 +137,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/', landingRouter);
 app.use('/index', indexRouter);
-app.use('/users', usersRouter);
+app.use('/users', security.requirePlatformAdmin, usersRouter);
 var authLimiter = rateLimitEnabled
   ? rateLimit({
       windowMs: rateWindowMs,
@@ -154,7 +154,11 @@ app.use('/login', function(req, res, next) {
   next();
 }, loginRouter);
 app.use('/auth/login', authLimiter);
+app.use('/auth/register', authLimiter);
 app.use('/auth/2fa/verify', authLimiter);
+app.use('/auth/2fa/setup', authLimiter);
+app.use('/auth/2fa/enable', authLimiter);
+app.use('/auth/2fa/disable', authLimiter);
 app.use('/auth/password/forgot', authLimiter);
 app.use('/auth/password/reset', authLimiter);
 app.use('/auth', authRouter);
@@ -183,6 +187,10 @@ app.use('/platform-plugin-admin', security.requirePlatformAdmin, platformPluginA
 app.use('/', releasesRouter);
 app.use('/', managementPlatformRouter);
 // 企业注册/邮箱验证 + 平台超管控制台（统一 SaaS 平台，始终加载）。
+app.use('/saas/register', function(req, res, next) {
+  if (req.method === 'POST') return authLimiter(req, res, next);
+  next();
+});
 app.use('/', saasOnboardingRouter);
 app.use('/', platformAdminRouter);
 

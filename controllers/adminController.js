@@ -6,6 +6,7 @@ const CommonUtils = require('../utilities/publiclibrary/common_utils');
 const { ModuleService } = require('../services/base/module_service');
 const UserInfo = require('../utilities/publiclibrary/user_info');
 const { resolveTenantContext } = require('../services/management/tenant_context');
+const security = require('../middleware/security');
 
 const prisma = new PrismaClient();
 const moduleService = new ModuleService(prisma);
@@ -47,7 +48,7 @@ const buildNavTree = (modules = []) => {
   return roots;
 };
 
-const isSuperAdmin = (u) => !!(u && (u.Id === 'Administrator' || u.IsAdministrator));
+const isSuperAdmin = security.isPlatformAdmin;
 
 // 共享外壳：appMode='customer'（Poleis 控制台，面向个人/企业用户）
 //           appMode='ops'（运营后台：平台管理 + 系统管理，仅平台超管）
