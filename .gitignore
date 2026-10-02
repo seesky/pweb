@@ -7,3 +7,9 @@ build/
 /storage/releases/
 /tmp/*.log
 /dist/
+
+# Independent development checkouts are not web service submodules.
+/Poleis/
+/poleis-android/
+/tmp_adminjs/adminjs/
+/tmp_hpwf/hpwf/
