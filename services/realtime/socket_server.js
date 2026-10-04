@@ -11,6 +11,7 @@ const { platformService, classifyDeviceOs } = require('../management/platform_se
 const { resolveTenantId } = require('../management/tenant_context');
 const { relayRegistry } = require('./relay_registry');
 const socketControl = require('./socket_control');
+const ControlSessions = require('./control_sessions');
 const prisma = new PrismaClient();
 
 const SOCKET_EVENTS = {
@@ -125,11 +126,20 @@ const buildSocketServer = (httpServer, options = {}) => {
 
   const socketIndex = new Map(); // socketId -> { userId, terminalId }
   const terminalIndex = new Map(); // terminalId -> Set<socketId>
+  const controls = new ControlSessions();
+  const takeoverWaiters = new Map();
   const natSessions = new Map(); // sessionId -> { clientTerminalId, agentTerminalId, createdAt, state }
   const platformSessionIndex = new Map(); // signaling session/pair -> poleis_session.ID
   const pendingSessionTimeouts = new Map(); // poleis_session.ID -> timeout
   const relayPairTokens = new Map(); // sorted "termA|termB" -> { token, createdAt }
   const authorizedPairs = new Map(); // sorted terminal pair -> authorization context
+  const controlTargetForPair = (a, b) => {
+    for (const current of controls.sessions.values()) {
+      if ((current.target === a && current.client === b) ||
+          (current.target === b && current.client === a)) return current.target;
+    }
+    return b;
+  };
   const pairKey = (a, b) => [String(a || ''), String(b || '')].sort().join('|');
   const authorizePair = (a, b, context = {}, ttlMs = 10 * 60 * 1000) => {
     if (a && b) {
@@ -194,17 +204,20 @@ const buildSocketServer = (httpServer, options = {}) => {
     if (!sessionId) return null;
     const session = natSessions.get(sessionId);
     if (session && relay && session.relayToken) relay.revokeSession(session.relayToken);
+    if (session && relay && session.relayAlloc?.token) relay.revokeSession(session.relayAlloc.token);
     natSessions.delete(sessionId);
+    if (session) controls.release(session.agentTerminalId, session.clientTerminalId, sessionId);
     return session || null;
   };
 
   setInterval(() => {
+    controls.expirePending();
     const cutoff = Date.now() - 2 * 60 * 1000;
     for (const [sessionId, session] of natSessions.entries()) {
+      if (session.state === 'POLEIS_NAT_CONNECTED' || session.state === 'connected') continue;
       if (!session.createdAt || session.createdAt < cutoff) {
         const platformSessionId = platformSessionIndex.get(sessionId);
-        const isConnected = session.state === 'POLEIS_NAT_CONNECTED' || session.state === 'connected';
-        if (platformSessionId && !isConnected) {
+        if (platformSessionId) {
           platformService.completeSession(platformSessionId, 'failed', {
             failReason: 'nat session timeout'
           }).catch((err) => console.error('[socket.io] failed to timeout nat session:', err));
@@ -241,6 +254,48 @@ const buildSocketServer = (httpServer, options = {}) => {
     return delivered > 0;
   };
 
+  // Wait for the agent's synchronous session teardown before forwarding the
+  // replacement. An older agent without this acknowledgement fails safely.
+  const disconnectForTakeover = async (old) => {
+    const takeoverId = randomBytes(24).toString('hex');
+    let timer;
+    const ready = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Agent did not acknowledge disconnect; update the agent and retry')), 10000);
+      takeoverWaiters.set(takeoverId, { terminalId: old.target, sessionId: old.sessionId, resolve });
+    });
+    // Attach a rejection handler before asynchronous delivery can time out.
+    ready.catch(() => {});
+    try {
+      const key = pairKey(old.client, old.target);
+      authorizedPairs.delete(key);
+      const token = relayPairTokens.get(key);
+      if (token && relay) relay.revokeSession(token.token);
+      relayPairTokens.delete(key);
+      closeNatSession(old.sessionId);
+      // Keep the busy reservation until acknowledgement, including on timeout.
+      controls.sessions.set(old.target, old);
+      const platformSessionId = platformSessionIndex.get(old.sessionId);
+      if (platformSessionId) {
+        await platformService.completeSession(platformSessionId, 'ended', { failReason: 'client takeover' });
+        forgetPlatformSession(platformSessionId);
+      }
+      await completePlatformSessionsForPair(old.client, old.target, { failReason: 'client takeover' });
+      await serverEmitToTerminal(old.client, {
+        type: 'POLEIS_DISCONNECT', fromTerminalId: old.target,
+        sessionId: old.sessionId, reason: 'client_takeover'
+      });
+      const sent = await serverEmitToTerminal(old.target, {
+        type: 'POLEIS_DISCONNECT', fromTerminalId: old.client,
+        sessionId: old.sessionId, reason: 'client_takeover', takeoverId
+      });
+      if (!sent) throw new Error('Agent is offline');
+      await ready;
+    } finally {
+      clearTimeout(timer);
+      takeoverWaiters.delete(takeoverId);
+    }
+  };
+
   // 管理员从 Web 强制断开一个进行中的会话：通知双方终端并把会话标记为结束。
   socketControl.registerForceDisconnect(async (sessionId, tenantId) => {
     if (!tenantId) return { ok: false, reason: 'NOT_FOUND' };
@@ -248,6 +303,13 @@ const buildSocketServer = (httpServer, options = {}) => {
     const session = await scopedPlatform.getSession(sessionId);
     if (!session) return { ok: false, reason: 'NOT_FOUND' };
     if (session.result !== 'active') return { ok: false, reason: 'NOT_ACTIVE' };
+    for (const active of controls.sessions.values()) {
+      if (active.target === session.targetTerminal && active.client === session.controllerTerminal) {
+        closeNatSession(active.sessionId);
+        controls.release(active.target, active.client, active.sessionId);
+      }
+    }
+    authorizedPairs.delete(pairKey(session.targetTerminal, session.controllerTerminal));
     const msg = { type: 'POLEIS_DISCONNECT', fromTerminalId: 'system', reason: 'admin_force' };
     await serverEmitToTerminal(session.targetTerminal, msg);
     await serverEmitToTerminal(session.controllerTerminal, msg);
@@ -661,7 +723,7 @@ const buildSocketServer = (httpServer, options = {}) => {
     });
 
     // Poleis P2P连接事件处理器
-    socket.on(SOCKET_EVENTS.POLEIS_CONNECT_REQUEST, async (payload, cb = () => {}) => {
+    const legacyConnect = async (payload, cb = () => {}) => {
       // 客户端请求连接到远程终端
       const targetTerminalId = payload?.toTerminalId;
       if (!targetTerminalId) {
@@ -688,15 +750,6 @@ const buildSocketServer = (httpServer, options = {}) => {
       }
       // 转发连接请求到目标终端
       let validGrant = false;
-      if (payload?.grantToken) {
-        const grant = await assistance.consumeGrant(payload.grantToken);
-        validGrant = !!(
-          grant &&
-          grant.hostTerminalId === targetTerminalId &&
-          grant.controllerTerminalId === terminalId &&
-          grant.controllerUserId === userId
-        );
-      }
       const authz = await platformService.isAuthorized({
         controllerUserId: userId,
         targetTerminalId,
@@ -715,6 +768,19 @@ const buildSocketServer = (httpServer, options = {}) => {
         });
         cb({ success: false, message: authz.reason || 'forbidden' });
         return;
+      }
+      const reservationId = '';
+      const acquired = await controls.acquire(targetTerminalId, terminalId, reservationId,
+        payload?.takeoverToken, disconnectForTakeover);
+      if (!acquired.success || acquired.duplicate) { cb(acquired); return; }
+      if (payload?.grantToken) {
+        const grant = await assistance.consumeGrant(payload.grantToken);
+        validGrant = !!(
+          grant &&
+          grant.hostTerminalId === targetTerminalId &&
+          grant.controllerTerminalId === terminalId &&
+          grant.controllerUserId === userId
+        );
       }
       const relayTenantId = await resolveRelayTenantId(targetTerminalId);
       authorizePair(terminalId, targetTerminalId, { targetTerminalId, relayTenantId });
@@ -735,6 +801,7 @@ const buildSocketServer = (httpServer, options = {}) => {
             failReason: 'connection request timeout'
           }).catch((err) => console.error('[socket.io] failed to timeout connect session:', err));
           forgetPlatformSession(connectPlatformSessionId);
+          controls.release(targetTerminalId, terminalId, reservationId);
         }, 2 * 60 * 1000);
         timeout.unref();
         pendingSessionTimeouts.set(connectPlatformSessionId, timeout);
@@ -750,7 +817,17 @@ const buildSocketServer = (httpServer, options = {}) => {
         policy: authz.policy || null
       });
       audit.log({ action: 'poleis_connect', userId, targetTerminalId, description: `request to:${targetTerminalId}` });
+      if (!sent) controls.release(targetTerminalId, terminalId, reservationId);
       cb({ success: sent });
+    };
+    socket.on(SOCKET_EVENTS.POLEIS_CONNECT_REQUEST, (payload, cb = () => {}) =>
+      controls.run(payload?.toTerminalId, () => legacyConnect(payload, cb))
+        .catch((err) => cb({ success: false, message: err.message })));
+    socket.on('poleis_takeover_ready', (payload) => {
+      const waiter = takeoverWaiters.get(payload?.takeoverId);
+      if (waiter && waiter.terminalId === terminalId && waiter.sessionId === payload?.sessionId) {
+        waiter.resolve();
+      }
     });
 
     // Poleis exchanges its NatInfo as the base64-encoded "SDP". Inject the
@@ -926,6 +1003,10 @@ const buildSocketServer = (httpServer, options = {}) => {
           cb({ success: false, message: 'forbidden' });
           return;
         }
+        if (eventType === 'POLEIS_NAT_CONNECT_REQUEST' && existing.clientTerminalId !== terminalId) {
+          cb({ success: false, message: 'forbidden' });
+          return;
+        }
       }
 
       let connectAuthz = null;
@@ -939,15 +1020,6 @@ const buildSocketServer = (httpServer, options = {}) => {
         if (!automationTargetAllowed(targetTerminalId)) {
           cb({ success: false, message: 'forbidden: target outside automation scope' });
           return;
-        }
-        if (payload?.grantToken) {
-          const grant = await assistance.consumeGrant(payload.grantToken);
-          validGrant = !!(
-            grant &&
-            grant.hostTerminalId === targetTerminalId &&
-            grant.controllerTerminalId === terminalId &&
-            grant.controllerUserId === userId
-          );
         }
         connectAuthz = await platformService.isAuthorized({
           controllerUserId: userId,
@@ -967,6 +1039,18 @@ const buildSocketServer = (httpServer, options = {}) => {
           });
           cb({ success: false, message: connectAuthz.reason || 'forbidden' });
           return;
+        }
+        const acquired = await controls.acquire(targetTerminalId, terminalId, sessionId,
+          payload?.takeoverToken, disconnectForTakeover);
+        if (!acquired.success || acquired.duplicate) { cb(acquired); return; }
+        if (payload?.grantToken) {
+          const grant = await assistance.consumeGrant(payload.grantToken);
+          validGrant = !!(
+            grant &&
+            grant.hostTerminalId === targetTerminalId &&
+            grant.controllerTerminalId === terminalId &&
+            grant.controllerUserId === userId
+          );
         }
         const relayTenantId = await resolveRelayTenantId(targetTerminalId);
         authorizePair(terminalId, targetTerminalId, { targetTerminalId, relayTenantId });
@@ -989,7 +1073,13 @@ const buildSocketServer = (httpServer, options = {}) => {
         });
         if (natPlatformSessionId) platformSessionIndex.set(sessionId, natPlatformSessionId);
       } else if (existing) {
-        existing.state = eventType;
+        if (eventType === 'POLEIS_NAT_CONNECTED') {
+          existing.connected = true;
+          controls.markConnected(terminalId, targetTerminalId);
+          const authorization = getPairAuthorization(terminalId, targetTerminalId);
+          if (authorization) authorization.expiresAt = Infinity;
+        }
+        if (!existing.connected || eventType === 'POLEIS_NAT_FAILED') existing.state = eventType;
       }
 
       const session = natSessions.get(sessionId);
@@ -1070,6 +1160,7 @@ const buildSocketServer = (httpServer, options = {}) => {
         profile: connectAuthz ? (connectAuthz.profile || null) : undefined,
         policy: connectAuthz ? (connectAuthz.policy || null) : undefined
       });
+      if (!sent && eventType === 'POLEIS_NAT_CONNECT_REQUEST') closeNatSession(sessionId);
       const platformSessionId = platformSessionIndex.get(sessionId);
       if (platformSessionId) {
         const eventNameMap = {
@@ -1102,21 +1193,18 @@ const buildSocketServer = (httpServer, options = {}) => {
     };
 
     socket.on(SOCKET_EVENTS.POLEIS_NAT_CONNECT_REQUEST, (payload, cb = () => {}) =>
-      relayNatSignal('POLEIS_NAT_CONNECT_REQUEST', payload, cb));
+      controls.run(payload?.toTerminalId, () => relayNatSignal('POLEIS_NAT_CONNECT_REQUEST', payload, cb))
+        .catch((err) => cb({ success: false, message: err.message })));
 
-    socket.on(SOCKET_EVENTS.POLEIS_NAT_INFO, (payload, cb = () => {}) =>
-      relayNatSignal('POLEIS_NAT_INFO', payload, cb));
+    for (const eventType of ['POLEIS_NAT_INFO', 'POLEIS_NAT_PUNCH_START', 'POLEIS_NAT_CONNECTED', 'POLEIS_NAT_FAILED']) {
+      socket.on(SOCKET_EVENTS[eventType], (payload, cb = () => {}) => {
+        const target = natSessions.get(payload?.sessionId)?.agentTerminalId || payload?.toTerminalId;
+        return controls.run(target, () => relayNatSignal(eventType, payload, cb))
+          .catch((err) => cb({ success: false, message: err.message }));
+      });
+    }
 
-    socket.on(SOCKET_EVENTS.POLEIS_NAT_PUNCH_START, (payload, cb = () => {}) =>
-      relayNatSignal('POLEIS_NAT_PUNCH_START', payload, cb));
-
-    socket.on(SOCKET_EVENTS.POLEIS_NAT_CONNECTED, (payload, cb = () => {}) =>
-      relayNatSignal('POLEIS_NAT_CONNECTED', payload, cb));
-
-    socket.on(SOCKET_EVENTS.POLEIS_NAT_FAILED, (payload, cb = () => {}) =>
-      relayNatSignal('POLEIS_NAT_FAILED', payload, cb));
-
-    socket.on(SOCKET_EVENTS.POLEIS_CONNECTED, async (payload, cb = () => {}) => {
+    const connected = async (payload, cb = () => {}) => {
       // P2P连接建立成功通知
       const targetTerminalId = payload?.toTerminalId;
       if (!targetTerminalId) {
@@ -1144,11 +1232,14 @@ const buildSocketServer = (httpServer, options = {}) => {
           platformSessionIndex.set(`${terminalId}|${targetTerminalId}`, connectedPlatformSessionId);
         }
       }
+      const authorization = getPairAuthorization(terminalId, targetTerminalId);
+      if (authorization) authorization.expiresAt = Infinity;
+      controls.markConnected(terminalId, targetTerminalId);
       for (const session of natSessions.values()) {
         const samePair =
           (session.clientTerminalId === terminalId && session.agentTerminalId === targetTerminalId) ||
           (session.clientTerminalId === targetTerminalId && session.agentTerminalId === terminalId);
-        if (samePair) session.state = 'connected';
+        if (samePair) { session.state = 'connected'; session.connected = true; }
       }
       if (connectedPlatformSessionId) {
         const pendingTimeout = pendingSessionTimeouts.get(connectedPlatformSessionId);
@@ -1163,9 +1254,14 @@ const buildSocketServer = (httpServer, options = {}) => {
       }).catch((err) => console.error('[socket.io] failed to fallback-record connected event:', err));
       audit.log({ action: 'poleis_connected', userId, targetTerminalId, description: `with:${targetTerminalId}` });
       cb({ success: sent });
+    };
+    socket.on(SOCKET_EVENTS.POLEIS_CONNECTED, (payload, cb = () => {}) => {
+      const target = controlTargetForPair(terminalId, payload?.toTerminalId);
+      return controls.run(target, () => connected(payload, cb))
+        .catch((err) => cb({ success: false, message: err.message }));
     });
 
-    socket.on(SOCKET_EVENTS.POLEIS_DISCONNECT, async (payload, cb = () => {}) => {
+    const disconnected = async (payload, cb = () => {}) => {
       // 断开P2P连接通知
       const targetTerminalId = payload?.toTerminalId;
       const sessionId = payload?.sessionId;
@@ -1177,6 +1273,21 @@ const buildSocketServer = (httpServer, options = {}) => {
         cb({ success: false, message: 'forbidden' });
         return;
       }
+      if (sessionId) {
+        const current = natSessions.get(sessionId);
+        if (!current || !((current.clientTerminalId === terminalId && current.agentTerminalId === targetTerminalId) ||
+            (current.clientTerminalId === targetTerminalId && current.agentTerminalId === terminalId))) {
+          cb({ success: false, message: 'unknown nat session' });
+          return;
+        }
+      } else {
+        // Legacy disconnects must not end a modern session without its session ID.
+        const current = controls.sessions.get(targetTerminalId) || controls.sessions.get(terminalId);
+        if (current && current.sessionId) { cb({ success: false, message: 'missing sessionId' }); return; }
+        controls.release(targetTerminalId, terminalId, '');
+        controls.release(terminalId, targetTerminalId, '');
+      }
+      authorizedPairs.delete(pairKey(terminalId, targetTerminalId));
       if (sessionId) {
         const platformSessionId = platformSessionIndex.get(sessionId);
         if (platformSessionId) {
@@ -1201,6 +1312,11 @@ const buildSocketServer = (httpServer, options = {}) => {
       }).catch((err) => console.error('[socket.io] failed to end session:', err));
       audit.log({ action: 'poleis_disconnect', userId, targetTerminalId, description: `from:${targetTerminalId}` });
       cb({ success: sent });
+    };
+    socket.on(SOCKET_EVENTS.POLEIS_DISCONNECT, (payload, cb = () => {}) => {
+      const target = controlTargetForPair(terminalId, payload?.toTerminalId);
+      return controls.run(target, () => disconnected(payload, cb))
+        .catch((err) => cb({ success: false, message: err.message }));
     });
 
     socket.on(SOCKET_EVENTS.POLEIS_NAT_RETRY, async (payload, cb = () => {}) => {
@@ -1364,32 +1480,35 @@ const buildSocketServer = (httpServer, options = {}) => {
       }
       await presence.removeBySocket(socket.id);
       await assistance.removeByTerminal(terminalId, socket.id);
-      for (const [sessionId, session] of natSessions.entries()) {
-        if (session.clientTerminalId === terminalId || session.agentTerminalId === terminalId) {
-          const disconnectedPlatformSessionId = platformSessionIndex.get(sessionId);
-          if (disconnectedPlatformSessionId) {
-            platformService.completeSession(disconnectedPlatformSessionId, 'ended', {
+      if (!terminalIndex.has(terminalId)) {
+        controls.releaseTerminal(terminalId);
+        for (const [sessionId, session] of natSessions.entries()) {
+          if (session.clientTerminalId === terminalId || session.agentTerminalId === terminalId) {
+            const disconnectedPlatformSessionId = platformSessionIndex.get(sessionId);
+            if (disconnectedPlatformSessionId) {
+              platformService.completeSession(disconnectedPlatformSessionId, 'ended', {
+                failReason: 'terminal disconnected'
+              }).catch((err) => console.error('[socket.io] failed to end disconnected session:', err));
+              forgetPlatformSession(disconnectedPlatformSessionId);
+              platformSessionIndex.delete(sessionId);
+            }
+            platformService.completeActiveSessionsBetween(session.clientTerminalId, session.agentTerminalId, 'ended', {
               failReason: 'terminal disconnected'
-            }).catch((err) => console.error('[socket.io] failed to end disconnected session:', err));
-            forgetPlatformSession(disconnectedPlatformSessionId);
-            platformSessionIndex.delete(sessionId);
+            }).then((sessionIds) => sessionIds.forEach(forgetPlatformSession))
+              .catch((err) => console.error('[socket.io] failed to fallback-end disconnected sessions:', err));
+            if (relay && session.relayToken) relay.revokeSession(session.relayToken);
+            natSessions.delete(sessionId);
           }
-          platformService.completeActiveSessionsBetween(session.clientTerminalId, session.agentTerminalId, 'ended', {
-            failReason: 'terminal disconnected'
-          }).then((sessionIds) => sessionIds.forEach(forgetPlatformSession))
-            .catch((err) => console.error('[socket.io] failed to fallback-end disconnected sessions:', err));
-          if (relay && session.relayToken) relay.revokeSession(session.relayToken);
-          natSessions.delete(sessionId);
         }
-      }
-      for (const [pairKey, entry] of relayPairTokens.entries()) {
-        if (pairKey.split('|').includes(terminalId)) {
-          if (relay && entry.token) relay.revokeSession(entry.token);
-          relayPairTokens.delete(pairKey);
+        for (const [pairKey, entry] of relayPairTokens.entries()) {
+          if (pairKey.split('|').includes(terminalId)) {
+            if (relay && entry.token) relay.revokeSession(entry.token);
+            relayPairTokens.delete(pairKey);
+          }
         }
-      }
-      for (const key of authorizedPairs.keys()) {
-        if (key.split('|').includes(terminalId)) authorizedPairs.delete(key);
+        for (const key of authorizedPairs.keys()) {
+          if (key.split('|').includes(terminalId)) authorizedPairs.delete(key);
+        }
       }
       if (!terminalIndex.has(terminalId)) {
         platformService.completeActiveSessionsForTerminal(terminalId, 'ended', {
