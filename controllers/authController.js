@@ -15,6 +15,7 @@ const { logOnService } = require('../services/base/log_on_service');
 const { platformService } = require('../services/management/platform_service');
 const { resolveTenantId } = require('../services/management/tenant_context');
 const { sendMail } = require('../utilities/publiclibrary/mailer');
+const { requiresEmailVerification, activatePendingSignupTenants } = require('../utilities/publiclibrary/email_verification');
 
 const prisma = new PrismaClient();
 const JWT_SECRET = getSecret('AUTH_JWT_SECRET');
@@ -316,7 +317,7 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: '用户名或密码错误' });
     }
     const tenants = await platformService.listTenantsForUser(user.ID);
-    if (tenants.some((tenant) => tenant.edition === 'enterprise') && user.EMAILVERIFIED !== true) {
+    if (requiresEmailVerification(user, tenants)) {
       return res.status(403).json({ success: false, code: 'EMAIL_NOT_VERIFIED', message: '请先完成邮箱验证' });
     }
     await prisma.piuserlogon.update({
@@ -336,6 +337,7 @@ exports.login = async (req, res) => {
       const tempToken = buildTempToken(user.ID, device);
       return res.json({ success: true, need2fa: true, tempToken });
     }
+    await activatePendingSignupTenants(user, tenants, platformService);
     await establishSession(req, res, userInfo);
     await registerLoginDevice(userInfo, device, req).catch((error) =>
       console.error('[Auth.login] device registration failed', error));
@@ -392,11 +394,12 @@ exports.verify2fa = async (req, res) => {
       return res.status(401).json({ success: false, message: '账号已停用或不存在' });
     }
     const tenants = await platformService.listTenantsForUser(user.ID);
-    if (tenants.some((tenant) => tenant.edition === 'enterprise') && user.EMAILVERIFIED !== true) {
+    if (requiresEmailVerification(user, tenants)) {
       return res.status(403).json({ success: false, code: 'EMAIL_NOT_VERIFIED', message: '请先完成邮箱验证' });
     }
     const userInfo = await convertToUserInfo(user, logon);
     userInfo.IPAddress = NetHelper.getIpAddress(req) || req.ip || '';
+    await activatePendingSignupTenants(user, tenants, platformService);
     await establishSession(req, res, userInfo);
     await registerLoginDevice(userInfo, payload.device, req).catch((error) =>
       console.error('[Auth.verify2fa] device registration failed', error));

@@ -7,6 +7,7 @@ const { randomUUID, randomBytes } = require('node:crypto');
 
 const { platformService } = require('../services/management/platform_service');
 const { sendMail } = require('../utilities/publiclibrary/mailer');
+const { isEmailVerificationRequired } = require('../utilities/publiclibrary/email_verification');
 
 const prisma = new PrismaClient();
 const SYSTEM_ACTOR = { Id: 'SYSTEM', RealName: 'SYSTEM' };
@@ -17,7 +18,7 @@ const baseUrl = (req) =>
 
 // GET /saas/register  渲染企业账号申请页
 exports.registerPage = (req, res) => {
-  return res.render('saasRegister', { title: '申请企业账号' });
+  return res.render('saasRegister', { title: '申请企业账号', emailVerificationRequired: isEmailVerificationRequired() });
 };
 
 // GET /set-password?token=...  成员邀请 / 找回密码：设置登录密码页
@@ -44,6 +45,7 @@ exports.register = async (req, res) => {
     }
 
     const now = new Date();
+    const verificationRequired = isEmailVerificationRequired();
     const userId = randomUUID();
     const pwdHash = await bcrypt.hash(password, 12);
     const verifyToken = randomBytes(24).toString('hex');
@@ -58,7 +60,8 @@ exports.register = async (req, res) => {
       data: {
         ID: userId, USERNAME: username, REALNAME: username, EMAIL: email,
         ENABLED: 1, DELETEMARK: 0, EMAILVERIFIED: false,
-        PASSWORDRESETTOKEN: `verify:${verifyToken}`, PASSWORDRESETEXPIRES: verifyExpires,
+        PASSWORDRESETTOKEN: verificationRequired ? `verify:${verifyToken}` : null,
+        PASSWORDRESETEXPIRES: verificationRequired ? verifyExpires : null,
         ...audit
       }
     });
@@ -68,10 +71,15 @@ exports.register = async (req, res) => {
 
     // 2) 企业租户（pending）+ 预置内置模板/策略 + owner 成员
     const tenant = await platformService.createTenant({
-      name: companyName, edition: 'enterprise', ownerUserId: userId, status: 'pending'
+      name: companyName, edition: 'enterprise', ownerUserId: userId,
+      status: verificationRequired ? 'pending' : 'active'
     });
     await platformService.seedTenantDefaults(tenant.id);
     await platformService.forTenant(tenant.id).addMember({ userId, role: 'owner' }, SYSTEM_ACTOR);
+
+    if (!verificationRequired) {
+      return res.json({ success: true, message: '企业账号已创建，企业空间已激活，请登录' });
+    }
 
     // 3) 验证邮件
     const link = `${baseUrl(req)}/saas/verify?token=${verifyToken}`;

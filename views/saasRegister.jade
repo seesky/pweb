@@ -18,6 +18,7 @@ html(lang="zh-CN")
     script(src="/vendor/emotion-react.js")
     script(src="/vendor/emotion-styled.js")
     script.
+      const emailVerificationRequired = !{JSON.stringify(emailVerificationRequired !== false)};
       const { useState } = React;
       const { createRoot } = ReactDOM;
       const {
@@ -72,7 +73,7 @@ html(lang="zh-CN")
                 React.createElement(Box, { sx: { width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 } }, 'P'),
                 React.createElement(Typography, { variant: 'h5', sx: { fontWeight: 800, color: '#101828' } }, '申请企业账号')
               ),
-              React.createElement(Typography, { variant: 'body2', sx: { color: '#667085', mb: 3 } }, '创建您的企业空间，邮箱验证后即可使用 Poleis 远程控制管理平台。'),
+              React.createElement(Typography, { variant: 'body2', sx: { color: '#667085', mb: 3 } }, emailVerificationRequired ? '创建您的企业空间，邮箱验证后即可使用 Poleis 远程控制管理平台。' : '创建您的企业空间，注册后即可登录使用 Poleis 远程控制管理平台。'),
               done
                 ? React.createElement(Stack, { spacing: 2 },
                     React.createElement(Alert, { severity: 'success' }, done.message),
