@@ -8,12 +8,15 @@
   },
   "packageManager": "npm@10.9.4",
   "scripts": {
+    "setup": "node ./setup/server.js",
+    "setup:test": "node --test setup/test/*.test.js",
+    "setup:test:local": "node ./setup/test/local-install.js",
     "start": "node ./bin/www",
     "test": "node --test test/*.test.js",
     "verify": "npm test",
     "security:reset-admin": "node ./scripts/reset-admin-password.js",
     "prisma:generate": "prisma generate",
-    "postinstall": "prisma generate"
+    "postinstall": "node ./scripts/generate-prisma-client.js"
   },
   "dependencies": {
     "@emotion/react": "^11.11.4",

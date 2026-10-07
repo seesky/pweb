@@ -1,0 +1,1815 @@
+{
+  "version": "2026-10-04.1",
+  "sha256": "c338edb2572a0cf194275cad344df01313c2a287f07fccc322f99f8874106df6",
+  "migrations": [
+    {
+      "name": "0_existing_database_baseline",
+      "checksum": "f46af3e150791cac438699ec26b8ead071893ee31663aa972d9016af2ad52bca"
+    },
+    {
+      "name": "20260706120000_add_relay_nodes",
+      "checksum": "86128041b7cfa5d38dd5d90df4a6636461ed237cd2caf793bd930345c5bcfbf3"
+    },
+    {
+      "name": "20260714180000_add_app_releases",
+      "checksum": "0b882e6a21404c80a3394c914e6c54a98626c1efab50376e2d552d9684757540"
+    },
+    {
+      "name": "20260806160000_add_relay_scope",
+      "checksum": "4c4d1dff86c39e0cf373374adc07a271f649288e514f1e3d7a693dc3342c0187"
+    }
+  ],
+  "tables": [
+    {
+      "name": "_prisma_migrations",
+      "columns": [
+        "id",
+        "checksum",
+        "finished_at",
+        "migration_name",
+        "logs",
+        "rolled_back_at",
+        "started_at",
+        "applied_steps_count"
+      ]
+    },
+    {
+      "name": "admin_extension_histories",
+      "columns": [
+        "id",
+        "name",
+        "type",
+        "version",
+        "detail",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_extensions",
+      "columns": [
+        "id",
+        "name",
+        "version",
+        "is_enabled",
+        "options",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_menu",
+      "columns": [
+        "id",
+        "parent_id",
+        "order",
+        "title",
+        "icon",
+        "uri",
+        "extension",
+        "show",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_permission_menu",
+      "columns": [
+        "permission_id",
+        "menu_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_permissions",
+      "columns": [
+        "id",
+        "name",
+        "slug",
+        "http_method",
+        "http_path",
+        "order",
+        "parent_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_role_menu",
+      "columns": [
+        "role_id",
+        "menu_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_role_permissions",
+      "columns": [
+        "role_id",
+        "permission_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_role_users",
+      "columns": [
+        "role_id",
+        "user_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_roles",
+      "columns": [
+        "id",
+        "name",
+        "slug",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_settings",
+      "columns": [
+        "slug",
+        "value",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "admin_users",
+      "columns": [
+        "id",
+        "username",
+        "password",
+        "name",
+        "avatar",
+        "remember_token",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "auth_group",
+      "columns": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "name": "auth_group_permissions",
+      "columns": [
+        "id",
+        "group_id",
+        "permission_id"
+      ]
+    },
+    {
+      "name": "auth_permission",
+      "columns": [
+        "id",
+        "name",
+        "content_type_id",
+        "codename"
+      ]
+    },
+    {
+      "name": "auth_user",
+      "columns": [
+        "id",
+        "password",
+        "last_login",
+        "is_superuser",
+        "username",
+        "first_name",
+        "last_name",
+        "email",
+        "is_staff",
+        "is_active",
+        "date_joined"
+      ]
+    },
+    {
+      "name": "auth_user_groups",
+      "columns": [
+        "id",
+        "user_id",
+        "group_id"
+      ]
+    },
+    {
+      "name": "auth_user_user_permissions",
+      "columns": [
+        "id",
+        "user_id",
+        "permission_id"
+      ]
+    },
+    {
+      "name": "b_city",
+      "columns": [
+        "ID",
+        "CITYNAME",
+        "ZIPCODE",
+        "PROVINCEID",
+        "ENABLED",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "b_district",
+      "columns": [
+        "ID",
+        "DISTRICTNAME",
+        "CITYID",
+        "ENABLED",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "b_province",
+      "columns": [
+        "ID",
+        "PROVINCENAME",
+        "ENABLED",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "cache_memcache",
+      "columns": [
+        "cache_key",
+        "value",
+        "expires"
+      ]
+    },
+    {
+      "name": "ciautotextsql",
+      "columns": [
+        "TAG",
+        "NAME",
+        "GRIDCOLUMN",
+        "SQL",
+        "COMMENT",
+        "CREATEDATE"
+      ]
+    },
+    {
+      "name": "ciexception",
+      "columns": [
+        "ID",
+        "EVENTID",
+        "CATEGORY",
+        "PRIORITY",
+        "SEVERITY",
+        "TITLE",
+        "TIMESTAMP",
+        "MACHINENAME",
+        "APPDOMAINNAME",
+        "PROCESSID",
+        "PROCESSNAME",
+        "THREADNAME",
+        "WIN32THREADID",
+        "MESSAGE",
+        "FORMATTEDMESSAGE",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY"
+      ]
+    },
+    {
+      "name": "cifile",
+      "columns": [
+        "ID",
+        "FOLDERID",
+        "FILENAME",
+        "FILEPATH",
+        "FILECONTENT",
+        "FILESIZE",
+        "IMAGEURL",
+        "READCOUNT",
+        "CATEGORY",
+        "DESCRIPTION",
+        "ENABLED",
+        "SORTCODE",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "cifolder",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "FOLDERNAME",
+        "STATECODE",
+        "DESCRIPTION",
+        "SORTCODE",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "ciitemdetails",
+      "columns": [
+        "ID",
+        "ITEMID",
+        "PARENTID",
+        "ITEMCODE",
+        "ITEMNAME",
+        "ITEMVALUE",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "ISPUBLIC",
+        "ENABLED",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "ciitems",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "CODE",
+        "FULLNAME",
+        "CATEGORY",
+        "TARGETTABLE",
+        "ISTREE",
+        "USEITEMCODE",
+        "USEITEMNAME",
+        "USEITEMVALUE",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "DELETEMARK",
+        "DESCRIPTION",
+        "ENABLED",
+        "SORTCODE",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "cilog",
+      "columns": [
+        "ID",
+        "PROCESSID",
+        "PROCESSNAME",
+        "METHODENGNAME",
+        "METHODNAME",
+        "PARAMETERS",
+        "USERREALNAME",
+        "IPADDRESS",
+        "WEBURL",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY"
+      ]
+    },
+    {
+      "name": "cimessage",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "FUNCTIONCODE",
+        "CATEGORYCODE",
+        "OBJECTID",
+        "TITLE",
+        "MSGCONTENT",
+        "RECEIVERID",
+        "RECEIVERREALNAME",
+        "ISNEW",
+        "READCOUNT",
+        "READDATE",
+        "TARGETURL",
+        "IPADDRESS",
+        "DELETEMARK",
+        "ENABLED",
+        "DESCRIPTION",
+        "SORTCODE",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "ciparameter",
+      "columns": [
+        "ID",
+        "CATEGORYKEY",
+        "PARAMETERID",
+        "PARAMETERCODE",
+        "PARAMETERCONTENT",
+        "WORKED",
+        "ENABLED",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "DESCRIPTION",
+        "SORTCODE",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "cisequence",
+      "columns": [
+        "ID",
+        "FULLNAME",
+        "PREFIX",
+        "SEPARATE",
+        "SEQUENCE",
+        "REDUCTION",
+        "STEP",
+        "DELETEMARK",
+        "CREATEON",
+        "DESCRIPTION"
+      ]
+    },
+    {
+      "name": "citablecolumns",
+      "columns": [
+        "ID",
+        "TABLECODE",
+        "TABLENAME",
+        "COLUMNCODE",
+        "COLUMNNAME",
+        "ISPUBLIC",
+        "COLUMNACCESS",
+        "COLUMNEDIT",
+        "COLUMNDENEY",
+        "USECONSTRAINT",
+        "DATATYPE",
+        "TARGETTABLE",
+        "ISSEARCHCOLUMN",
+        "ISEXHIBITCOLUMN",
+        "ENABLED",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "dboperationdetaillog",
+      "columns": [
+        "ID",
+        "DBOPERATIONLOGID",
+        "TABLENAME",
+        "TABLEPRIMARYKEY",
+        "DESCRIPTION",
+        "OPERATIONTYPE",
+        "FLAG",
+        "OPERADATE"
+      ]
+    },
+    {
+      "name": "dboperationlog",
+      "columns": [
+        "ID",
+        "LOGDATE",
+        "OPERATOR",
+        "NOTE"
+      ]
+    },
+    {
+      "name": "django_admin_log",
+      "columns": [
+        "id",
+        "action_time",
+        "object_id",
+        "object_repr",
+        "action_flag",
+        "change_message",
+        "content_type_id",
+        "user_id"
+      ]
+    },
+    {
+      "name": "django_content_type",
+      "columns": [
+        "id",
+        "app_label",
+        "model"
+      ]
+    },
+    {
+      "name": "django_migrations",
+      "columns": [
+        "id",
+        "app",
+        "name",
+        "applied"
+      ]
+    },
+    {
+      "name": "django_session",
+      "columns": [
+        "session_key",
+        "session_data",
+        "expire_date"
+      ]
+    },
+    {
+      "name": "failed_jobs",
+      "columns": [
+        "id",
+        "uuid",
+        "connection",
+        "queue",
+        "payload",
+        "exception",
+        "failed_at"
+      ]
+    },
+    {
+      "name": "jobfile",
+      "columns": [
+        "Id",
+        "FileName",
+        "Enable",
+        "Deletemark",
+        "Sortcode",
+        "CreateOn",
+        "CreateUserId",
+        "CreateBy",
+        "ModifiedOn",
+        "ModifiedUserId",
+        "ModifiedBy",
+        "FileUrl",
+        "Description",
+        "FileType"
+      ]
+    },
+    {
+      "name": "jobfileorganize",
+      "columns": [
+        "ID",
+        "JOBFILEID",
+        "ORGANIZEID",
+        "ENABLED",
+        "DESCRIPTION",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "migrations",
+      "columns": [
+        "id",
+        "migration",
+        "batch"
+      ]
+    },
+    {
+      "name": "militia",
+      "columns": [
+        "Id",
+        "Name",
+        "Gender",
+        "Post",
+        "IDNum",
+        "Birthday",
+        "Nation",
+        "OrganizationType",
+        "TakeOfficeTime",
+        "PhoneNum",
+        "Education",
+        "Address",
+        "Picture",
+        "IsEnlistment",
+        "EnlistmentStatusCategory",
+        "EnlistmentTime",
+        "EnlistmentCompany",
+        "RewardAndPunishmentWhenEnlistment",
+        "CurrentWorkingConditions",
+        "PreviousWorkingConditions",
+        "WorkExperience",
+        "RewardAndPunishmentExperience",
+        "IsCadreCertification",
+        "CadreCertificationTime",
+        "CadreCertificationStatus",
+        "CadreCertificationUnqualifiedCause",
+        "MilitaryAssessmentStatus",
+        "LocalAssessment",
+        "Enable",
+        "Deletemark",
+        "Sortcode",
+        "CreateOn",
+        "CreateUserId",
+        "CreateBy",
+        "ModifiedOn",
+        "ModifiedUserId",
+        "ModifiedBy",
+        "OnDuty",
+        "LeaveTime",
+        "MilitiaryRank",
+        "MarriageStatus",
+        "PoliticalOutlook",
+        "NativePlace",
+        "IsPartTimeJob",
+        "PartTimeJob"
+      ]
+    },
+    {
+      "name": "militiafile",
+      "columns": [
+        "Id",
+        "FileName",
+        "Enable",
+        "Deletemark",
+        "Sortcode",
+        "CreateOn",
+        "CreateUserId",
+        "CreateBy",
+        "ModifiedOn",
+        "ModifiedUserId",
+        "ModifiedBy",
+        "FileUrl",
+        "Description",
+        "FileType",
+        "militiaid"
+      ]
+    },
+    {
+      "name": "militiaorganize",
+      "columns": [
+        "ID",
+        "MILITIAID",
+        "ORGANIZEID",
+        "ENABLED",
+        "DESCRIPTION",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "militiawork",
+      "columns": [
+        "id",
+        "Enable",
+        "Deletemark",
+        "Sortcode",
+        "CreateOn",
+        "CreateUserId",
+        "CreateBy",
+        "ModifiedOn",
+        "ModifiedUserId",
+        "ModifiedBy",
+        "Month",
+        "DoWord",
+        "WordEffect",
+        "Assessment",
+        "CauseOfNonconformity",
+        "Rectification",
+        "MilitiaId"
+      ]
+    },
+    {
+      "name": "ministry",
+      "columns": [
+        "Id",
+        "FileName",
+        "Enable",
+        "Deletemark",
+        "Sortcode",
+        "CreateOn",
+        "CreateUserId",
+        "CreateBy",
+        "ModifiedOn",
+        "ModifiedUserId",
+        "ModifiedBy",
+        "FileUrl",
+        "Description",
+        "FileType"
+      ]
+    },
+    {
+      "name": "ministryorganize",
+      "columns": [
+        "ID",
+        "MINISTRYID",
+        "ORGANIZEID",
+        "ENABLED",
+        "DESCRIPTION",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "password_resets",
+      "columns": [
+        "email",
+        "token",
+        "created_at"
+      ]
+    },
+    {
+      "name": "personal_access_tokens",
+      "columns": [
+        "id",
+        "tokenable_type",
+        "tokenable_id",
+        "name",
+        "token",
+        "abilities",
+        "last_used_at",
+        "expires_at",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "pimodule",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "CODE",
+        "FULLNAME",
+        "CATEGORY",
+        "MODULETYPE",
+        "IMAGEINDEX",
+        "SELECTEDIMAGEINDEX",
+        "ICONCSS",
+        "ICONURL",
+        "NAVIGATEURL",
+        "MVCNAVIGATEURL",
+        "TARGET",
+        "FORMNAME",
+        "ASSEMBLYNAME",
+        "PERMISSIONITEMCODE",
+        "PERMISSIONSCOPETABLES",
+        "ISPUBLIC",
+        "ISMENU",
+        "EXPAND",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "SORTCODE",
+        "DELETEMARK",
+        "ENABLED",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "piorganize",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "CODE",
+        "SHORTNAME",
+        "FULLNAME",
+        "CATEGORY",
+        "OUTERPHONE",
+        "INNERPHONE",
+        "FAX",
+        "POSTALCODE",
+        "ADDRESS",
+        "WEB",
+        "MANAGERID",
+        "MANAGER",
+        "ASSISTANTMANAGERID",
+        "ASSISTANTMANAGER",
+        "LAYER",
+        "ISINNERORGANIZE",
+        "BANK",
+        "BANKACCOUNT",
+        "DELETEMARK",
+        "ENABLED",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "pipermission",
+      "columns": [
+        "ID",
+        "RESOURCECATEGORY",
+        "RESOURCEID",
+        "PERMISSIONID",
+        "PERMISSIONCONSTRAINT",
+        "ENABLED",
+        "DELETEMARK",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEBY",
+        "CREATEUSERID",
+        "MODIFIEDON",
+        "MODIFIEDBY",
+        "MODIFIEDUSERID"
+      ]
+    },
+    {
+      "name": "pipermissionitem",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "MODULEID",
+        "CODE",
+        "FULLNAME",
+        "CATEGORYCODE",
+        "ISSCOPE",
+        "ISPUBLIC",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "JSEVENT",
+        "LASTCALL",
+        "ISSPLIT",
+        "ENABLED",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "pipermissionscope",
+      "columns": [
+        "ID",
+        "RESOURCECATEGORY",
+        "RESOURCEID",
+        "TARGETCATEGORY",
+        "TARGETID",
+        "PERMISSIONID",
+        "PERMISSIONCONSTRAINT",
+        "STARTDATE",
+        "ENDDATE",
+        "ENABLED",
+        "DELETEMARK",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEBY",
+        "CREATEUSERID",
+        "MODIFIEDON",
+        "MODIFIEDBY",
+        "MODIFIEDUSERID"
+      ]
+    },
+    {
+      "name": "piplatformaddin",
+      "columns": [
+        "ID",
+        "GUID",
+        "NAME",
+        "ASSEMBLYNAME",
+        "CLASSNAME",
+        "ADDIN",
+        "ADDINSIZE",
+        "VERSION",
+        "DEVELOPER",
+        "DOWNLOADCOUNT",
+        "DESCRIPTION",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "pirole",
+      "columns": [
+        "ID",
+        "ORGANIZEID",
+        "SYSTEMID",
+        "CATEGORY",
+        "CODE",
+        "REALNAME",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "SORTCODE",
+        "DELETEMARK",
+        "ENABLED",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "pistaff",
+      "columns": [
+        "ID",
+        "CODE",
+        "USERID",
+        "USERNAME",
+        "REALNAME",
+        "DUTYID",
+        "GENDER",
+        "BIRTHDAY",
+        "AGE",
+        "IDENTIFICATIONCODE",
+        "IDCARD",
+        "BANKCODE",
+        "EMAIL",
+        "MOBILE",
+        "SHORTNUMBER",
+        "TELEPHONE",
+        "QICQ",
+        "OFFICEPHONE",
+        "OFFICEZIPCODE",
+        "OFFICEADDRESS",
+        "OFFICEFAX",
+        "HOMEPHONE",
+        "EDUCATION",
+        "SCHOOL",
+        "DEGREE",
+        "TITLE",
+        "TITLEDATE",
+        "TITLELEVEL",
+        "WORKINGDATE",
+        "JOININDATE",
+        "HOMEZIPCODE",
+        "HOMEADDRESS",
+        "HOMEFAX",
+        "NATIVEPLACE",
+        "PARTY",
+        "NATION",
+        "NATIONALITY",
+        "MAJOR",
+        "WORKINGPROPERTY",
+        "COMPETENCY",
+        "ISDIMISSION",
+        "DIMISSIONDATE",
+        "DIMISSIONCAUSE",
+        "DIMISSIONWHITHER",
+        "ENABLED",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "pistafforganize",
+      "columns": [
+        "ID",
+        "STAFFID",
+        "ORGANIZEID",
+        "ENABLED",
+        "DESCRIPTION",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "pitablepermissionscope",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "ITEMCODE",
+        "ITEMNAME",
+        "ITEMVALUE",
+        "ENABLED",
+        "ISPUBLIC",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "DELETEMARK",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "piuser",
+      "columns": [
+        "ID",
+        "CODE",
+        "USERNAME",
+        "REALNAME",
+        "NICKNAME",
+        "QUICKQUERY",
+        "ROLEID",
+        "COMPANYID",
+        "COMPANYNAME",
+        "SUBCOMPANYID",
+        "SUBCOMPANYNAME",
+        "DEPARTMENTID",
+        "DEPARTMENTNAME",
+        "SUBDEPARTMENTID",
+        "SUBDEPARTMENTNAME",
+        "WORKGROUPID",
+        "WORKGROUPNAME",
+        "WORKCATEGORY",
+        "SECURITYLEVEL",
+        "TITLE",
+        "DUTY",
+        "EMAIL",
+        "LANG",
+        "GENDER",
+        "BIRTHDAY",
+        "MOBILE",
+        "TELEPHONE",
+        "QICQ",
+        "SIGNATURE",
+        "THEME",
+        "ISSTAFF",
+        "ISVISIBLE",
+        "AUDITSTATUS",
+        "HOMEADDRESS",
+        "USERADDRESS",
+        "ISDIMISSION",
+        "DIMISSIONDATE",
+        "DIMISSIONCAUSE",
+        "DIMISSIONWHITHER",
+        "DELETEMARK",
+        "ENABLED",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY",
+        "EMAILVERIFIED",
+        "PASSWORDRESETTOKEN",
+        "PASSWORDRESETEXPIRES"
+      ]
+    },
+    {
+      "name": "piuser_v27",
+      "columns": [
+        "ID",
+        "CODE",
+        "USERNAME",
+        "REALNAME",
+        "ROLEID",
+        "USERFROM",
+        "WORKCATEGORY",
+        "COMPANYID",
+        "COMPANYNAME",
+        "DEPARTMENTID",
+        "DEPARTMENTNAME",
+        "WORKGROUPID",
+        "WORKGROUPNAME",
+        "GENDER",
+        "MOBILE",
+        "TELEPHONE",
+        "BIRTHDAY",
+        "DUTY",
+        "TITLE",
+        "USERPASSWORD",
+        "CHANGEPASSWORDDATE",
+        "QICQ",
+        "EMAIL",
+        "LANG",
+        "THEME",
+        "ALLOWSTARTTIME",
+        "ALLOWENDTIME",
+        "LOCKSTARTDATE",
+        "LOCKENDDATE",
+        "FIRSTVISIT",
+        "PREVIOUSVISIT",
+        "LASTVISIT",
+        "LOGONCOUNT",
+        "ISSTAFF",
+        "AUDITSTATUS",
+        "ISVISIBLE",
+        "USERONLINE",
+        "IPADDRESS",
+        "MACADDRESS",
+        "HOMEADDRESS",
+        "OPENID",
+        "QUESTION",
+        "ANSWERQUESTION",
+        "USERADDRESS",
+        "DELETEMARK",
+        "ENABLED",
+        "SORTCODE",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "piuserlogon",
+      "columns": [
+        "ID",
+        "USERFROM",
+        "USERPASSWORD",
+        "OPENID",
+        "ALLOWSTARTTIME",
+        "ALLOWENDTIME",
+        "LOCKSTARTDATE",
+        "LOCKENDDATE",
+        "FIRSTVISIT",
+        "PREVIOUSVISIT",
+        "LASTVISIT",
+        "CHANGEPASSWORDDATE",
+        "MULTIUSERLOGIN",
+        "LOGONCOUNT",
+        "PASSWORDERRORCOUNT",
+        "USERONLINE",
+        "CHECKIPADDRESS",
+        "IPADDRESS",
+        "MACADDRESS",
+        "QUESTION",
+        "ANSWERQUESTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY",
+        "IS2FAENABLED",
+        "TWOFACTORSECRET",
+        "RECOVERYCODES",
+        "TWOFACTOR_TEMP_TOKEN",
+        "TWOFACTOR_TEMP_EXPIRES"
+      ]
+    },
+    {
+      "name": "piuserorganize",
+      "columns": [
+        "ID",
+        "USERID",
+        "COMPANYID",
+        "SUBCOMPANYID",
+        "DEPARTMENTID",
+        "SUBDEPARTMENTID",
+        "WORKGROUPID",
+        "ROLEID",
+        "ENABLED",
+        "DESCRIPTION",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "piuserrole",
+      "columns": [
+        "ID",
+        "USERID",
+        "ROLEID",
+        "ENABLED",
+        "DESCRIPTION",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_admin_menu",
+      "columns": [
+        "id",
+        "parent_id",
+        "order",
+        "title",
+        "icon",
+        "uri",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "poleis_admin_permission_menu",
+      "columns": [
+        "permission_id",
+        "menu_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "poleis_admin_role_permissions",
+      "columns": [
+        "role_id",
+        "permission_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "poleis_app_release",
+      "columns": [
+        "ID",
+        "PLATFORM",
+        "ARCHITECTURE",
+        "CHANNEL",
+        "VERSIONNAME",
+        "VERSIONCODE",
+        "MINSUPPORTEDVERSIONCODE",
+        "MANDATORY",
+        "FILENAME",
+        "ORIGINALNAME",
+        "MIMETYPE",
+        "FILESIZE",
+        "SHA256",
+        "RELEASENOTES",
+        "PUBLISHED",
+        "DOWNLOADCOUNT",
+        "PUBLISHEDON",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_audit_log",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "ACTORID",
+        "ACTORNAME",
+        "CATEGORY",
+        "ACTION",
+        "TARGET",
+        "IP",
+        "DETAIL",
+        "CREATEON"
+      ]
+    },
+    {
+      "name": "poleis_client_build",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "VERSION",
+        "CHANNEL",
+        "URL",
+        "NOTES",
+        "PRESET",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_device",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "TERMINALID",
+        "OWNERUSERID",
+        "GROUPID",
+        "ALIAS",
+        "HOSTNAME",
+        "OS",
+        "OSVERSION",
+        "CLIENTVERSION",
+        "LASTIP",
+        "NATTYPE",
+        "TAGS",
+        "UNATTENDED",
+        "UNATTENDED_SECRET",
+        "POLICYID",
+        "STATUS",
+        "LASTSEEN",
+        "ENROLLEDAT",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_device_assignment",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "SUBJECTTYPE",
+        "SUBJECTID",
+        "TARGETTYPE",
+        "TARGETID",
+        "PROFILEID",
+        "STARTDATE",
+        "ENDDATE",
+        "ALLOWEDCIDR",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_device_group",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "PARENTID",
+        "NAME",
+        "POLICYID",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_device_policy",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "NAME",
+        "ISBUILTIN",
+        "PRIORITY",
+        "SETTINGS",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_enrollment_token",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "TOKEN",
+        "OWNERUSERID",
+        "GROUPID",
+        "POLICYID",
+        "MAXUSES",
+        "USEDCOUNT",
+        "EXPIRESAT",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_frontend_menu",
+      "columns": [
+        "id",
+        "parent_id",
+        "order",
+        "title",
+        "icon",
+        "uri",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "poleis_frontend_permission_menu",
+      "columns": [
+        "permission_id",
+        "menu_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "poleis_frontend_role_permissions",
+      "columns": [
+        "role_id",
+        "permission_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "poleis_member",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "USERID",
+        "ROLE",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_permission_profile",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "NAME",
+        "ISBUILTIN",
+        "CONTROL_INPUT",
+        "FILE_TRANSFER",
+        "CLIPBOARD",
+        "AUDIO",
+        "MULTI_MONITOR",
+        "GAMEPAD",
+        "REMOTE_REBOOT",
+        "PRIVACY_SCREEN",
+        "RECORD_SESSION",
+        "REQUIRE_CONFIRM",
+        "IDLE_TIMEOUT_SEC",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY",
+        "AUTOMATION",
+        "RUN_SHELL",
+        "PROCESS_CONTROL",
+        "WINDOW_CONTROL"
+      ]
+    },
+    {
+      "name": "poleis_relay_node",
+      "columns": [
+        "ID",
+        "SCOPE",
+        "TENANTID",
+        "NAME",
+        "HOST",
+        "PORT",
+        "TLSPORT",
+        "REGION",
+        "LATITUDE",
+        "LONGITUDE",
+        "WEIGHT",
+        "MAXBANDWIDTHKBPS",
+        "STATICSECRET",
+        "STATUS",
+        "LASTHEARTBEAT",
+        "LASTLATENCYMS",
+        "ACTIVESESSIONS",
+        "TOTALBYTES",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY",
+        "REALM"
+      ]
+    },
+    {
+      "name": "poleis_session",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "CONTROLLERUSERID",
+        "CONTROLLERTERMINAL",
+        "TARGETDEVICEID",
+        "TARGETTERMINAL",
+        "PROFILEID",
+        "STARTAT",
+        "ENDAT",
+        "DURATIONSEC",
+        "TRANSPORT",
+        "NATTYPE",
+        "RELAYNODEID",
+        "RELAYBYTES",
+        "RESULT",
+        "FAILREASON",
+        "RECORDINGURL",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "poleis_session_event",
+      "columns": [
+        "ID",
+        "SESSIONID",
+        "TYPE",
+        "PAYLOAD",
+        "CREATEON"
+      ]
+    },
+    {
+      "name": "poleis_tenant",
+      "columns": [
+        "ID",
+        "NAME",
+        "EDITION",
+        "MAX_MEMBERS",
+        "MAX_DEVICES",
+        "BRANDING",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY",
+        "STATUS",
+        "OWNERUSERID"
+      ]
+    },
+    {
+      "name": "poleis_ticket",
+      "columns": [
+        "ID",
+        "TENANTID",
+        "TITLE",
+        "DESCRIPTION",
+        "REQUESTERID",
+        "REQUESTERNAME",
+        "ASSIGNEEID",
+        "ASSIGNEENAME",
+        "STATUS",
+        "PRIORITY",
+        "DEVICEID",
+        "SESSIONID",
+        "ENABLED",
+        "DELETEMARK",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY",
+        "CLOSEDON"
+      ]
+    },
+    {
+      "name": "poleis_ticket_comment",
+      "columns": [
+        "ID",
+        "TICKETID",
+        "AUTHORID",
+        "AUTHORNAME",
+        "BODY",
+        "CREATEON"
+      ]
+    },
+    {
+      "name": "queryengine",
+      "columns": [
+        "ID",
+        "PARENTID",
+        "CODE",
+        "FULLNAME",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "DELETEMARK",
+        "DESCRIPTION",
+        "ENABLED",
+        "SORTCODE",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "queryenginedefine",
+      "columns": [
+        "ID",
+        "QUERYENGINEID",
+        "CODE",
+        "FULLNAME",
+        "DATABASELINKNAME",
+        "DATASOURCETYPE",
+        "DATASOURCENAME",
+        "QUERYSTRINGKEY",
+        "SELECTEDFIELD",
+        "ORDERBYFIELD",
+        "QUERYSTRING",
+        "ALLOWEDIT",
+        "ALLOWDELETE",
+        "DELETEMARK",
+        "DESCRIPTION",
+        "ENABLED",
+        "SORTCODE",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "tb_leave",
+      "columns": [
+        "ID",
+        "NAME",
+        "DEPARTMENTNAME",
+        "LEAVETYPE",
+        "CAUSE",
+        "LEAVEPERIOD",
+        "DEPARTMENTOPINION",
+        "LEADEROPINION",
+        "DELETEMARK",
+        "DESCRIPTION",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY"
+      ]
+    },
+    {
+      "name": "uprpeerinfo",
+      "columns": [
+        "ID",
+        "USERID",
+        "ENABLED",
+        "DELETEMARK",
+        "SORTCODE",
+        "CREATEON",
+        "CREATEUSERID",
+        "CREATEBY",
+        "MODIFIEDON",
+        "MODIFIEDUSERID",
+        "MODIFIEDBY",
+        "PEERID",
+        "CANDIDATEINFO",
+        "PEERNAME",
+        "PEERIP",
+        "MODIFIEDTIMESTAMP"
+      ]
+    },
+    {
+      "name": "users",
+      "columns": [
+        "id",
+        "name",
+        "email",
+        "email_verified_at",
+        "password",
+        "remember_token",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "zd_nationcode",
+      "columns": [
+        "CODE",
+        "NAME",
+        "PY_CODE",
+        "WB_CODE"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Poleis 安装向导</title><link rel="stylesheet" href="style.css"></head>
+<body><main><header><span class="badge">POLEIS · SETUP</span><h1>准备你的 Poleis 服务</h1><p>配置连接、建立完整数据库，并创建第一个管理员。</p></header>
+<form id="setup">
+<section><h2>01 · 数据库</h2><p>使用空数据库。已有业务数据库不会被覆盖。</p><div class="grid">
+<label>MySQL 地址<input name="host" value="127.0.0.1" required></label><label>端口<input name="port" type="number" min="1" max="65535" value="3306" required></label>
+<label>账号<input name="user" autocomplete="off" required></label><label>密码<input name="password" type="password" autocomplete="new-password"></label>
+<label>数据库名称<input name="database" value="poleis" pattern="[a-zA-Z0-9_]{1,64}" required></label></div>
+<label class="check"><input name="createDatabase" type="checkbox">数据库不存在时创建（账号需要建库权限）</label></section>
+<section><h2>02 · 站点与 Redis</h2><div class="grid"><label>站点访问地址<input name="siteUrl" type="url" value="https://control.example.com" required></label><label>Redis 连接地址<input name="redisUrl" value="redis://127.0.0.1:6379/0" required></label></div>
+<label class="check"><input name="production" type="checkbox" checked>生产模式：通过 HTTPS 反向代理访问</label><p>未配置 SMTP 时关闭普通用户邮箱验证；安装管理员由本地安装者确认邮箱。安装后可配置邮件并开启验证。</p>
+<button type="button" id="check">测试连接</button><output id="connection" aria-live="polite"></output></section>
+<section><h2>03 · 管理员</h2><div class="grid"><label>用户名<input name="adminName" value="Administrator" pattern="[a-zA-Z0-9_.\-]{3,50}" required></label><label>邮箱<input name="adminEmail" type="email" required></label><label>密码<input name="adminPassword" type="password" minlength="12" autocomplete="new-password" required></label><label>确认密码<input name="confirmPassword" type="password" minlength="12" autocomplete="new-password" required></label></div><p>至少 12 字符，最多 72 字节，包含大小写字母和数字。</p></section>
+<section><h2>04 · 确认并安装</h2><label class="check"><input id="consent" type="checkbox" required>我确认目标数据库是空库，或本安装器创建的未完成安装。</label><button class="primary" type="submit">开始安装</button><p id="summary" aria-live="polite"></p><pre id="progress" aria-live="polite"></pre></section>
+</form><footer>安装服务独立运行。完成后退出安装器，执行 npm start 启动业务服务。</footer></main><script src="app.js"></script></body></html>

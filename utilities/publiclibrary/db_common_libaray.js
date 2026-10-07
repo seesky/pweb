@@ -29,9 +29,9 @@ class DbCommonLibaray {
       return {
         host: parsed.hostname,
         port: parsed.port ? Number(parsed.port) : 3306,
-        user: parsed.username,
-        password: parsed.password,
-        database: parsed.pathname ? parsed.pathname.replace(/^\//, '') : undefined
+        user: decodeURIComponent(parsed.username),
+        password: decodeURIComponent(parsed.password),
+        database: parsed.pathname ? decodeURIComponent(parsed.pathname.replace(/^\//, '')) : undefined
       };
     } catch (error) {
       return null;

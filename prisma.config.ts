@@ -6,7 +6,7 @@
  * @LastEditors: Xuelong Ba
  * @LastEditTime: 2025-11-09 15:33:33
  */
-import { defineConfig, env } from "prisma/config";
+import { defineConfig } from "prisma/config";
 import "dotenv/config";
 
 export default defineConfig({
@@ -16,6 +16,8 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: env("DATABASE_URL"),
+    // Permit npm ci / Prisma client generation before the independent installer
+    // creates .env. Database commands still fail without valid credentials.
+    url: process.env.DATABASE_URL || "mysql://unconfigured@127.0.0.1:3306/poleis_unconfigured",
   },
 });
